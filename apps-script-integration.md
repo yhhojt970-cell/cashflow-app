@@ -366,10 +366,34 @@ function handleSendReceivableEmails(params) {
   }
 
   const senderLine = senderName ? `<strong>미래오토메이션(주) 관리부</strong> · ${senderName}` : `<strong>미래오토메이션(주) 관리부</strong>`;
-  function wrapEmail(body) {
-    return `<div style="font-family:'맑은 고딕',sans-serif;max-width:900px;margin:0 auto;color:#333;">${body}
-      <p style="font-size:12px;color:#888;">본 메일은 자동 발송됩니다.</p>
+  function wrapEmail(body, customMessage = "") {
+    const customHtml = customMessage ? `<div style="margin-bottom:15px;padding:12px;background:#fffde7;border-left:4px solid #fbc02d;color:#333;font-size:14px;white-space:pre-wrap;line-height:1.5;">${customMessage}</div>` : "";
+    return `<div style="font-family:'맑은 고딕',sans-serif;max-width:900px;margin:0 auto;color:#333;">
+      ${customHtml}
+      ${body}
+      <p style="margin-top:20px;font-size:12px;color:#888;">본 메일은 자동 발송됩니다.</p>
       <br><p>감사합니다.<br>${senderLine}</p></div>`;
+  }
+
+  const previewMode = !!params.previewMode;
+  const customMsgs = params.customMessages || {};
+  const previewsOut = [];
+
+  function fireEmail(id, toList, subject, innerBody) {
+    const customMsg = customMsgs[id] || "";
+    const finalHtml = wrapEmail(innerBody, customMsg);
+    if (previewMode) {
+      previewsOut.push({ id, to: Array.isArray(toList) ? toList.join(", ") : toList, subject, htmlBody: finalHtml });
+    } else {
+      const opts = { htmlBody: finalHtml, name:"미래오토메이션(주) 관리부" };
+      if (cc) opts.cc = cc;
+      const targets = Array.isArray(toList) ? toList : [toList];
+      targets.forEach(t => {
+        if (!t) return;
+        GmailApp.sendEmail(t, subject, "HTML 형식", opts);
+        sentCount++;
+      });
+    }
   }
 
   // 담당자별 발송
@@ -382,7 +406,7 @@ function handleSendReceivableEmails(params) {
     const to = testMode ? testTo : (group.email || RCV_MANAGER_EMAIL_MAP[manager] || "");
     if (!to) return;
     const subject = (testMode?"[테스트] ":"") + `[미래오토메이션] ${manager} 담당자 미수금 현황 안내`;
-    const body = wrapEmail(`<p>${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
+    const innerBody = `<p>${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
       <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
         <thead><tr style="background:#1565c0;color:white;">
           <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
@@ -394,11 +418,8 @@ function handleSendReceivableEmails(params) {
           <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
           <td style="padding:8px 10px;border:1px solid #ddd;"></td>
         </tr></tfoot>
-      </table>`);
-    const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
-    if (cc) opts.cc = cc;
-    GmailApp.sendEmail(to, subject, "본 메일은 HTML 형식입니다.", opts);
-    sentCount++;
+      </table>`;
+    fireEmail("mgr_" + manager, to, subject, innerBody);
   });
 
   // 부재자 통합 발송
@@ -435,18 +456,15 @@ function handleSendReceivableEmails(params) {
       const to = testMode ? testTo : chainTarget.email;
       const subject = (testMode?"[테스트] ":"") +
         `[미래오토메이션] ${mgrLabel} 담당자 미수금 현황 안내 (부재 대리 수신)`;
-      const body = wrapEmail(`
+      const innerBody = `
         <p style="color:#7b1fa2;background:#f3e5f5;padding:10px 14px;border-left:4px solid #7b1fa2;">
           ※ 부재 담당자(${mgrLabel}) 대리 수신 — ${chainTarget.name}님께 통합 발송</p>
         <p>${dateStr} 기준 부재 담당자의 미수금 현황을 안내드립니다.</p>
         ${combinedHtml}
         <div style="margin-top:20px;padding:12px;background:#e3f2fd;border:1px solid #90caf9;font-weight:bold;text-align:right;font-size:15px;color:#0d47a1;">
           부재자 총 합계: ${combinedTotal.toLocaleString()}원
-        </div>`);
-      const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
-      if (cc) opts.cc = cc;
-      GmailApp.sendEmail(to, subject, "본 메일은 HTML 형식입니다.", opts);
-      sentCount++;
+        </div>`;
+      fireEmail("absent", to, subject, innerBody);
     }
   }
 
@@ -459,7 +477,7 @@ function handleSendReceivableEmails(params) {
     
     const subject = (testMode?"[테스트] ":"") + "[미래오토메이션] 미수금 현황 보고";
     const excludeNote = excludeMinus ? " (D- 제외)" : "";
-    const body = wrapEmail(`<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
+    const innerBody = `<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
       <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
         <thead><tr style="background:#1565c0;color:white;">
           <th style="${th}">매출연월</th><th style="${th}">담당자</th><th style="${th}text-align:left;">거래처명</th>
@@ -471,21 +489,14 @@ function handleSendReceivableEmails(params) {
           <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
           <td style="padding:8px 10px;border:1px solid #ddd;"></td>
         </tr></tfoot>
-      </table>`);
+      </table>`;
 
-    const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
-    if (cc) opts.cc = cc;
-    
-    if (testMode) {
-      GmailApp.sendEmail(testTo, subject, "HTML 형식", opts);
-      sentCount++;
-    } else {
-      (params.summaryRecipients || [RCV_DEPT_HEAD.email, RCV_CEO.email]).forEach(recipEmail => {
-        if (!recipEmail) return;
-        GmailApp.sendEmail(recipEmail, subject, "HTML 형식", opts);
-        sentCount++;
-      });
-    }
+    const toList = testMode ? [testTo] : (params.summaryRecipients || [RCV_DEPT_HEAD.email, RCV_CEO.email]);
+    fireEmail("summary", toList, subject, innerBody);
+  }
+
+  if (previewMode) {
+    return { ok: true, previews: previewsOut };
   }
 
   return { ok: true, sentCount };

@@ -3074,3 +3074,10 @@ td {
   background: #047857 !important;
   color: #ffffff !important;
 }
+
+
+/* 미리보기 팝업용 CSS */
+.rcv-preview-tab { padding: 6px 12px; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; cursor: pointer; color: #475569; font-weight: 500; }
+.rcv-preview-tab:hover { background: #e2e8f0; }
+.rcv-preview-tab.active { background: #3b82f6; border-color: #2563eb; color: #ffffff; }
+.rcv-email-modal { background: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }

@@ -3299,7 +3299,7 @@ function openReceivableEmailDialog() {
       <div class="rcv-email-actions">
         <button type="button" class="rcv-select-all-btn">전체 선택/해제</button>
         <button type="button" class="rcv-cancel-btn">취소</button>
-        <button type="button" class="rcv-send-btn">발송</button>
+        <button type="button" class="rcv-send-btn bg-emerald-600 text-white hover:bg-emerald-700">다음: 미리보기</button>
       </div>
     </div>
   `;
@@ -3411,22 +3411,131 @@ async function doSendReceivableEmails(overlay) {
 
   const sendBtn = q(".rcv-send-btn");
   sendBtn.disabled = true;
-  sendBtn.textContent = "발송 중...";
+  sendBtn.textContent = "가져오는 중...";
+
+  const payload = {
+    managers, absentChain, ccEmails, conditions,
+    testMode, testRecipient, sendSummary, excludeMinus, senderName, summaryRecipients
+  };
 
   try {
-    const result = await postSheetWebApp("sendReceivableEmails", {
-      managers, absentChain, ccEmails, conditions,
-      testMode, testRecipient, sendSummary, excludeMinus, senderName, summaryRecipients
-    });
-    overlay.remove();
-    const modeNote = testMode ? `\n※ 테스트: ${testRecipient || ""}으로 발송` : "";
-    alert(`발송 완료! ${result.sentCount || ""}건${modeNote}`);
+    const result = await postSheetWebApp("sendReceivableEmails", { ...payload, previewMode: true });
+    overlay.style.display = "none"; // Hide first dialog temporally
+    openReceivablePreviewDialog(result.previews || [], payload, overlay);
   } catch (error) {
-    alert(`발송 실패: ${error.message}`);
+    alert(`미리보기 생성 실패: ${error.message}`);
     sendBtn.disabled = false;
-    sendBtn.textContent = "발송";
+    sendBtn.textContent = "다음: 미리보기";
   }
 }
+
+function openReceivablePreviewDialog(previews, payload, parentOverlay) {
+  if (!previews.length) {
+    alert("생성된 미리보기 메일이 없습니다. 선택 조건을 확인해주세요.");
+    parentOverlay.style.display = "flex";
+    const btn = parentOverlay.querySelector(".rcv-send-btn");
+    if(btn){ btn.disabled = false; btn.textContent = "다음: 미리보기"; }
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.style.zIndex = "3000";
+
+  let activeIdx = 0;
+
+  function render() {
+    const p = previews[activeIdx];
+    const tabsHtml = previews.map((pr, idx) => `
+      <button type="button" class="rcv-preview-tab ${idx === activeIdx ? "active" : ""}" data-idx="${idx}">
+        ${escapeHtml(pr.id === "summary" ? "📋 전체 보고서" : (pr.id === "absent" ? "🏢 부재 통합" : "👤 " + pr.id.replace("mgr_","")))}
+      </button>
+    `).join("");
+
+    overlay.innerHTML = `
+      <div class="modal-content rcv-email-modal" style="max-width:1000px; width:95%; height:90vh; display:flex; flex-direction:column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:10px; margin-bottom:15px;">
+          <h2 style="margin:0; font-size:1.2rem; color:#1e293b;">메일 미리보기 및 멘트 작성 (총 ${previews.length}건)</h2>
+          <button type="button" class="rcv-prev-close-btn" style="background:none;border:none;font-size:1.5rem;cursor:pointer;">&times;</button>
+        </div>
+        <div class="rcv-preview-tabs" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:15px;">
+          ${tabsHtml}
+        </div>
+        
+        <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+          <div style="background:#f8fafc; padding:10px 15px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:10px; font-size:0.9rem;">
+            <div><strong>수신:</strong> ${escapeHtml(p.to)}</div>
+            <div style="margin-top:4px;"><strong>제목:</strong> ${escapeHtml(p.subject)}</div>
+          </div>
+          
+          <div style="margin-bottom:10px;">
+            <label style="display:block; font-size:0.9rem; font-weight:700; color:#334155; margin-bottom:6px;">추가 멘트 삽입 (선택)</label>
+            <textarea id="rcvCustomMsgInput" class="custom-input" rows="3" style="width:100%; resize:vertical;" placeholder="이 메일의 가장 윗부분에 강조되어 들어갈 추가 멘트를 적어주세요.">${escapeHtml(payload.customMessages?.[p.id] || "")}</textarea>
+          </div>
+
+          <div style="flex:1; border:1px solid #cbd5e1; border-radius:4px; overflow:auto; background:#fff; padding:20px;">
+            ${p.htmlBody}
+          </div>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; border-top:1px solid #e2e8f0; padding-top:15px;">
+          <button type="button" class="rcv-prev-back-btn button-secondary">이전 (설정)</button>
+          <div>
+            <button type="button" class="rcv-prev-cancel-btn button-secondary">취소</button>
+            <button type="button" class="rcv-prev-send-btn button-primary bg-blue-600 hover:bg-blue-700 font-bold px-6 border-none text-white">✈️ 최종 발송</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector(".rcv-prev-close-btn").addEventListener("click", () => { overlay.remove(); parentOverlay.remove(); });
+    overlay.querySelector(".rcv-prev-cancel-btn").addEventListener("click", () => { overlay.remove(); parentOverlay.remove(); });
+    overlay.querySelector(".rcv-prev-back-btn").addEventListener("click", () => { 
+      saveCurrentCustomMsg();
+      overlay.remove(); 
+      parentOverlay.style.display = "flex"; 
+      const btn = parentOverlay.querySelector(".rcv-send-btn");
+      if(btn){ btn.disabled = false; btn.textContent = "다음: 미리보기"; }
+    });
+
+    overlay.querySelectorAll(".rcv-preview-tab").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        saveCurrentCustomMsg();
+        activeIdx = Number(e.currentTarget.dataset.idx);
+        render();
+      });
+    });
+
+    const sendBtn = overlay.querySelector(".rcv-prev-send-btn");
+    sendBtn.addEventListener("click", async () => {
+      saveCurrentCustomMsg();
+      sendBtn.disabled = true;
+      sendBtn.textContent = "전송 중...";
+      try {
+        const finalPayload = { ...payload, previewMode: false };
+        const result = await postSheetWebApp("sendReceivableEmails", finalPayload);
+        overlay.remove();
+        parentOverlay.remove();
+        const modeNote = payload.testMode ? `\n※ 테스트: ${payload.testRecipient || ""}으로 발송` : "";
+        alert(`발송 완료! ${result.sentCount || ""}건${modeNote}`);
+      } catch (error) {
+        alert(`발송 실패: ${error.message}`);
+        sendBtn.disabled = false;
+        sendBtn.textContent = "✈️ 최종 발송";
+      }
+    });
+  }
+
+  function saveCurrentCustomMsg() {
+    const input = overlay.querySelector("#rcvCustomMsgInput");
+    if (input && previews[activeIdx]) {
+      payload.customMessages = payload.customMessages || {};
+      payload.customMessages[previews[activeIdx].id] = input.value.trim();
+    }
+  }
+
+  document.body.appendChild(overlay);
+  render();
 
 function getMonthKey(item) {
   const year = Number(item.year || 0);
