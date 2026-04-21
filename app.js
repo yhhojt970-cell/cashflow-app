@@ -4873,6 +4873,8 @@ function renderFixedExpenses() {
         </div>
         <div class="fx-panel-controls" style="display:flex;align-items:center;gap:16px;">
           <div class="fx-btn-group" style="display:flex;gap:8px;">
+            <button id="fixedSelectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">☑️ 전체선택</button>
+            <button id="fixedDeselectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔲 전체해제</button>
             <button id="fixedExpandAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔽 전체 펼치기</button>
             <button id="fixedCollapseAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔼 전체 접기</button>
           </div>
@@ -4957,6 +4959,16 @@ function renderFixedExpenses() {
     const el = document.getElementById("fixedCheckedTotal");
     if (el) el.textContent = formatNumber(sum);
   };
+
+  document.getElementById("fixedSelectAll")?.addEventListener("click", () => {
+    elements.fixed.querySelectorAll(".fixed-day-check").forEach(cb => cb.checked = true);
+    updateCheckedTotal();
+  });
+  
+  document.getElementById("fixedDeselectAll")?.addEventListener("click", () => {
+    elements.fixed.querySelectorAll(".fixed-day-check").forEach(cb => cb.checked = false);
+    updateCheckedTotal();
+  });
 
   elements.fixed.querySelectorAll(".fixed-day-check").forEach(cb => {
     cb.addEventListener("change", updateCheckedTotal);
