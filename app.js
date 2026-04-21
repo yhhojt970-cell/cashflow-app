@@ -384,34 +384,47 @@ function showPayablesRawDiffDialog(diff, onConfirm) {
             ✉ 이메일 발송
           </button>
         </div>
-        <span class="raw-diff-sub">기존 계획이 있는 항목에 변경이 발생했습니다. 확인 후 적용하세요.</span>
+        <span class="raw-diff-sub">보류/계획이 지정된 항목 원본(구글 시트)에 서식 삭제나 금액 변경이 발생했습니다. 내역을 확인해 주세요.</span>
       </div>
-      ${removedItems.length ? `
-        <div class="raw-diff-section">
-          <div class="raw-diff-section-title removed-title">🗑 사라진 항목 (${removedItems.length}건) — 완료 처리 추천</div>
-          ${removedItems.map(d => `
-            <div class="raw-diff-row">
-              <span class="raw-diff-label">${escapeHtml(d.label)}</span>
-              <label class="raw-diff-check">
-                <input type="checkbox" class="diff-complete-chk" data-key="${escapeHtml(d.stableKey)}" checked />
-                완료로 표시
-              </label>
-            </div>`).join("")}
-        </div>` : ""}
-      ${changedItems.length ? `
-        <div class="raw-diff-section">
-          <div class="raw-diff-section-title changed-title">✏️ 금액 변경 항목 (${changedItems.length}건)</div>
-          ${changedItems.map(d => `
-            <div class="raw-diff-row">
-              <span class="raw-diff-label">${escapeHtml(d.label)}</span>
-              <span class="raw-diff-amounts">
-                ${formatNumber(d.prevAmount)} → <strong>${formatNumber(d.newAmount)}</strong>
-              </span>
-            </div>`).join("")}
-        </div>` : ""}
+      
+      <div class="raw-diff-section">
+        <details class="raw-diff-accordion">
+          <summary class="raw-diff-accordion-header">
+            <strong>📅 ${new Date().toLocaleString("ko-KR", { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} 기준 변경 감지</strong>
+            <span style="color:#ef4444; margin-left:8px; font-weight:600;">(총 ${diff.length}건)</span>
+          </summary>
+          <div class="raw-diff-accordion-body" style="margin-top: 10px; padding-left: 10px; border-left: 2px solid #e5e7eb;">
+            ${removedItems.length ? `
+              <div class="raw-diff-group" style="margin-bottom: 15px;">
+                <div class="raw-diff-section-title removed-title" style="margin-bottom:5px;">🗑 사라진 항목 (${removedItems.length}건) — 완료 처리 추천</div>
+                ${removedItems.map(d => `
+                  <div class="raw-diff-row">
+                    <span class="raw-diff-label">${escapeHtml(d.label)}</span>
+                    <label class="raw-diff-check">
+                      <input type="checkbox" class="diff-complete-chk" data-key="${escapeHtml(d.stableKey)}" checked />
+                      완료로 표시
+                    </label>
+                  </div>`).join("")}
+              </div>` : ""}
+            
+            ${changedItems.length ? `
+              <div class="raw-diff-group">
+                <div class="raw-diff-section-title changed-title" style="margin-bottom:5px;">✏️ 금액 변경 항목 (${changedItems.length}건)</div>
+                ${changedItems.map(d => `
+                  <div class="raw-diff-row">
+                    <span class="raw-diff-label">${escapeHtml(d.label)}</span>
+                    <span class="raw-diff-amounts">
+                      ${formatNumber(d.prevAmount)} → <strong>${formatNumber(d.newAmount)}</strong>
+                    </span>
+                  </div>`).join("")}
+              </div>` : ""}
+          </div>
+        </details>
+      </div>
+
       <div class="raw-diff-actions">
         <button type="button" class="diff-confirm-btn">확인 후 적용</button>
-        <button type="button" class="diff-cancel-btn">취소 (이전 데이터 유지)</button>
+        <button type="button" class="diff-cancel-btn">상태 무시 (닫기)</button>
       </div>
     </div>
   `;
