@@ -3672,9 +3672,7 @@ function getOrderedDueGroups(filteredPayables) {
       if (rankDiff !== 0) return rankDiff;
       return String(a).localeCompare(String(b), "ko");
     });
-  const fullOrder = [...customOrdered, ...remaining];
-  filterState.groupOrder = fullOrder;
-  return fullOrder;
+  return [...customOrdered, ...remaining];
 }
 
 function groupPayablesByDue(filteredPayables) {
