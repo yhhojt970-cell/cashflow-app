@@ -3269,8 +3269,14 @@ function openReceivableEmailDialog() {
       <div class="rcv-email-section">
         <label class="rcv-section-title" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" id="rcvSendSummary" checked>
-          전체 현황 보고서 (${RECEIVABLE_DEPT_HEAD.name} + ${RECEIVABLE_CEO.name})
+          전체 현황 보고서 (모든 데이터 통합 표)
         </label>
+        <div class="rcv-summary-recipients" id="rcvSummaryRecips" style="margin: 8px 0 12px 24px; display:flex; flex-wrap:wrap; gap:12px; font-size: 0.95rem;">
+          <label><input type="checkbox" class="rcv-sum-recip-chk" value="kdy@mauto.co.kr" checked> 김도연</label>
+          <label><input type="checkbox" class="rcv-sum-recip-chk" value="jug@mauto.co.kr" checked> 장운기</label>
+          <label><input type="checkbox" class="rcv-sum-recip-chk" value="phs@mauto.co.kr"> 박희선</label>
+          <label><input type="checkbox" class="rcv-sum-recip-chk" value="yhj@mauto.co.kr"> 여희정</label>
+        </div>
         <div class="rcv-summary-opts" id="rcvSummaryOpts">
           <label><input type="radio" name="rcvDOpt" value="include" checked> D- 포함</label>
           <label><input type="radio" name="rcvDOpt" value="exclude"> D- 제외</label>
@@ -3393,11 +3399,13 @@ async function doSendReceivableEmails(overlay) {
   const conditions = [...overlay.querySelectorAll(".rcv-cond-chk:checked")].map(c => c.value);
   const ccEmails = [...overlay.querySelectorAll(".rcv-cc-chk:checked")].map(c => c.value);
   const sendSummary = q("#rcvSendSummary").checked;
+  const summaryRecipients = [...overlay.querySelectorAll(".rcv-sum-recip-chk:checked")].map(c => c.value);
   const excludeMinus = q("input[name=rcvDOpt]:checked")?.value === "exclude";
   const senderName = (q("#rcvSenderName")?.value || "").trim();
 
   if (!conditions.length) { alert("수금조건을 최소 1개 선택해주세요."); return; }
   if (!managers.length && !sendSummary) { alert("담당자를 최소 1명 선택해주세요."); return; }
+  if (sendSummary && !summaryRecipients.length) { alert("전체 현황 보고서를 수신할 사람을 최소 1명 선택해주세요."); return; }
 
   const sendBtn = q(".rcv-send-btn");
   sendBtn.disabled = true;
@@ -3406,7 +3414,7 @@ async function doSendReceivableEmails(overlay) {
   try {
     const result = await postSheetWebApp("sendReceivableEmails", {
       managers, absentChain, ccEmails, conditions,
-      testMode, testRecipient, sendSummary, excludeMinus, senderName,
+      testMode, testRecipient, sendSummary, excludeMinus, senderName, summaryRecipients
     });
     overlay.remove();
     const modeNote = testMode ? `\n※ 테스트: ${testRecipient || ""}으로 발송` : "";
