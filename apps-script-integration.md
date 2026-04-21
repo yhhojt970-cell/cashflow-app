@@ -275,7 +275,8 @@ function handleSendReceivableEmails(params) {
   // 담당자 맵 구성
   const mgrMap = {};
   mgrData.forEach(r => {
-    const code = String(r["거래처코드"]||"").replace(/[^0-9]/g, "").replace(/^0+/,"");
+    const codeRaw = String(r["코드"]||r["거래처코드"]||r["code"]||"");
+    const code = codeRaw.replace(/[^0-9]/g, "").replace(/^0+/,"");
     if (code) mgrMap[code] = { manager: r["담당자"]||"", email: r["이메일"]||"" };
   });
 
