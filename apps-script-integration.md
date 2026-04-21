@@ -325,7 +325,7 @@ function handleSendReceivableEmails(params) {
     const dueDateStr = dueDate ? Utilities.formatDate(dueDate,"Asia/Seoul","yyyy-MM-dd") : "";
     const ym = year && month ? `${String(year).slice(2)}-${String(month).padStart(2,"0")}` : "";
     if (!groups[mgr.manager]) groups[mgr.manager] = { manager:mgr.manager, email, rows:[] };
-    groups[mgr.manager].rows.push({ name, condition, ym, dueDate:dueDateStr, elapsed, balance, memo });
+    groups[mgr.manager].rows.push({ name, condition, ym, dueDate:dueDateStr, elapsed, balance, memo, manager: mgr.manager });
   });
 
   const absentSet = new Set(absentChain||[]);
@@ -341,7 +341,7 @@ function handleSendReceivableEmails(params) {
   const dateStr  = Utilities.formatDate(new Date(),"Asia/Seoul","yyyy년 MM월 dd일");
   let sentCount  = 0;
 
-  function buildRows(rowList) {
+  function buildRows(rowList, showManager = false) {
     let html="", total=0;
     rowList.forEach(r => {
       const el=r.elapsed;
@@ -353,6 +353,7 @@ function handleSendReceivableEmails(params) {
       total+=r.balance;
       html+=`<tr style="${bg}">
         <td style="${td}text-align:center;">${r.ym}</td>
+        ${showManager ? `<td style="${td}text-align:center;">${r.manager}</td>` : ""}
         <td style="${td}">${r.name}</td>
         <td style="${td}text-align:center;">${r.condition}</td>
         <td style="${td}text-align:center;">${r.dueDate||"-"}</td>
@@ -408,17 +409,17 @@ function handleSendReceivableEmails(params) {
     
     absentManagers.forEach(({ manager }) => {
       if (groups[manager] && groups[manager].rows.length) {
-        const { html, total } = buildRows(groups[manager].rows);
+        const { html, total } = buildRows(groups[manager].rows, true);
         combinedHtml += `
           <h4 style="margin-top:20px;margin-bottom:8px;color:#1565c0;border-bottom:2px solid #1565c0;padding-bottom:4px;font-size:14px;">👤 담당자: ${manager}</h4>
           <table style="border-collapse:collapse;width:100%;font-size:13px;">
           <thead><tr style="background:#1565c0;color:white;">
-            <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
+            <th style="${th}">매출연월</th><th style="${th}">담당자</th><th style="${th}text-align:left;">거래처명</th>
             <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
             <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
           </tr></thead><tbody>${html}</tbody>
           <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
+            <td colspan="6" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
             <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
             <td style="padding:8px 10px;border:1px solid #ddd;"></td>
           </tr></tfoot>
@@ -454,8 +455,9 @@ function handleSendReceivableEmails(params) {
     let combinedHtml = "";
     let grandTotal = 0;
     
-    // 담당자 이름순으로 정렬해서 개별 표 생성
-    const allManagers = Object.keys(groups).sort();
+    // UI에서 선택된(체크박스) 담당자만 걸러서 보여줌
+    const selectedMgrs = new Set(managers.map(m => m.manager));
+    const allManagers = Object.keys(groups).filter(m => selectedMgrs.has(m)).sort();
     
     allManagers.forEach(manager => {
       let mgrRows = groups[manager].rows;
@@ -463,18 +465,18 @@ function handleSendReceivableEmails(params) {
       if (mgrRows.length === 0) return;
       
       mgrRows.sort((a,b) => (a.dueDate||"").localeCompare(b.dueDate||""));
-      const { html, total } = buildRows(mgrRows);
+      const { html, total } = buildRows(mgrRows, true);
       
       combinedHtml += `
           <h4 style="margin-top:24px;margin-bottom:8px;color:#0d47a1;border-bottom:2px solid #0d47a1;padding-bottom:4px;font-size:14px;">👤 담당자: ${manager}</h4>
           <table style="border-collapse:collapse;width:100%;font-size:13px;">
           <thead><tr style="background:#1565c0;color:white;">
-            <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
+            <th style="${th}">매출연월</th><th style="${th}">담당자</th><th style="${th}text-align:left;">거래처명</th>
             <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
             <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
           </tr></thead><tbody>${html}</tbody>
           <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
+            <td colspan="6" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
             <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
             <td style="padding:8px 10px;border:1px solid #ddd;"></td>
           </tr></tfoot>
