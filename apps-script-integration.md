@@ -624,7 +624,7 @@ function getSheetRows(sheetName) {
   let headerIdx = 0;
   for (let i = 0; i < Math.min(10, values.length); i++) {
     const rowStr = values[i].map(v => String(v).trim()).join("");
-    if (rowStr.includes("거래처코드") || rowStr.includes("코드") || rowStr.includes("담당자") || rowStr.includes("거래처명") || rowStr.includes("년도") || rowStr.includes("연도")) {
+    if (rowStr.includes("거래처코드") || rowStr.includes("코드") || rowStr.includes("code") || rowStr.includes("담당자") || rowStr.includes("거래처명") || rowStr.includes("client") || rowStr.includes("년도") || rowStr.includes("연도") || rowStr.includes("year") || rowStr.includes("vendor_id")) {
       headerIdx = i;
       break;
     }
