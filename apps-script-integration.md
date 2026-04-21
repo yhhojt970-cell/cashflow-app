@@ -275,7 +275,7 @@ function handleSendReceivableEmails(params) {
   // 담당자 맵 구성
   const mgrMap = {};
   mgrData.forEach(r => {
-    const code = String(r["거래처코드"]||"").trim().replace(/^0+/,"");
+    const code = String(r["거래처코드"]||"").replace(/[^0-9]/g, "").replace(/^0+/,"");
     if (code) mgrMap[code] = { manager: r["담당자"]||"", email: r["이메일"]||"" };
   });
 
@@ -309,7 +309,7 @@ function handleSendReceivableEmails(params) {
     const year=Number(row["연도"]||row["year"]||row["작성연도"]||0);
     const month=Number(row["월"]||row["month"]||row["작성월"]||0);
     const codeRaw=String(row["코드"]||row["거래처코드"]||row["code"]||"").trim();
-    const code=codeRaw.replace(/^0+/,"");
+    const code=codeRaw.replace(/[^0-9]/g, "").replace(/^0+/,"");
     const name=String(row["거래처명"]||row["client"]||"").trim();
     const memo=String(row["매출메모"]||row["메모"]||row["memo"]||"").trim();
     const condition=String(row["수금조건"]||row["일"]||row["condition"]||"").trim();
