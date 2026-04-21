@@ -384,7 +384,7 @@ function handleSendReceivableEmails(params) {
     const body = wrapEmail(`<p>${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
       <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
         <thead><tr style="background:#1565c0;color:white;">
-          <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
+          <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
           <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
           <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
         </tr></thead><tbody>${html}</tbody>
@@ -403,12 +403,32 @@ function handleSendReceivableEmails(params) {
   // 부재자 통합 발송
   const chainTarget = resolveChain();
   if (absentManagers.length && chainTarget) {
-    const allRows = [];
+    let combinedHtml = "";
+    let combinedTotal = 0;
+    
     absentManagers.forEach(({ manager }) => {
-      if (groups[manager]) allRows.push(...groups[manager].rows);
+      if (groups[manager] && groups[manager].rows.length) {
+        const { html, total } = buildRows(groups[manager].rows);
+        combinedHtml += `
+          <h4 style="margin-top:20px;margin-bottom:8px;color:#1565c0;border-bottom:2px solid #1565c0;padding-bottom:4px;font-size:14px;">👤 담당자: ${manager}</h4>
+          <table style="border-collapse:collapse;width:100%;font-size:13px;">
+          <thead><tr style="background:#1565c0;color:white;">
+            <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
+            <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
+            <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
+          </tr></thead><tbody>${html}</tbody>
+          <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
+            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+          </tr></tfoot>
+          </table>
+        `;
+        combinedTotal += total;
+      }
     });
-    if (allRows.length) {
-      const { html, total } = buildRows(allRows);
+
+    if (combinedHtml) {
       const mgrLabel = absentManagers.length===1 ? absentManagers[0].manager
         : `${absentManagers[0].manager} 외 ${absentManagers.length-1}명`;
       const to = testMode ? testTo : chainTarget.email;
@@ -418,18 +438,10 @@ function handleSendReceivableEmails(params) {
         <p style="color:#7b1fa2;background:#f3e5f5;padding:10px 14px;border-left:4px solid #7b1fa2;">
           ※ 부재 담당자(${mgrLabel}) 대리 수신 — ${chainTarget.name}님께 통합 발송</p>
         <p>${dateStr} 기준 부재 담당자의 미수금 현황을 안내드립니다.</p>
-        <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
-          <thead><tr style="background:#1565c0;color:white;">
-            <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
-            <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
-            <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
-          </tr></thead><tbody>${html}</tbody>
-          <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">합 계</td>
-            <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
-            <td style="padding:8px 10px;border:1px solid #ddd;"></td>
-          </tr></tfoot>
-        </table>`);
+        ${combinedHtml}
+        <div style="margin-top:20px;padding:12px;background:#e3f2fd;border:1px solid #90caf9;font-weight:bold;text-align:right;font-size:15px;color:#0d47a1;">
+          부재자 총 합계: ${combinedTotal.toLocaleString()}원
+        </div>`);
       const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
       if (cc) opts.cc = cc;
       GmailApp.sendEmail(to, subject, "본 메일은 HTML 형식입니다.", opts);
@@ -448,7 +460,7 @@ function handleSendReceivableEmails(params) {
     const body = wrapEmail(`<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
       <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
         <thead><tr style="background:#1565c0;color:white;">
-          <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
+          <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
           <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
           <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
         </tr></thead><tbody>${html}</tbody>
