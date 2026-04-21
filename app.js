@@ -3536,6 +3536,7 @@ function openReceivablePreviewDialog(previews, payload, parentOverlay) {
 
   document.body.appendChild(overlay);
   render();
+}
 
 function getMonthKey(item) {
   const year = Number(item.year || 0);
