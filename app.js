@@ -3439,7 +3439,7 @@ function openReceivablePreviewDialog(previews, payload, parentOverlay) {
   }
 
   const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
+  overlay.className = "rcv-email-overlay";
   overlay.style.zIndex = "3000";
 
   let activeIdx = 0;

@@ -621,9 +621,17 @@ function getSheetRows(sheetName) {
   if (!sheet) return [];
   const values = sheet.getDataRange().getValues();
   if (!values || values.length < 2) return [];
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(10, values.length); i++) {
+    const rowStr = values[i].map(v => String(v).trim()).join("");
+    if (rowStr.includes("거래처코드") || rowStr.includes("코드") || rowStr.includes("담당자") || rowStr.includes("거래처명") || rowStr.includes("년도") || rowStr.includes("연도")) {
+      headerIdx = i;
+      break;
+    }
+  }
 
-  const headers = values[0].map(header => String(header).trim());
-  return values.slice(1).map(row => {
+  const headers = values[headerIdx].map(header => String(header).trim());
+  return values.slice(headerIdx + 1).map(row => {
     const item = {};
     row.forEach((value, index) => {
       // ★ Date 객체를 KST 기준 YYYY-MM-DD 문자열로 변환
