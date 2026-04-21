@@ -451,32 +451,56 @@ function handleSendReceivableEmails(params) {
 
   // 전체 현황 보고서
   if (sendSummary) {
-    const allRows = Object.values(groups).flatMap(g => g.rows);
-    const filtered = excludeMinus ? allRows.filter(r => (r.elapsed||0) >= 0) : allRows;
-    filtered.sort((a,b) => (a.dueDate||"").localeCompare(b.dueDate||""));
-    const { html, total } = buildRows(filtered);
-    const subject = (testMode?"[테스트] ":"") + "[미래오토메이션] 미수금 현황 보고";
-    const excludeNote = excludeMinus ? " (D- 제외)" : "";
-    const body = wrapEmail(`<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
-      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
-        <thead><tr style="background:#1565c0;color:white;">
-          <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
-          <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
-          <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
-        </tr></thead><tbody>${html}</tbody>
-        <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-          <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">총 합계${excludeNote}</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;"></td>
-        </tr></tfoot>
-      </table>`);
-    const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
-    if (cc) opts.cc = cc;
-    GmailApp.sendEmail(testMode ? testTo : RCV_DEPT_HEAD.email, subject, "HTML 형식", opts);
-    sentCount++;
-    if (!testMode) {
-      GmailApp.sendEmail(RCV_CEO.email, subject, "HTML 형식", opts);
+    let combinedHtml = "";
+    let grandTotal = 0;
+    
+    // 담당자 이름순으로 정렬해서 개별 표 생성
+    const allManagers = Object.keys(groups).sort();
+    
+    allManagers.forEach(manager => {
+      let mgrRows = groups[manager].rows;
+      if (excludeMinus) mgrRows = mgrRows.filter(r => (r.elapsed||0) >= 0);
+      if (mgrRows.length === 0) return;
+      
+      mgrRows.sort((a,b) => (a.dueDate||"").localeCompare(b.dueDate||""));
+      const { html, total } = buildRows(mgrRows);
+      
+      combinedHtml += `
+          <h4 style="margin-top:24px;margin-bottom:8px;color:#0d47a1;border-bottom:2px solid #0d47a1;padding-bottom:4px;font-size:14px;">👤 담당자: ${manager}</h4>
+          <table style="border-collapse:collapse;width:100%;font-size:13px;">
+          <thead><tr style="background:#1565c0;color:white;">
+            <th style="${th}">매출연월</th><th style="${th}text-align:left;">거래처명</th>
+            <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
+            <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
+          </tr></thead><tbody>${html}</tbody>
+          <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
+            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+          </tr></tfoot>
+          </table>
+      `;
+      grandTotal += total;
+    });
+
+    if (combinedHtml) {
+      const subject = (testMode?"[테스트] ":"") + "[미래오토메이션] 미수금 현황 보고";
+      const excludeNote = excludeMinus ? " (D- 제외)" : "";
+      const body = wrapEmail(`
+        <p style="font-size:14px;color:#333;">${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
+        ${combinedHtml}
+        <div style="margin-top:24px;padding:15px;background:#e8eaf6;border:2px solid #3f51b5;font-weight:bold;text-align:right;font-size:16px;color:#1a237e;">
+          총 합계${excludeNote}: ${grandTotal.toLocaleString()}원
+        </div>
+      `);
+      const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
+      if (cc) opts.cc = cc;
+      GmailApp.sendEmail(testMode ? testTo : RCV_DEPT_HEAD.email, subject, "HTML 형식", opts);
       sentCount++;
+      if (!testMode) {
+        GmailApp.sendEmail(RCV_CEO.email, subject, "HTML 형식", opts);
+        sentCount++;
+      }
     }
   }
 
