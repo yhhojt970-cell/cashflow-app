@@ -4753,6 +4753,9 @@ function renderFixedExpenses() {
   const selectedYear = filterState.year || new Date().getFullYear();
   const selectedMonth = filterState.month || (new Date().getMonth() + 1);
 
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
   // 추출된 유니크 은행 목록 정렬 (가나다 순)
   const uniqueBanks = [...new Set(sortedFixed.map(item => item.bank).filter(Boolean))].sort();
 
@@ -4812,15 +4815,19 @@ function renderFixedExpenses() {
       </tr>
     `).join("");
 
+    const isToday = key === todayKey;
+    const todayBadge = isToday ? `<span style="display:inline-flex;align-items:center;background:#fef2f2;color:#ef4444;border:1px solid #fca5a5;font-size:11px;font-weight:700;padding:2px 6px;border-radius:12px;margin-left:6px;">🚨 D-Day</span>` : "";
+
     return `
-      <tr class="fx-date-header" data-group="${groupId}">
+      <tr class="fx-date-header ${isToday ? 'fx-today-header' : ''}" data-group="${groupId}" style="${isToday ? 'background-color:#fff1f2;' : ''}">
         <td class="fx-header-check" style="text-align:center;padding:12px 8px;">
           <input type="checkbox" class="fixed-day-check fx-checkbox" data-total="${dayTotal}" checked style="cursor:pointer;width:16px;height:16px;accent-color:#2563eb;">
         </td>
         <td class="fx-header-title" style="padding-top:14px;padding-bottom:14px;">
           <span class="fx-chevron fixed-toggle-btn" style="display:inline-block;transition:all 0.2s;margin-right:8px;font-size:12px;color:#94a3b8;">▼</span>
-          <span class="fx-date-badge" style="background:#eff6ff;color:#1d4ed8;padding:4px 10px;border-radius:16px;font-size:14px;margin-right:8px;font-weight:700;">${month}/${day}</span>
+          <span class="fx-date-badge" style="background:${isToday ? '#ef4444' : '#eff6ff'};color:${isToday ? '#ffffff' : '#1d4ed8'};padding:4px 10px;border-radius:16px;font-size:14px;margin-right:8px;font-weight:700;">${month}/${day}</span>
           <span class="fx-count-pill" style="font-size:12px;color:#3b82f6;background:#dbeafe;padding:3px 8px;border-radius:12px;font-weight:600;">${items.length}건</span>
+          ${todayBadge}
         </td>
         ${uniqueBanks.map(b => `
           <td style="text-align:right;font-weight:600;color:#334155;font-size:14px;padding:0 12px;">
