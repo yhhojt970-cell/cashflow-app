@@ -2884,15 +2884,23 @@ function renderGroupFilterControls() {
       event.preventDefault();
       const targetGroup = event.currentTarget.dataset.group || "";
       if (!draggingGroup || !targetGroup || draggingGroup === targetGroup) return;
-      const nextGroups = (filterState.groups === null ? allGroups : filterState.groups).filter(Boolean);
-      const fromIndex = nextGroups.indexOf(draggingGroup);
-      const toIndex = nextGroups.indexOf(targetGroup);
+      
+      const nextOrder = [...orderedGroups];
+      const fromIndex = nextOrder.indexOf(draggingGroup);
+      const toIndex = nextOrder.indexOf(targetGroup);
       if (fromIndex === -1 || toIndex === -1) return;
-      nextGroups.splice(fromIndex, 1);
-      nextGroups.splice(toIndex, 0, draggingGroup);
-      filterState.groups = nextGroups;
+      
+      nextOrder.splice(fromIndex, 1);
+      nextOrder.splice(toIndex, 0, draggingGroup);
+      
+      filterState.groupOrder = nextOrder;
       saveGroupOrder();
-      rerenderAll();
+      
+      // UI 즉시 반영 (전체 리렌더링)
+      preserveViewport(() => {
+        renderGroupFilterControls(); // 버튼 순서 갱신
+        renderPayables(); // 바뀐 순서에 맞춰 미지급 테이블도 갱신
+      });
     });
   });
 }
