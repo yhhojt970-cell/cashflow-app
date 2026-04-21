@@ -106,6 +106,9 @@ const paymentHistoryState = {
   rows: [],
 };
 
+const payablePlanHistories = {}; // [sourceKey] -> array of history records
+
+
 const elements = {
   partnerFilter: document.getElementById("partnerFilter"),
   yearFilter: document.getElementById("yearFilter"),
@@ -2378,13 +2381,33 @@ function setupLedgerVendorImport() {
 
 function applySavedPaymentPlansFromApi(rows) {
   if (!Array.isArray(rows) || !rows.length) return;
+  
+  // 히스토리 초기화 및 그룹화 (동일 sourceKey에 여러 개의 누적된 기록)
+  Object.keys(payablePlanHistories).forEach(k => delete payablePlanHistories[k]);
+  
   const bySourceKey = rows.reduce((acc, row) => {
     const sourceKey = String(row.source_key || row.sourceKey || "").trim();
     if (sourceKey) {
-      acc[sourceKey] = row;
+      if (!payablePlanHistories[sourceKey]) payablePlanHistories[sourceKey] = [];
+      payablePlanHistories[sourceKey].push(row);
+      
+      const existing = acc[sourceKey];
+      if (!existing) {
+        acc[sourceKey] = row;
+      } else {
+        // 더 최신 데이터(updated_at 기준)로 덮어쓰기
+        const tNew = new Date(row.updated_at || 0).getTime();
+        const tOld = new Date(existing.updated_at || 0).getTime();
+        if (tNew >= tOld) acc[sourceKey] = row;
+      }
     }
     return acc;
   }, {});
+
+  // 각 sourceKey 배열 내에서도 정렬 (최신순)
+  Object.values(payablePlanHistories).forEach(arr => {
+    arr.sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime());
+  });
 
   // 로컬 상태의 타임스탬프와 비교하기 위해 로컬 스냅샷 로드
   const localMap = loadPayablesStateFromLocal();
@@ -2393,12 +2416,12 @@ function applySavedPaymentPlansFromApi(rows) {
     const saved = bySourceKey[item.sourceKey || ""];
     if (!saved) return item;
 
-    // 로컬 상태가 더 최신이면 원격 데이터 무시 (로컬 보류/변경이 원격 덮어쓰기 방지)
+    // 로컬 상태가 더 최신이면 원격 데이터 무시 (방어 로직)
     const localItem = localMap[item.sourceKey || ""];
     if (localItem && localItem.updatedAt && saved.updated_at) {
       const localTime = new Date(localItem.updatedAt).getTime();
       const remoteTime = new Date(saved.updated_at).getTime();
-      if (localTime > remoteTime) return item; // 로컬이 더 최신 → 원격 무시
+      if (localTime > remoteTime) return item; 
     }
 
     const rawOutstanding = Math.max(0, Number(item.purchase || 0) - Number(item.paid || 0));
@@ -2459,7 +2482,7 @@ async function flushPayablesStateToApi() {
   payablesSyncState.inFlight = true;
   payablesSyncState.pending = false;
   try {
-    await postSheetWebApp("upsertPaymentPlans", {
+    await postSheetWebApp("appendPaymentPlans", {
       sheetName: PLAN_SHEET_NAME,
       rows: buildPaymentPlanRows(),
     });
@@ -3821,6 +3844,7 @@ function renderPayables() {
               >
                 ${formatPayableCellNumber(decisionValue)}
               </button>
+              <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
             </div>
             ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
             ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
@@ -3980,6 +4004,20 @@ function renderPayables() {
     });
   });
 
+  document.querySelectorAll(".history-payable-button").forEach(button => {
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const partnerKey = decodeURIComponent(event.currentTarget.dataset.partnerKey || "");
+      const monthKey = event.currentTarget.dataset.monthKey;
+      
+      const targetItems = payables.filter(item => getPartnerGroupKey(item) === partnerKey && getMonthKey(item) === monthKey);
+      if (!targetItems.length) return;
+      
+      showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey);
+    });
+  });
+
   document.querySelectorAll(".payment-plan-summary-card").forEach(card => {
     card.addEventListener("click", event => {
       if (event.target.closest(".payment-plan-summary-check")) return;
@@ -4038,6 +4076,85 @@ function renderPayables() {
       syncing = false;
     });
   }
+}
+
+function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
+  let combined = [];
+  targetItems.forEach(item => {
+    const sk = item.sourceKey || "";
+    const arr = payablePlanHistories[sk] || [];
+    arr.forEach(h => combined.push({ item, row: h }));
+  });
+  
+  combined.sort((a, b) => new Date(b.row.updated_at || 0).getTime() - new Date(a.row.updated_at || 0).getTime());
+  
+  document.querySelector(".history-diff-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "history-diff-overlay raw-diff-overlay";
+  
+  const historyListHtml = combined.length === 0 ? `<div style="padding:20px;text-align:center;color:#666;">과거 원격 저장 이력이 없습니다. (가장 최신의 상태입니다)</div>` :
+    combined.map((c, i) => {
+      const dt = c.row.updated_at ? new Date(c.row.updated_at).toLocaleString("ko-KR") : "시간 알 수 없음";
+      const plan = c.row.payment_plan || "미정";
+      const amt = Number(c.row.decision_amount || 0);
+      const isLatest = i === 0;
+      return `
+        <div style="border-bottom:1px solid #eee; padding:15px 0; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:12px; color:#888;">${dt}</div>
+            <div style="font-weight:600; margin-top:4px; font-size:14px;">상태: <span style="color:#2563eb">${plan}</span> / 금액: ${formatNumber(amt)}</div>
+            ${c.row.memo ? `<div style="font-size:12px; color:#555; margin-top:4px;">메모: ${c.row.memo}</div>` : ""}
+          </div>
+          ${!isLatest 
+            ? `<button type="button" class="btn-restore" style="padding:6px 10px; font-size:13px; cursor:pointer; background:#fff; border:1px solid #ccc; border-radius:4px;" data-index="${i}">이 상태로 복원</button>` 
+            : `<span style="font-size:13px;color:#10b981;font-weight:600;padding-right:10px;">(현재 상태)</span>`}
+        </div>
+      `;
+    }).join("");
+
+  overlay.innerHTML = `
+    <div class="raw-diff-dialog" style="max-height:85vh; overflow-y:auto; width: 450px;">
+      <h3 style="margin-top:0; display:flex; align-items:center; gap:8px;">🕒 상세 변경 타임라인</h3>
+      <p style="font-size:13px; color:#555; margin-bottom:15px;">
+        <strong>${targetItems[0]?.name || "알 수 없음"}</strong> (${formatMonthKey(monthKey)}) 건의 상세 변경 이력입니다.
+      </p>
+      <div style="border-top:2px solid #ddd;">
+        ${historyListHtml}
+      </div>
+      <div style="text-align:right; margin-top:20px;">
+        <button type="button" class="btn-close" style="padding:8px 16px; cursor:pointer; background:#e5e7eb; border:none; border-radius:4px; font-weight:600;">닫기</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  
+  overlay.querySelectorAll(".btn-restore").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const idx = e.currentTarget.dataset.index;
+      const targetState = combined[idx];
+      
+      targetItems.forEach(actualItem => {
+        if (actualItem.sourceKey === targetState.item.sourceKey) {
+          actualItem.paymentPlan = targetState.row.payment_plan || "";
+          actualItem.completionStatus = targetState.row.plan_status || (targetState.row.payment_plan === "보류" ? "보류" : targetState.row.payment_plan ? "부분결제" : "미정");
+          actualItem.decisionAmount = Number(targetState.row.decision_amount || 0);
+          actualItem.memo = targetState.row.memo || "";
+          if (targetState.row.paid_override != null && targetState.row.paid_override !== "") {
+            actualItem.paidOverride = Number(targetState.row.paid_override);
+          } else {
+            actualItem.paidOverride = null;
+          }
+        }
+      });
+      
+      payablesUiState.lastEdited = { partnerKey, monthKey };
+      persistPayablesState();
+      overlay.remove();
+      rerenderAll();
+    });
+  });
 }
 
 function openAmountEditor(partnerKey, monthKey, triggerElement) {

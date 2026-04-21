@@ -208,8 +208,8 @@ function doPost(e) {
   if (!checkAuth(body.token)) return jsonOutput({ error: "인증 실패" });
   const action = String(body.action || "").trim();
 
-  if (action === "upsertPaymentPlans") {
-    upsertRowsByKey(PLAN_SHEET, "source_key", Array.isArray(body.rows) ? body.rows : []);
+  if (action === "appendPaymentPlans") {
+    appendRows(PLAN_SHEET, Array.isArray(body.rows) ? body.rows : []);
     return jsonOutput({ ok: true, count: (body.rows||[]).length });
   }
   if (action === "upsertVendorMaster") {
