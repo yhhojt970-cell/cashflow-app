@@ -2079,7 +2079,7 @@ td {
 .rcv-row-even td { background: #ffffff; }
 .rcv-row-odd  td { background: #f9fafb; }
 .rcv-pivot-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; font-size: 0.83rem; }
-.rcv-pivot-table tr:hover td { background: #f0f9ff !important; }
+.rcv-pivot-table tr:not(.rcv-group-header):hover td { background: #f0f9ff !important; }
 
 .rcv-sort-th {
   cursor: pointer;
@@ -2767,7 +2767,7 @@ td {
 .dropdown-item i { font-style: normal; }
 
 
-/* °íÁ¤ÁöÃâ ÇÇ¹þ Å×ÀÌºí Àü¿ë ½ºÅ¸ÀÏ */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ç¹ï¿½ ï¿½ï¿½ï¿½Ìºï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å¸ï¿½ï¿½ */
 .pivot-table {
   width: 100%;
   border-collapse: separate;
@@ -3067,4 +3067,10 @@ td {
 .fx-footer-row {
   background: linear-gradient(90deg,#eff6ff,#dbeafe);
   border-top: 2px solid #2563eb;
+}
+
+
+.rcv-pivot-table tr.rcv-group-header:hover td {
+  background: #047857 !important;
+  color: #ffffff !important;
 }
