@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>현금흐름 관리</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <h1>현금흐름 관리</h1>
+      <div class="header-actions">
+        <button type="button" id="apiTokenButton" class="header-action-button" title="API 인증 토큰 설정">🔑 토큰</button>
+        
+        <!-- 마스터 관리 드롭다운 -->
+        <div class="dropdown">
+          <button type="button" id="masterMenuButton" class="header-action-button">🛠 마스터 관리</button>
+          <div id="masterDropdownMenu" class="dropdown-menu">
+            <button class="dropdown-item" id="vendorMasterImportButton"><i>🏢</i> 업체마스터 업로드</button>
+            <button class="dropdown-item" id="ledgerVendorImportButton"><i>📋</i> 원장 → 업체마스터</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="bizDivImportButton"><i>🏗</i> 사업부문마스터 업로드</button>
+          </div>
+        </div>
+
+        <input id="vendorMasterFileInput" type="file" accept=".xls,.xlsx,.xlsm,.csv" hidden />
+        <input id="bizDivMasterFileInput" type="file" accept=".xls,.xlsx" hidden />
+        <button type="button" id="dataImportButton" class="header-action-button">자료업로드</button>
+        <button type="button" id="bankImportButton" class="header-action-button">입출금 매칭</button>
+        <input id="bankImportFileInput" type="file" accept=".xls,.xlsx,.xlsm,.csv" hidden />
+        <select id="partnerFilter"></select>
+      </div>
+    </header>
+
+    <section class="top-controls">
+      <div class="filter-row">
+        <label>
+          검색
+          <input id="searchInput" type="search" placeholder="거래처명, 코드, 메모 검색" />
+        </label>
+        <label>
+          연도
+          <select id="yearFilter"></select>
+        </label>
+        <label>
+          월
+          <select id="monthFilter"></select>
+        </label>
+        <label>
+          상태
+          <select id="statusFilter"></select>
+        </label>
+        <div id="groupFilterContainer" hidden></div>
+      </div>
+    </section>
+
+    <section id="vendorMasterPanel" class="vendor-master-panel hidden"></section>
+    <section id="dataImportPanel" class="data-import-panel hidden"></section>
+    <section class="summary-panel" id="summaryPanel"></section>
+
+    <nav class="tab-bar">
+      <button class="tab-button" data-tab="receivables">미수금</button>
+      <button class="tab-button active" data-tab="payables">미지급</button>
+      <button class="tab-button" data-tab="fixed">고정지출</button>
+      <button class="tab-button" data-tab="daesa">대사</button>
+    </nav>
+
+    <main>
+      <section id="receivables" class="tab-content"></section>
+      <section id="payables" class="tab-content active"></section>
+      <section id="fixed" class="tab-content"></section>
+      <section id="daesa" class="tab-content"></section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
