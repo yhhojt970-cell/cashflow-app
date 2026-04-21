@@ -3403,9 +3403,11 @@ async function doSendReceivableEmails(overlay) {
   const excludeMinus = q("input[name=rcvDOpt]:checked")?.value === "exclude";
   const senderName = (q("#rcvSenderName")?.value || "").trim();
 
-  if (!conditions.length) { alert("수금조건을 최소 1개 선택해주세요."); return; }
-  if (!managers.length && !sendSummary) { alert("담당자를 최소 1명 선택해주세요."); return; }
+  if (!managers.length && !sendSummary) { alert("담당자를 최소 1명 선택하거나 전체 현황 보고서를 선택해주세요."); return; }
   if (sendSummary && !summaryRecipients.length) { alert("전체 현황 보고서를 수신할 사람을 최소 1명 선택해주세요."); return; }
+
+  // 조건이 1개도 선택되지 않은 경우 백엔드(Apps Script)에서는 condSet.size === 0 이 되어 모든 조건의 항목이 포함됩니다.
+  // 사용자가 "조건을 모두 체크 해제하면 전체 보고서가 나가는지?" 혼동할 수 있으므로, 0개 선택을 '전체 조건 발송'으로 허용합니다.
 
   const sendBtn = q(".rcv-send-btn");
   sendBtn.disabled = true;
