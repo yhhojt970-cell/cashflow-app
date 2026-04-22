@@ -165,6 +165,26 @@ function formatPlanShortLabel(value) {
   return value;
 }
 
+function formatPlanLabel(value) {
+  if (!value || value === "미정") return "미정";
+  if (value === "보류") return "보류";
+  if (value === "제외") return "제외";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(5).replace("-", "/");
+  }
+  return value;
+}
+
+function formatPlanLabel(value) {
+  if (!value || value === "미정") return "미정";
+  if (value === "보류") return "보류";
+  if (value === "제외") return "제외";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(5).replace("-", "/");
+  }
+  return value;
+}
+
 function getPayableEffectivePaid(item) {
   return Number(item.paidOverride != null ? item.paidOverride : item.paid || 0);
 }
