@@ -303,7 +303,7 @@ function getFilteredItems(items, section) {
           : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
       if (balance === 0) return false;
     } else if (filterState.status === "excluded") {
-      const isExcluded = section === "payables" 
+      const isExcluded = section === "payables"
         ? item.completionStatus === "제외"
         : section === "receivables"
           ? (item.condition === "제외" || (item.memo && item.memo.includes("제외")))
@@ -832,6 +832,16 @@ function buildPayableSourceKey(item) {
     String(item.memo || "").trim(),
   ];
   return parts.join("||");
+}
+
+function normalizeDueGroupLabel(label) {
+  if (!label) return "미정";
+  const s = String(label).trim();
+  if (s.includes("보류")) return "보류";
+  if (s.includes("제외")) return "제외";
+  if (s.includes("내일")) return "오늘/내일";
+  if (s.includes("오늘")) return "오늘/내일";
+  return s;
 }
 
 // raw 교체 시에도 살아남는 안정적 식별자 (금액/메모 제외)
@@ -2428,16 +2438,16 @@ function setupLedgerVendorImport() {
 
 function applySavedPaymentPlansFromApi(rows) {
   if (!Array.isArray(rows) || !rows.length) return;
-  
+
   // 히스토리 초기화 및 그룹화 (동일 sourceKey에 여러 개의 누적된 기록)
   Object.keys(payablePlanHistories).forEach(k => delete payablePlanHistories[k]);
-  
+
   const bySourceKey = rows.reduce((acc, row) => {
     const sourceKey = String(row.source_key || row.sourceKey || "").trim();
     if (sourceKey) {
       if (!payablePlanHistories[sourceKey]) payablePlanHistories[sourceKey] = [];
       payablePlanHistories[sourceKey].push(row);
-      
+
       const existing = acc[sourceKey];
       if (!existing) {
         acc[sourceKey] = row;
@@ -2468,7 +2478,7 @@ function applySavedPaymentPlansFromApi(rows) {
     if (localItem && localItem.updatedAt && saved.updated_at) {
       const localTime = new Date(localItem.updatedAt).getTime();
       const remoteTime = new Date(saved.updated_at).getTime();
-      if (localTime > remoteTime) return item; 
+      if (localTime > remoteTime) return item;
     }
 
     const rawOutstanding = Math.max(0, Number(item.purchase || 0) - Number(item.paid || 0));
@@ -2833,7 +2843,7 @@ function parseAvailableFunds(rows) {
   const accounts = [];
   const purchaseLoans = [];
   const eBonds = [];
-  
+
   let totalAccountBalance = 0;
   let totalPurchaseLoanBalance = 0;
   let totalEBonds = 0;
@@ -2852,10 +2862,10 @@ function parseAvailableFunds(rows) {
 
     // B열 (은행/거래처)
     const name = String(row["은행"] || row["만기"] || row["거래처"] || row["client"] || row["금융기관"] || "").trim();
-    
+
     // D열 (금액/잔액)
     const value = parseSheetNumber(row["가용자금"] || row["금액"] || row["잔액"] || row["잔액(원)"] || row["amount"] || row["balance"] || 0);
-    
+
     if (type === "계좌") {
       accounts.push({ name, value });
       totalAccountBalance += value;
@@ -2974,11 +2984,11 @@ function renderDashboard() {
 function switchTab(tabId) {
   const buttons = document.querySelectorAll(".tab-button");
   const contents = document.querySelectorAll(".tab-content");
-  
+
   buttons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.tab === tabId);
   });
-  
+
   contents.forEach(content => {
     content.classList.toggle("active", content.id === tabId);
   });
@@ -3136,14 +3146,15 @@ function renderGroupFilterControls() {
     </div>
     <div class="group-filter-list compact">
       ${orderedGroups.map(group => {
-        const checked = isChecked(group);
-        return `
+    const checked = isChecked(group);
+    return `
         <label class="group-filter-item ${checked ? "selected" : ""} group-filter-item-draggable" draggable="true" data-group="${group}">
           <span class="group-chip-handle">≡</span>
           <input type="checkbox" value="${group}" ${checked ? "checked" : ""} />
           <span>${group}</span>
         </label>
-      `;}).join("")}
+      `;
+  }).join("")}
     </div>
   `;
 
@@ -3196,18 +3207,18 @@ function renderGroupFilterControls() {
       event.preventDefault();
       const targetGroup = event.currentTarget.dataset.group || "";
       if (!draggingGroup || !targetGroup || draggingGroup === targetGroup) return;
-      
+
       const nextOrder = [...orderedGroups];
       const fromIndex = nextOrder.indexOf(draggingGroup);
       const toIndex = nextOrder.indexOf(targetGroup);
       if (fromIndex === -1 || toIndex === -1) return;
-      
+
       nextOrder.splice(fromIndex, 1);
       nextOrder.splice(toIndex, 0, draggingGroup);
-      
+
       filterState.groupOrder = nextOrder;
       saveGroupOrder();
-      
+
       // UI 즉시 반영 (전체 리렌더링)
       preserveViewport(() => {
         renderGroupFilterControls(); // 버튼 순서 갱신
@@ -3735,7 +3746,7 @@ function openReceivablePreviewDialog(previews, payload, parentOverlay) {
     alert("생성된 미리보기 메일이 없습니다. 선택 조건을 확인해주세요.");
     parentOverlay.style.display = "flex";
     const btn = parentOverlay.querySelector(".rcv-send-btn");
-    if(btn){ btn.disabled = false; btn.textContent = "다음: 미리보기"; }
+    if (btn) { btn.disabled = false; btn.textContent = "다음: 미리보기"; }
     return;
   }
 
@@ -3749,7 +3760,7 @@ function openReceivablePreviewDialog(previews, payload, parentOverlay) {
     const p = previews[activeIdx];
     const tabsHtml = previews.map((pr, idx) => `
       <button type="button" class="rcv-preview-tab ${idx === activeIdx ? "active" : ""}" data-idx="${idx}">
-        ${escapeHtml(pr.id === "summary" ? "📋 전체 보고서" : (pr.id === "absent" ? "🏢 부재 통합" : "👤 " + pr.id.replace("mgr_","")))}
+        ${escapeHtml(pr.id === "summary" ? "📋 전체 보고서" : (pr.id === "absent" ? "🏢 부재 통합" : "👤 " + pr.id.replace("mgr_", "")))}
       </button>
     `).join("");
 
@@ -3791,12 +3802,12 @@ function openReceivablePreviewDialog(previews, payload, parentOverlay) {
 
     overlay.querySelector(".rcv-prev-close-btn").addEventListener("click", () => { overlay.remove(); parentOverlay.remove(); });
     overlay.querySelector(".rcv-prev-cancel-btn").addEventListener("click", () => { overlay.remove(); parentOverlay.remove(); });
-    overlay.querySelector(".rcv-prev-back-btn").addEventListener("click", () => { 
+    overlay.querySelector(".rcv-prev-back-btn").addEventListener("click", () => {
       saveCurrentCustomMsg();
-      overlay.remove(); 
-      parentOverlay.style.display = "flex"; 
+      overlay.remove();
+      parentOverlay.style.display = "flex";
       const btn = parentOverlay.querySelector(".rcv-send-btn");
-      if(btn){ btn.disabled = false; btn.textContent = "다음: 미리보기"; }
+      if (btn) { btn.disabled = false; btn.textContent = "다음: 미리보기"; }
     });
 
     overlay.querySelectorAll(".rcv-preview-tab").forEach(btn => {
@@ -4047,7 +4058,7 @@ function renderPayables() {
       .sort()
       .map(key => `${key === "보류" ? key : /^\d{4}-\d{2}-\d{2}$/.test(key) ? key.slice(5).replace("-", "/") : key} ${planCounts[key]}건`)
       .join(" · ");
-      
+
     const groupSummaryCells = monthKeys.map((mk, idx) => {
       return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[mk] || 0)}</td>`;
     }).join("");
@@ -4091,7 +4102,7 @@ function renderPayables() {
         const isLastEdited = payablesUiState.lastEdited
           && payablesUiState.lastEdited.partnerKey === getPartnerGroupKey(entry.items[0])
           && payablesUiState.lastEdited.monthKey === monthKey;
-        
+
         if (originalValue === 0) {
           return `<td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
         }
@@ -4291,10 +4302,10 @@ function renderPayables() {
       event.stopPropagation();
       const partnerKey = decodeURIComponent(event.currentTarget.dataset.partnerKey || "");
       const monthKey = event.currentTarget.dataset.monthKey;
-      
+
       const targetItems = payables.filter(item => getPartnerGroupKey(item) === partnerKey && getMonthKey(item) === monthKey);
       if (!targetItems.length) return;
-      
+
       showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey);
     });
   });
@@ -4366,13 +4377,13 @@ function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
     const arr = payablePlanHistories[sk] || [];
     arr.forEach(h => combined.push({ item, row: h }));
   });
-  
+
   combined.sort((a, b) => new Date(b.row.updated_at || 0).getTime() - new Date(a.row.updated_at || 0).getTime());
-  
+
   document.querySelector(".history-diff-overlay")?.remove();
   const overlay = document.createElement("div");
   overlay.className = "history-diff-overlay raw-diff-overlay";
-  
+
   const historyListHtml = combined.length === 0 ? `<div style="padding:20px;text-align:center;color:#666;">과거 원격 저장 이력이 없습니다. (가장 최신의 상태입니다)</div>` :
     combined.map((c, i) => {
       const dt = c.row.updated_at ? new Date(c.row.updated_at).toLocaleString("ko-KR") : "시간 알 수 없음";
@@ -4386,9 +4397,9 @@ function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
             <div style="font-weight:600; margin-top:4px; font-size:14px;">상태: <span style="color:#2563eb">${plan}</span> / 금액: ${formatNumber(amt)}</div>
             ${c.row.memo ? `<div style="font-size:12px; color:#555; margin-top:4px;">메모: ${c.row.memo}</div>` : ""}
           </div>
-          ${!isLatest 
-            ? `<button type="button" class="btn-restore" style="padding:6px 10px; font-size:13px; cursor:pointer; background:#fff; border:1px solid #ccc; border-radius:4px;" data-index="${i}">이 상태로 복원</button>` 
-            : `<span style="font-size:13px;color:#10b981;font-weight:600;padding-right:10px;">(현재 상태)</span>`}
+          ${!isLatest
+          ? `<button type="button" class="btn-restore" style="padding:6px 10px; font-size:13px; cursor:pointer; background:#fff; border:1px solid #ccc; border-radius:4px;" data-index="${i}">이 상태로 복원</button>`
+          : `<span style="font-size:13px;color:#10b981;font-weight:600;padding-right:10px;">(현재 상태)</span>`}
         </div>
       `;
     }).join("");
@@ -4410,12 +4421,12 @@ function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
   document.body.appendChild(overlay);
 
   overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
-  
+
   overlay.querySelectorAll(".btn-restore").forEach(btn => {
     btn.addEventListener("click", (e) => {
       const idx = e.currentTarget.dataset.index;
       const targetState = combined[idx];
-      
+
       targetItems.forEach(actualItem => {
         if (actualItem.sourceKey === targetState.item.sourceKey) {
           actualItem.paymentPlan = targetState.row.payment_plan || "";
@@ -4429,7 +4440,7 @@ function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
           }
         }
       });
-      
+
       payablesUiState.lastEdited = { partnerKey, monthKey };
       persistPayablesState();
       overlay.remove();
@@ -4628,7 +4639,7 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
     }
     const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : "미정";
     const nextPlanValue = excludePlan ? "제외" : holdPlan ? "보류" : (planDateInput?.value || "");
-    
+
     monthItems.forEach(item => {
       item.paymentPlan = nextPlanValue;
       item.completionStatus = nextStatus;
@@ -4869,7 +4880,7 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
   function applyPlan() {
     const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : "미정";
     const nextPlanValue = excludePlan ? "제외" : holdPlan ? "보류" : (dateInput.value || "");
-    
+
     targetItems.forEach(item => {
       item.paymentPlan = nextPlanValue;
       item.completionStatus = nextStatus;
@@ -5165,7 +5176,7 @@ function renderFixedExpenses() {
     elements.fixed.querySelectorAll(".fixed-day-check").forEach(cb => cb.checked = true);
     updateCheckedTotal();
   });
-  
+
   document.getElementById("fixedDeselectAll")?.addEventListener("click", () => {
     elements.fixed.querySelectorAll(".fixed-day-check").forEach(cb => cb.checked = false);
     updateCheckedTotal();
@@ -6638,7 +6649,7 @@ function setupApiTokenButton() {
 async function init() {
   loadGroupOrder();
   loadVendorMemos();
-  
+
   renderPartnerFilter();
   renderFilterControls();
   renderVendorMasterPanel();
@@ -6672,7 +6683,7 @@ async function init() {
     loadSheetFixedExpenses(),
     loadAvailableFunds()
   ]);
-  
+
   rerenderAll(); // 모든 데이터 로드 후 최종 갱신 보장
 }
 
