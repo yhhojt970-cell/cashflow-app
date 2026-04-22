@@ -2105,7 +2105,29 @@ td {
   padding: 7px 10px;
   font-size: 0.82rem;
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
+
+/* 이중 헤더 고정: 두 번째 줄(월)은 첫 번째 줄 아래에 고정 */
+.rcv-pivot-table thead tr:nth-child(2) th {
+  top: 32px; /* 첫 번째 줄의 대략적인 높이 */
+  z-index: 9;
+}
+
+/* rowspan="2"인 셀은 전체를 덮으므로 top 0 고정 유지 */
+.rcv-pivot-table thead th[rowspan="2"] {
+  top: 0;
+  z-index: 11;
+}
+
+
+
+
+
+
+
 .rcv-group-header td {
   background: #f8fafc;
   border-top: 2px solid #e2e8f0;

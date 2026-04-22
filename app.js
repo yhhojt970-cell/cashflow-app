@@ -1244,21 +1244,30 @@ function setManagerMasterRows(rows) {
   const mgrKey = allKeys.find(k => /담당자|manager/i.test(k)) || "";
   const emailKey = allKeys.find(k => /이메일|email/i.test(k)) || "";
   console.log("[담당자] 사용 컬럼 — 코드:", codeKey, "담당자:", mgrKey, "이메일:", emailKey);
-  rows.forEach(row => {
-    const code = normalizeVendorCode(String(codeKey ? (row[codeKey] ?? "") : "").trim());
+  const samples = [];
+  rows.forEach((row, idx) => {
+    const rawVal = codeKey ? (row[codeKey] ?? "") : "";
+    const code = normalizeVendorCode(String(rawVal).trim());
     const manager = String(mgrKey ? (row[mgrKey] ?? "") : "").trim();
     const email = String(emailKey ? (row[emailKey] ?? "") : "").trim()
       || RECEIVABLE_MANAGER_EMAIL_MAP[manager] || "";
-    if (code && manager) receivableManagerState.map.set(code, { manager, email });
+    if (code && manager) {
+      receivableManagerState.map.set(code, { manager, email });
+      if (samples.length < 5) samples.push({ raw: rawVal, norm: code });
+    }
   });
-  console.log(`[담당자] 마스터 로드: ${receivableManagerState.map.size}건`, [...receivableManagerState.map.entries()].slice(0, 5));
+  console.log(`[담당자] 마스터 로드: ${receivableManagerState.map.size}건`, "샘플:", JSON.stringify(samples));
 }
 
 function enrichReceivablesWithManager() {
   if (receivables.length) {
     const sample = receivables[0];
-    const mapKeys = [...receivableManagerState.map.keys()].slice(0, 5);
-    console.log("[담당자 매칭]", "맵크기:", receivableManagerState.map.size, "샘플코드:", sample.code, "맵키샘플:", mapKeys, "매칭:", receivableManagerState.map.get(sample.code));
+    const mapKeys = [...receivableManagerState.map.keys()].slice(0, 10);
+    console.log("[담당자 매칭] 시작", {
+      mapKeys: JSON.stringify(mapKeys),
+      sampleCode: sample.code,
+      sampleMatch: receivableManagerState.map.get(sample.code)
+    });
   }
   receivables.forEach(item => {
     const mgr = receivableManagerState.map.get(item.code);
@@ -1270,6 +1279,7 @@ function enrichReceivablesWithManager() {
       item.managerEmail = "";
     }
   });
+  console.log("[담당자 매칭] 완료", receivables.filter(r => r.manager !== "미지정").length, "건 매칭됨");
 }
 
 function applyPaymentHistoryRows(rows) {
@@ -2868,9 +2878,12 @@ function parseAvailableFunds(rows) {
   let totalPurchaseLoanBalance = 0;
   let totalEBonds = 0;
 
-  rows.forEach(row => {
-    // A열 (구분/종류) - 유연한 매핑
-    const typeStr = String(row[""] || row["구분"] || row["종류"] || row["type"] || "").trim();
+  console.log("[가용자금] 파싱 시작, 데이터 수:", rows.length);
+  if (rows.length > 0) console.log("[가용자금] 첫 행 샘플:", JSON.stringify(rows[0]));
+
+  rows.forEach((row, idx) => {
+    // 위치 기반 우선 (A=종류, B=은행/만기, D=금액/잔액) + 기존 헤더 명칭 폴백
+    const typeStr = String(row["A"] || row["구분"] || row["종류"] || row["type"] || row[""] || "").trim();
     let type = "";
     if (typeStr.includes("계좌") || typeStr.includes("예금") || typeStr.includes("현금") || typeStr.includes("보통")) {
       type = "계좌";
@@ -2880,11 +2893,10 @@ function parseAvailableFunds(rows) {
       type = "전자채권";
     }
 
-    // B열 (은행/거래처)
-    const name = String(row["은행"] || row["만기"] || row["거래처"] || row["client"] || row["금융기관"] || "").trim();
+    const name = String(row["B"] || row["은행"] || row["만기"] || row["거래처"] || row["client"] || row["금융기관"] || "").trim();
+    const value = parseSheetNumber(row["D"] || row["가용자금"] || row["금액"] || row["잔액"] || row["잔액(원)"] || row["amount"] || row["balance"] || 0);
 
-    // D열 (금액/잔액)
-    const value = parseSheetNumber(row["가용자금"] || row["금액"] || row["잔액"] || row["잔액(원)"] || row["amount"] || row["balance"] || 0);
+    if (idx < 3) console.log(`[가용자금] 행 ${idx} 파싱:`, { typeStr, type, name, value });
 
     if (type === "계좌") {
       accounts.push({ name, value });
@@ -2912,8 +2924,13 @@ function parseAvailableFunds(rows) {
 }
 
 async function loadAvailableFunds() {
-  const rows = await fetchAvailableFundsFromApi();
-  availableFunds = parseAvailableFunds(rows);
+  try {
+    const rows = await fetchAvailableFundsFromApi();
+    availableFunds = parseAvailableFunds(rows);
+    console.log("[가용자금] 로드 완료. 합계:", formatNumber(availableFunds.summary.availableTotal));
+  } catch (err) {
+    console.error("[가용자금] 로드 중 오류 발생:", err);
+  }
 }
 
 function renderDashboard() {
