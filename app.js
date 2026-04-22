@@ -4622,7 +4622,8 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
       </div>
       <div class="editor-vendor-meta ${vendorBank || vendorAccount ? "has-vendor" : ""}">
         ${vendorBank || vendorAccount
-      ? `<span>${vendorBank || "은행 없음"}</span><span>${vendorAccount || "계좌 없음"}</span><span>${vendorAccountHolder || "예금주 없음"}</span>" : `<span>업체마스터에 은행/계좌 정보가 아직 없습니다.</span>`}
+      ? `<span>${vendorBank || "은행 없음"}</span><span>${vendorAccount || "계좌 없음"}</span><span>${vendorAccountHolder || "예금주 없음"}</span>`
+      : `<span>업체마스터에 은행/계좌 정보가 아직 없습니다.</span>`}
       </div>
       <div class="editor-panel">
         <div class="editor-input-row">
