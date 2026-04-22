@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/index.html)",
+      "Bash(node --check app.js)",
+      "Read(//c/Users/yhhoj/.claude/projects/c--Users-yhhoj-ReceivablePayableWebApp//**)",
+      "Bash(node -e ' *)",
+      "Bash(node --check \"/c/Users/yhhoj/ReceivablePayableWebApp/app.js\")",
+      "Bash(python3 -m http.server 8000)",
+      "Bash(curl -s \"http://localhost:8000/index.html\")",
+      "Bash(node -e \"const http=require\\('http'\\),fs=require\\('fs'\\),path=require\\('path'\\); http.createServer\\(\\(req,res\\)=>{const f=path.join\\('.',req.url==='/'?'/index.html':req.url\\);try{res.end\\(fs.readFileSync\\(f\\)\\);}catch{res.writeHead\\(404\\);res.end\\(\\);}}\\).listen\\(8000,\\(\\)=>console.log\\('ok'\\)\\);\")",
+      "Bash(curl -s http://localhost:8000/index.html)"
+    ]
+  }
+}

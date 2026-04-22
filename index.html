@@ -12,6 +12,7 @@
       <h1>현금흐름 관리</h1>
       <div class="header-actions">
         <button type="button" id="apiTokenButton" class="header-action-button" title="API 인증 토큰 설정">🔑 토큰</button>
+        <a id="sheetLinkButton" class="header-action-button" target="_blank" title="연결된 구글 시트로 이동" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">📗 구글시트</a>
         
         <!-- 마스터 관리 드롭다운 -->
         <div class="dropdown">
@@ -60,15 +61,17 @@
     <section class="summary-panel" id="summaryPanel"></section>
 
     <nav class="tab-bar">
+      <button class="tab-button active" data-tab="home">홈</button>
       <button class="tab-button" data-tab="receivables">미수금</button>
-      <button class="tab-button active" data-tab="payables">미지급</button>
+      <button class="tab-button" data-tab="payables">미지급</button>
       <button class="tab-button" data-tab="fixed">고정지출</button>
       <button class="tab-button" data-tab="daesa">대사</button>
     </nav>
 
     <main>
+      <section id="home" class="tab-content active"></section>
       <section id="receivables" class="tab-content"></section>
-      <section id="payables" class="tab-content active"></section>
+      <section id="payables" class="tab-content"></section>
       <section id="fixed" class="tab-content"></section>
       <section id="daesa" class="tab-content"></section>
     </main>

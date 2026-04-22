@@ -867,7 +867,8 @@ body {
 }
 
 .editor-plan-default-button,
-.editor-plan-hold-button {
+.editor-plan-hold-button,
+.editor-plan-exclude-button {
   padding: 5px 8px;
   border-radius: 8px;
   border: 1px solid #d0d8e4;
@@ -881,6 +882,12 @@ body {
 .editor-plan-hold-button.active {
   background: #d97706;
   border-color: #d97706;
+  color: #fff;
+}
+
+.editor-plan-exclude-button.active {
+  background: #64748b;
+  border-color: #64748b;
   color: #fff;
 }
 
@@ -3073,6 +3080,177 @@ td {
 .rcv-pivot-table tr.rcv-group-header:hover td {
   background: #047857 !important;
   color: #ffffff !important;
+}
+/* ── Dashboard (Home) ────────────────────────────────────────── */
+.dashboard-container {
+  padding: 10px 4px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+}
+
+.last-updated {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.dashboard-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.dashboard-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 20px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.dashboard-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.1);
+  border-color: var(--accent);
+}
+
+.dashboard-card.highlight {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-color: #bae6fd;
+}
+
+.card-icon {
+  font-size: 1.8rem;
+  margin-bottom: 12px;
+}
+
+.card-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.card-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.card-footer {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.dashboard-details-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 24px;
+}
+
+.dashboard-detail-box {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.dashboard-detail-box h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.detail-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #f8fafc;
+  font-size: 0.9rem;
+}
+
+.detail-list li:last-child {
+  border-bottom: none;
+}
+
+.detail-list li.total-line {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 2px solid #f1f5f9;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+/* ── Year Toggling ───────────────────────────────────────────── */
+.year-group-header {
+  background: #f1f5f9 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  padding: 4px 8px !important;
+}
+
+.year-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.year-toggle-btn {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  width: 50px;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.year-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.year-group-header.collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+.year-group-header.collapsed .year-toggle-btn {
+  background: #f8fafc;
+  border-style: dashed;
 }
 
 

@@ -1,0 +1,388 @@
+const MAIN_SHEET_ID        = "기존 메인 스프레드시트 ID";
+const RECEIVABLES_SHEET_ID = "1VxYrCD3eZr5PpTORFPCEQPfWM5QSr-tNFNnc_W1C5qM";
+
+const PAYABLES_SHEET    = "미지급_raw";
+const RECEIVABLES_SHEET = "raw";
+const MANAGER_SHEET     = "담당자";
+const PLAN_SHEET        = "결제계획";
+const MASTER_SHEET      = "업체마스터";
+const HISTORY_SHEET     = "결제이력";
+
+// ── 미수금 이메일 설정 ──────────────────────────────────────
+const RCV_MANAGER_EMAIL_MAP = {
+  "장운기":"jug@mauto.co.kr","여희정":"yhj@mauto.co.kr","김도연":"kdy@mauto.co.kr",
+  "남예린":"nyr@mauto.co.kr","오성철":"osc@mauto.co.kr","장재영":"jjy@mauto.co.kr",
+  "김태홍":"kth@mauto.co.kr","박희선":"phs@mauto.co.kr","구예솔":"kys@mauto.co.kr",
+  "배지혜":"bjh@mauto.co.kr","임연하":"lyh@mauto.co.kr",
+};
+const RCV_ABSENCE_CHAIN = [
+  { name:"박희선", email:"phs@mauto.co.kr" },
+  { name:"김도연", email:"kdy@mauto.co.kr" },
+  { name:"장운기", email:"jug@mauto.co.kr" },
+];
+const RCV_DEPT_HEAD = { name:"김도연", email:"kdy@mauto.co.kr" };
+const RCV_CEO       = { name:"장운기", email:"jug@mauto.co.kr" };
+
+function doGet(e) {
+  const action = String((e && e.parameter && e.parameter.action) || "").trim();
+  if (action === "getPaymentPlans")  return jsonOutput({ rows: getSheetRows(PLAN_SHEET) });
+  if (action === "getVendorMaster")  return jsonOutput({ rows: getSheetRows(MASTER_SHEET) });
+  if (action === "getPaymentHistory")return jsonOutput({ rows: getSheetRows(HISTORY_SHEET) });
+  if (action === "getReceivables")   return jsonOutput({ rows: getSheetRows(RECEIVABLES_SHEET) });
+  if (action === "getManagerMaster") return jsonOutput({ rows: getSheetRows(MANAGER_SHEET) });
+  return jsonOutput({ data: getSheetRows(PAYABLES_SHEET) });
+}
+
+function doPost(e) {
+  const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
+  const action = String(body.action || "").trim();
+
+  if (action === "upsertPaymentPlans") {
+    upsertRowsByKey(PLAN_SHEET, "source_key", Array.isArray(body.rows) ? body.rows : []);
+    return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "upsertVendorMaster") {
+    upsertRowsByKey(MASTER_SHEET, "거래처코드_norm", Array.isArray(body.rows) ? body.rows : []);
+    return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "appendPaymentHistory") {
+    appendRows(HISTORY_SHEET, Array.isArray(body.rows) ? body.rows : []);
+    return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "upsertManagerMaster") {
+    upsertRowsByKey(MANAGER_SHEET, "거래처코드", Array.isArray(body.rows) ? body.rows : []);
+    return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "sendReceivableEmails") {
+    return jsonOutput(handleSendReceivableEmails(body));
+  }
+
+  return jsonOutput({ error: "지원하지 않는 action 입니다." });
+}
+
+// ── 미수금 이메일 발송 핸들러 ───────────────────────────────
+function handleSendReceivableEmails(params) {
+  const { managers=[], absentChain=[], ccEmails=[], conditions=[], 
+          testMode=false, testRecipient=null, sendSummary=true, excludeMinus=false } = params;
+
+  const rawData  = getSheetRows(RECEIVABLES_SHEET);
+  const mgrData  = getSheetRows(MANAGER_SHEET);
+  const today    = new Date(); today.setHours(0,0,0,0);
+
+  // 담당자 맵 구성
+  const mgrMap = {};
+  mgrData.forEach(r => {
+    const code = String(r["거래처코드"]||"").trim().replace(/^0+/,"");
+    if (code) mgrMap[code] = { manager: r["담당자"]||"", email: r["이메일"]||"" };
+  });
+
+  // 수금예정일 계산
+  function calcDueDate(year, month, memo, condition) {
+    const cond = String(condition||"").replace("전자어음","").trim();
+    const ms   = String(memo||"").trim();
+    year=Number(year); month=Number(month);
+    if (!year||!month) return null;
+    if (["바로","쇼핑몰+","오토몰"].includes(cond)) {
+      const m=ms.match(/(\d{6})~\?/); if(!m) return null;
+      const s=m[1]; return new Date(2000+parseInt(s.slice(0,2)),parseInt(s.slice(2,4))-1,parseInt(s.slice(4,6)));
+    }
+    function lastDay(y,m){return new Date(y,m,0);}
+    function add(y,m,n){const t=m+n;return[y+Math.floor((t-1)/12),((t-1)%12)+1];}
+    if(cond==="당말일") return lastDay(year,month);
+    const cm=cond.match(/^당(\d+)일$/); if(cm){const[ny,nm]=add(year,month,1);return new Date(ny,nm-1,parseInt(cm[1]));}
+    if(cond==="25일"){const[ny,nm]=add(year,month,1);return new Date(ny,nm-1,25);}
+    if(cond==="말일"){const[ny,nm]=add(year,month,1);return lastDay(ny,nm);}
+    if(cond==="60일"){const[ny,nm]=add(year,month,2);return lastDay(ny,nm);}
+    const dm=cond.match(/^(\d+)일$/); if(dm){const[ny,nm]=add(year,month,2);return new Date(ny,nm-1,parseInt(dm[1]));}
+    return null;
+  }
+
+  // 조건 필터 셋
+  const condSet = new Set(conditions);
+
+  // 담당자별 rows 구성
+  const groups = {};
+  rawData.forEach(row => {
+    const year=Number(row["year"]||row["작성연도"]||0), month=Number(row["month"]||row["작성월"]||0);
+    const codeRaw=String(row["code"]||row["거래처코드"]||"").trim();
+    const code=codeRaw.replace(/^0+/,"");
+    const name=String(row["client"]||row["거래처명"]||"").trim();
+    const memo=String(row["memo"]||row["메모"]||"").trim();
+    const condition=String(row["condition"]||row["수금조건"]||"").trim();
+    const balance=Number(String(row["balance"]||row["잔액"]||0).toString().replace(/[^0-9.-]/g,""))||0;
+    if (!name || !balance || memo.includes("제외")) return;
+    if (condSet.size && !condSet.has(condition)) return;
+    const mgr = mgrMap[code] || { manager:"미지정", email:"" };
+    const email = mgr.email || RCV_MANAGER_EMAIL_MAP[mgr.manager] || "";
+    if (!email && mgr.manager !== "미지정") return;
+    const dueDate = calcDueDate(year, month, memo, condition);
+    const elapsed = dueDate ? Math.floor((today-dueDate)/86400000) : null;
+    const dueDateStr = dueDate ? Utilities.formatDate(dueDate,"Asia/Seoul","yyyy-MM-dd") : "";
+    const ym = year && month ? `${String(year).slice(2)}-${String(month).padStart(2,"0")}` : "";
+    if (!groups[mgr.manager]) groups[mgr.manager] = { manager:mgr.manager, email, rows:[] };
+    groups[mgr.manager].rows.push({ name, condition, ym, dueDate:dueDateStr, elapsed, balance, memo });
+  });
+
+  const absentSet = new Set(absentChain||[]);
+  function resolveChain() {
+    for (const p of RCV_ABSENCE_CHAIN) { if (!absentSet.has(p.name)) return p; }
+    return null;
+  }
+
+  const cc       = (ccEmails||[]).join(",");
+  const testTo   = testRecipient || "yhj@mauto.co.kr";
+  const td       = "padding:7px 10px;border:1px solid #ddd;white-space:nowrap;";
+  const th       = "padding:8px 10px;border:1px solid #1565c0;white-space:nowrap;";
+  const dateStr  = Utilities.formatDate(new Date(),"Asia/Seoul","yyyy년 MM월 dd일");
+  let sentCount  = 0;
+
+  function buildRows(rowList) {
+    let html="", total=0;
+    rowList.forEach(r => {
+      const el=r.elapsed;
+      let bg="", elStyle="color:#333;";
+      if(el>=60){bg="background:#fff0f0;";elStyle="color:#d32f2f;font-weight:bold;";}
+      else if(el>=30){bg="background:#fffde7;";elStyle="color:#f57f17;font-weight:bold;";}
+      const elLabel = el<0 ? `<span style="color:#1565c0;">D${el}</span>`
+                            : `<span style="${elStyle}">${el}일</span>`;
+      total+=r.balance;
+      html+=`<tr style="${bg}">
+        <td style="${td}text-align:center;">${r.ym}</td>
+        <td style="${td}">${r.name}</td>
+        <td style="${td}text-align:center;">${r.condition}</td>
+        <td style="${td}text-align:center;">${r.dueDate||"-"}</td>
+        <td style="${td}text-align:center;">${elLabel}</td>
+        <td style="${td}text-align:right;">${r.balance.toLocaleString()}원</td>
+        <td style="${td}font-size:12px;color:#666;">${r.memo}</td>
+      </tr>`;
+    });
+    return { html, total };
+  }
+
+  function wrapEmail(body) {
+    return `<div style="font-family:'맑은 고딕',sans-serif;max-width:900px;margin:0 auto;color:#333;">${body}
+      <p style="font-size:12px;color:#888;">본 메일은 자동 발송됩니다.</p>
+      <br><p>감사합니다.<br><strong>미래오토메이션(주) 관리부</strong></p></div>`;
+  }
+
+  // 담당자별 발송
+  const normalManagers = managers.filter(m => !m.absent);
+  const absentManagers = managers.filter(m =>  m.absent);
+
+  normalManagers.forEach(({ manager }) => {
+    const group = groups[manager]; if (!group || !group.rows.length) return;
+    const { html, total } = buildRows(group.rows);
+    const to = testMode ? testTo : (group.email || RCV_MANAGER_EMAIL_MAP[manager] || "");
+    if (!to) return;
+    const subject = (testMode?"[테스트] ":"") + `[미래오토메이션] ${manager} 담당자 미수금 현황 안내`;
+    const body = wrapEmail(`<p>${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
+        <thead><tr style="background:#1565c0;color:white;">
+          <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
+          <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
+          <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
+        </tr></thead><tbody>${html}</tbody>
+        <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
+          <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">합 계</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+        </tr></tfoot>
+      </table>`);
+    const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
+    if (cc) opts.cc = cc;
+    GmailApp.sendEmail(to, subject, "본 메일은 HTML 형식입니다.", opts);
+    sentCount++;
+  });
+
+  // 부재자 통합 발송
+  const chainTarget = resolveChain();
+  if (absentManagers.length && chainTarget) {
+    const allRows = [];
+    absentManagers.forEach(({ manager }) => {
+      if (groups[manager]) allRows.push(...groups[manager].rows);
+    });
+    if (allRows.length) {
+      const { html, total } = buildRows(allRows);
+      const mgrLabel = absentManagers.length===1 ? absentManagers[0].manager
+        : `${absentManagers[0].manager} 외 ${absentManagers.length-1}명`;
+      const to = testMode ? testTo : chainTarget.email;
+      const subject = (testMode?"[테스트] ":"") +
+        `[미래오토메이션] ${mgrLabel} 담당자 미수금 현황 안내 (부재 대리 수신)`;
+      const body = wrapEmail(`
+        <p style="color:#7b1fa2;background:#f3e5f5;padding:10px 14px;border-left:4px solid #7b1fa2;">
+          ※ 부재 담당자(${mgrLabel}) 대리 수신 — ${chainTarget.name}님께 통합 발송</p>
+        <p>${dateStr} 기준 부재 담당자의 미수금 현황을 안내드립니다.</p>
+        <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
+          <thead><tr style="background:#1565c0;color:white;">
+            <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
+            <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
+            <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
+          </tr></thead><tbody>${html}</tbody>
+          <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
+            <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">합 계</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
+            <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+          </tr></tfoot>
+        </table>`);
+      const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
+      if (cc) opts.cc = cc;
+      GmailApp.sendEmail(to, subject, "본 메일은 HTML 형식입니다.", opts);
+      sentCount++;
+    }
+  }
+
+  // 전체 현황 보고서
+  if (sendSummary) {
+    const allRows = Object.values(groups).flatMap(g => g.rows);
+    const filtered = excludeMinus ? allRows.filter(r => (r.elapsed||0) >= 0) : allRows;
+    filtered.sort((a,b) => (a.dueDate||"").localeCompare(b.dueDate||""));
+    const { html, total } = buildRows(filtered);
+    const subject = (testMode?"[테스트] ":"") + "[미래오토메이션] 미수금 현황 보고";
+    const excludeNote = excludeMinus ? " (D- 제외)" : "";
+    const body = wrapEmail(`<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${excludeNote}</p>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
+        <thead><tr style="background:#1565c0;color:white;">
+          <th style="${th}">매출년월</th><th style="${th}text-align:left;">거래처명</th>
+          <th style="${th}">수금조건</th><th style="${th}">수금예정일</th>
+          <th style="${th}">경과일수</th><th style="${th}">잔액</th><th style="${th}">메모</th>
+        </tr></thead><tbody>${html}</tbody>
+        <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
+          <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">총 합계${excludeNote}</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
+          <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+        </tr></tfoot>
+      </table>`);
+    const opts = { htmlBody:body, name:"미래오토메이션(주) 관리부" };
+    if (cc) opts.cc = cc;
+    GmailApp.sendEmail(testMode ? testTo : RCV_DEPT_HEAD.email, subject, "HTML 형식", opts);
+    sentCount++;
+    if (!testMode) {
+      GmailApp.sendEmail(RCV_CEO.email, subject, "HTML 형식", opts);
+      sentCount++;
+    }
+  }
+
+    return { ok: true, sentCount };
+}
+
+function getSpreadsheetIdBySheetName(sheetName) {
+  if (sheetName === RECEIVABLES_SHEET) {
+    return RECEIVABLES_SHEET_ID;
+  }
+  return MAIN_SHEET_ID;
+}
+
+function getSheetRows(sheetName) {
+  const spreadsheetId = getSpreadsheetIdBySheetName(sheetName);
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    Logger.log(`시트를 찾을 수 없습니다. sheetName=${sheetName}, spreadsheetId=${spreadsheetId}`);
+    return [];
+  }
+
+  const values = sheet.getDataRange().getValues();
+
+  if (!values || values.length < 2) {
+    return [];
+  }
+
+  const headers = values[0].map(header => String(header).trim());
+  return values.slice(1).map(row => {
+    const item = {};
+    row.forEach((value, index) => {
+      item[headers[index]] = value;
+    });
+    return item;
+  });
+}
+
+function upsertRowsByKey(sheetName, keyField, rows) {
+  if (!rows.length) return;
+
+  const spreadsheetId = getSpreadsheetIdBySheetName(sheetName);
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow === 0) {
+    const headers = Object.keys(rows[0]);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    const body = rows.map(row => headers.map(header => row[header] ?? ""));
+    sheet.getRange(2, 1, body.length, headers.length).setValues(body);
+    return;
+  }
+
+  const lastCol = sheet.getLastColumn();
+  const currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v).trim());
+  const incomingHeaders = Object.keys(rows[0]);
+  const headers = [...currentHeaders];
+
+  incomingHeaders.forEach(header => {
+    if (!headers.includes(header)) headers.push(header);
+  });
+
+  if (headers.length !== currentHeaders.length) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+
+  if (headers.indexOf(keyField) === -1) {
+    headers.push(keyField);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+
+  const existingData = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, currentHeaders.length).getValues()
+    : [];
+
+  const existingMap = {};
+  existingData.forEach((row, index) => {
+    const rowObject = {};
+    currentHeaders.forEach((header, i) => {
+      rowObject[header] = row[i];
+    });
+    const key = String(rowObject[keyField] || "").trim();
+    if (key) existingMap[key] = index + 2;
+  });
+
+  rows.forEach(row => {
+    const key = String(row[keyField] || "").trim();
+    if (!key) return;
+
+    const values = headers.map(header => row[header] ?? "");
+    if (existingMap[key]) {
+      sheet.getRange(existingMap[key], 1, 1, headers.length).setValues([values]);
+    } else {
+      sheet.appendRow(values);
+    }
+  });
+}
+
+function appendRows(sheetName, rows) {
+  if (!rows.length) return;
+
+  const spreadsheetId = getSpreadsheetIdBySheetName(sheetName);
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow === 0) {
+    const headers = Object.keys(rows[0]);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    const body = rows.map(row => headers.map(header => row[header] ?? ""));
+    sheet.getRange(2, 1, body.length, headers.length).setValues(body);
+    return;
+  }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v).trim());
+  const body = rows.map(row => headers.map(header => row[header] ?? ""));
+  sheet.getRange(lastRow + 1, 1, body.length, headers.length).setValues(body);
+}
+
+function jsonOutput(payload) {
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}

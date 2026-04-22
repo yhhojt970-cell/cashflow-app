@@ -17,6 +17,8 @@ const MASTER_SHEET_NAME = "업체마스터";
 const PLAN_SHEET_NAME = "결제계획";
 const HISTORY_SHEET_NAME = "결제이력";
 const FIXED_EXPENSES_SHEET_NAME = "고정지출";
+const AVAILABLE_FUNDS_SHEET_NAME = "가용자금";
+const YEAR_TOGGLE_STORAGE_KEY = "receivable-payable-webapp.year-toggles.v1";
 const PAYABLES_SYNC_DEBOUNCE_MS = 700;
 const WOORI_TRANSFER_TEMPLATE_PATH = "우리은행 이체 양식.xlsx";
 const DEFAULT_SENDER_ACCOUNT_DISPLAY = "미래오토메이션(주)";
@@ -51,6 +53,17 @@ const RECEIVABLE_DEPT_HEAD = { name: "김도연", email: "kdy@mauto.co.kr" };
 const RECEIVABLE_CEO = { name: "장운기", email: "jug@mauto.co.kr" };
 
 let fixedExpenses = [];
+let availableFunds = {
+  accounts: [],
+  purchaseLoans: [],
+  eBonds: [],
+  summary: {
+    totalAccountBalance: 0,
+    totalPurchaseLoanBalance: 0,
+    totalEBonds: 0,
+    availableTotal: 0
+  }
+};
 
 const filterState = {
   partner: "",
@@ -60,6 +73,7 @@ const filterState = {
   search: "",
   groups: null, // null=전체, []=없음, [...]= 선택목록
   groupOrder: [], // 미지급 그룹 드래그 순서
+  yearCollapsed: {}, // { "2024": true, ... }
 };
 
 const payablesGroupState = {
@@ -262,8 +276,14 @@ function getFilteredItems(items, section) {
     }
     if (section === "payables" && !filterState.status) {
       if (item.completionStatus === "완료") return false;
+      if (item.completionStatus === "제외") return false; // 기본값에서 제외
     }
     if (filterState.status) {
+      if (filterState.status === "excluded") {
+        return item.completionStatus === "제외";
+      }
+      if (item.completionStatus === "제외") return false; // 다른 상태 필터(완료/미완료)에서도 제외는 숨김
+
       const balance = section === "payables"
         ? getPayableOutstanding(item)
         : section === "receivables"
@@ -272,6 +292,14 @@ function getFilteredItems(items, section) {
       const isPaid = section === "fixed" ? Boolean(item.paid) : balance === 0;
       if (filterState.status === "completed" && !isPaid) return false;
       if (filterState.status === "pending" && isPaid) return false;
+    } else {
+      const balance = section === "payables"
+        ? getPayableOutstanding(item)
+        : section === "receivables"
+          ? Number(item.balance || 0)
+          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
+      const isPaid = section === "fixed" ? Boolean(item.paid) : balance === 0;
+      if (isPaid) return false;
     }
     return true;
   });
@@ -2712,6 +2740,176 @@ async function fetchSheetWebApp() {
   throw new Error("Apps Script 응답 형식이 올바르지 않습니다.");
 }
 
+async function fetchAvailableFundsFromApi() {
+  if (SHEET_APP_SCRIPT_URL) {
+    try {
+      const url = new URL(SHEET_APP_SCRIPT_URL);
+      url.searchParams.set("action", "getAvailableFunds");
+      const _token = getApiToken();
+      if (_token) url.searchParams.set("token", _token);
+      const response = await fetch(url.toString());
+      if (!response.ok) throw new Error(`가용자금 조회 실패: ${response.status}`);
+      const body = await response.json();
+      if (Array.isArray(body)) return body;
+      if (Array.isArray(body.rows)) return body.rows;
+      if (Array.isArray(body.data)) return body.data;
+    } catch (error) {
+      console.warn("가용자금 Apps Script 조회 실패, gviz 폴백 시도:", error);
+    }
+  }
+  try {
+    return await fetchPublicSheetByName(AVAILABLE_FUNDS_SHEET_NAME);
+  } catch (error) {
+    console.warn("가용자금 gviz 조회 실패:", error);
+    return [];
+  }
+}
+
+function parseAvailableFunds(rows) {
+  const accounts = [];
+  const purchaseLoans = [];
+  const eBonds = [];
+  
+  let totalAccountBalance = 0;
+  let totalPurchaseLoanBalance = 0;
+  let totalEBonds = 0;
+
+  rows.forEach(row => {
+    const type = String(row[""] || row["구분"] || "").trim(); // A열
+    const name = String(row["은행"] || row["만기"] || row["거래처"] || row["client"] || "").trim(); // B열
+    const value = parseSheetNumber(row["가용자금"] || row["금액"] || row["amount"] || 0); // D열
+    
+    if (type === "계좌") {
+      accounts.push({ name, value });
+      totalAccountBalance += value;
+    } else if (type === "구매자금") {
+      purchaseLoans.push({ name, value });
+      totalPurchaseLoanBalance += value;
+    } else if (type === "전자채권") {
+      eBonds.push({ name, value });
+      totalEBonds += value;
+    }
+  });
+
+  return {
+    accounts,
+    purchaseLoans,
+    eBonds,
+    summary: {
+      totalAccountBalance,
+      totalPurchaseLoanBalance,
+      totalEBonds,
+      availableTotal: totalAccountBalance // 보통 가용자금은 계좌잔액 기준이므로 일단 이렇게 설정 (필요시 수정)
+    }
+  };
+}
+
+async function loadAvailableFunds() {
+  const rows = await fetchAvailableFundsFromApi();
+  availableFunds = parseAvailableFunds(rows);
+}
+
+function renderDashboard() {
+  const summary = calculateSummary();
+  const homeSection = document.getElementById("home");
+  if (!homeSection) return;
+
+  const totalExpected = (availableFunds.summary.availableTotal + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
+
+  homeSection.innerHTML = `
+    <div class="dashboard-container">
+      <div class="dashboard-header">
+        <h2>금융 통합 대시보드</h2>
+        <span class="last-updated">최근 업데이트: ${new Date().toLocaleString()}</span>
+      </div>
+      
+      <div class="dashboard-summary-cards">
+        <div class="dashboard-card funds" data-tab="home">
+          <div class="card-icon">💰</div>
+          <div class="card-label">가용자금</div>
+          <div class="card-value">${formatNumber(availableFunds.summary.availableTotal)}</div>
+          <div class="card-footer">계좌잔액 합계</div>
+        </div>
+        
+        <div class="dashboard-card receivables" data-tab="receivables">
+          <div class="card-icon">📈</div>
+          <div class="card-label">수금예상(미수금)</div>
+          <div class="card-value">${formatNumber(summary.totalOutstanding)}</div>
+          <div class="card-footer">${receivables.length}개 업체</div>
+        </div>
+        
+        <div class="dashboard-card payables" data-tab="payables">
+          <div class="card-icon">📉</div>
+          <div class="card-label">외상대지급(미지급)</div>
+          <div class="card-value">${formatNumber(summary.totalUnpaid)}</div>
+          <div class="card-footer">${payables.length}건</div>
+        </div>
+        
+        <div class="dashboard-card fixed" data-tab="fixed">
+          <div class="card-icon">🏠</div>
+          <div class="card-label">고정지출</div>
+          <div class="card-value">${formatNumber(summary.totalFixed)}</div>
+          <div class="card-footer">이번 달 납부 예정</div>
+        </div>
+        
+        <div class="dashboard-card expected highlight">
+          <div class="card-icon">⚖️</div>
+          <div class="card-label">예상 잔액</div>
+          <div class="card-value">${formatNumber(totalExpected)}</div>
+          <div class="card-footer">최종 가용 예상</div>
+        </div>
+      </div>
+      
+      <div class="dashboard-details-row">
+        <div class="dashboard-detail-box">
+          <h3>현금 계좌 내역</h3>
+          <ul class="detail-list">
+            ${availableFunds.accounts.map(acc => `
+              <li><span>${acc.name}</span><strong>${formatNumber(acc.value)}</strong></li>
+            `).join("")}
+            <li class="total-line"><span>합계</span><strong>${formatNumber(availableFunds.summary.totalAccountBalance)}</strong></li>
+          </ul>
+        </div>
+        <div class="dashboard-detail-box">
+          <h3>대출 및 채권</h3>
+          <ul class="detail-list">
+            ${availableFunds.purchaseLoans.map(p => `
+              <li><span>${p.name} (구매자금)</span><strong>${formatNumber(p.value)}</strong></li>
+            `).join("")}
+            ${availableFunds.eBonds.map(e => `
+              <li><span>${e.name} (전자채권)</span><strong>${formatNumber(e.value)}</strong></li>
+            `).join("")}
+          </ul>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 카드 클릭 시 탭 이동 이벤트 추가
+  homeSection.querySelectorAll(".dashboard-card[data-tab]").forEach(card => {
+    card.addEventListener("click", () => {
+      const tab = card.dataset.tab;
+      switchTab(tab);
+    });
+  });
+}
+
+function switchTab(tabId) {
+  const buttons = document.querySelectorAll(".tab-button");
+  const contents = document.querySelectorAll(".tab-content");
+  
+  buttons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tabId);
+  });
+  
+  contents.forEach(content => {
+    content.classList.toggle("active", content.id === tabId);
+  });
+
+  // 탭 이동 시 스크롤 상단으로
+  window.scrollTo(0, 0);
+}
+
 async function fetchPublicSheetByName(sheetName) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&headers=1`;
   const response = await fetch(url);
@@ -2740,6 +2938,7 @@ async function fetchPublicSheet() {
 }
 
 function rerenderAll() {
+  renderDashboard();
   renderSummary();
   renderReceivables();
   renderPayables();
@@ -2998,6 +3197,10 @@ function setupGroupChipEvents(container, allLabels, getFilter, setFilter, setOrd
   });
 }
 
+function saveYearToggles() {
+  localStorage.setItem(YEAR_TOGGLE_STORAGE_KEY, JSON.stringify(filterState.yearCollapsed));
+}
+
 function renderReceivables() {
   // 칩용: 전체 receivables에서 조건 목록 수집 (필터 전)
   const allCondLabels = (() => {
@@ -3013,6 +3216,15 @@ function renderReceivables() {
   const filtered = getFilteredItems(receivables, "receivables");
   const totalBalance = filtered.reduce((s, i) => s + Number(i.balance || 0), 0);
   const monthKeys = [...new Set(filtered.map(i => `${i.year}-${String(i.month).padStart(2, "0")}`))].sort();
+
+  // 연도별 그룹 수집
+  const yearsMap = new Map();
+  monthKeys.forEach(mk => {
+    const y = mk.split("-")[0];
+    if (!yearsMap.has(y)) yearsMap.set(y, []);
+    yearsMap.get(y).push(mk);
+  });
+  const years = [...yearsMap.keys()].sort();
 
   const condGroups = new Map();
   filtered.forEach(item => {
@@ -3046,6 +3258,9 @@ function renderReceivables() {
     });
 
     const groupTotalCells = monthKeys.map((mk, idx) => {
+      const year = mk.split("-")[0];
+      const isYearCollapsed = filterState.yearCollapsed[year];
+      if (isYearCollapsed) return "";
       const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
       return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
     }).join("");
@@ -3060,6 +3275,8 @@ function renderReceivables() {
         else { elapsedHtml = `D${el}`; elapsedClass = "rcv-elapsed-future"; }
       }
       const monthCells = monthKeys.map((mk, idx) => {
+        const year = mk.split("-")[0];
+        if (filterState.yearCollapsed[year]) return "";
         const val = vendor.months[mk] || 0;
         return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
       }).join("");
@@ -3097,6 +3314,44 @@ function renderReceivables() {
 
   const chipsHtml = buildGroupChipsHtml(allCondLabels, rcvGroupState.filter, "rcv-chip");
 
+  const yearHeaders = years.map(y => {
+    const isCollapsed = filterState.yearCollapsed[y];
+    const count = yearsMap.get(y).length;
+    return `<th class="year-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 0 : count}" style="${isCollapsed ? "display:none" : ""}">
+      <div class="year-header-inner">
+        <span>${y}</span>
+        <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? "+" : "-"}</button>
+      </div>
+    </th>`;
+  }).join("");
+  
+  // 접힌 연도들을 위한 별도 헤더 (항상 보이거나 합쳐서 표시)
+  const collapsedYearsHtml = years.filter(y => filterState.yearCollapsed[y]).map(y => `
+    <th class="year-header collapsed">
+      <div class="year-header-inner">
+        <span>${y.slice(2)}</span>
+        <button type="button" class="year-toggle-btn" data-year="${y}">+</button>
+      </div>
+    </th>
+  `).join("");
+
+  const monthHeaders = monthKeys.map((mk, idx) => {
+    const year = mk.split("-")[0];
+    if (filterState.yearCollapsed[year]) return "";
+    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${mk.slice(2)}</th>`;
+  }).join("");
+
+  // 실제 렌더링될 연도별 헤더 구조
+  const combinedYearHeaders = years.map(y => {
+    const isCollapsed = filterState.yearCollapsed[y];
+    const count = yearsMap.get(y).length;
+    return `<th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}">
+      <div class="year-header-inner">
+        <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
+      </div>
+    </th>`;
+  }).join("");
+
   elements.receivables.innerHTML = `
     <div class="panel">
       <div class="panel-title-row">
@@ -3119,19 +3374,32 @@ function renderReceivables() {
         <table class="rcv-pivot-table">
           <thead>
             <tr>
-              <th class="rcv-sort-th" data-sort="code">거래처명 ${rcvSortState.key === "code" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
-              <th class="numeric-header rcv-sort-th" data-sort="elapsed">경과일수 ${rcvSortState.key === "elapsed" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
-              ${monthKeys.map((mk, idx) => `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${mk.slice(2)}</th>`).join("")}
-              <th class="numeric-header">합계</th>
+              <th rowspan="2" class="rcv-sort-th" data-sort="code">거래처명 ${rcvSortState.key === "code" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
+              <th rowspan="2" class="numeric-header rcv-sort-th" data-sort="elapsed">경과일수 ${rcvSortState.key === "elapsed" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
+              ${combinedYearHeaders}
+              <th rowspan="2" class="numeric-header">합계</th>
+            </tr>
+            <tr>
+              ${monthHeaders}
             </tr>
           </thead>
           <tbody>
-            ${visibleGroups.length ? groupsHtml : `<tr><td colspan="${3 + monthKeys.length}" class="empty-state">${receivables.length ? "표시할 미수금 데이터가 없습니다." : "미수금 데이터를 불러오는 중입니다."}</td></tr>`}
+            ${visibleGroups.length ? groupsHtml : `<tr><td colspan="${5 + monthKeys.length}" class="empty-state">${receivables.length ? "표시할 미수금 데이터가 없습니다." : "미수금 데이터를 불러오는 중입니다."}</td></tr>`}
           </tbody>
         </table>
       </div>
     </div>
   `;
+
+  // 이벤트 리스너들
+  elements.receivables.querySelectorAll(".year-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const y = btn.dataset.year;
+      filterState.yearCollapsed[y] = !filterState.yearCollapsed[y];
+      saveYearToggles();
+      renderReceivables();
+    });
+  });
 
   document.getElementById("receivableEmailButton")?.addEventListener("click", openReceivableEmailDialog);
 
@@ -3885,6 +4153,15 @@ function renderPayables() {
   const matchedVendorCount = [...new Set(filteredPayables.filter(item => item.vendorMatched).map(item => getPartnerGroupKey(item)))].length;
   const unmatchedVendorCount = [...new Set(filteredPayables.filter(item => !item.vendorMatched).map(item => getPartnerGroupKey(item)))].length;
   const monthKeys = getUniqueSortedMonthKeys(filteredPayables);
+  // 연도별 그룹 수집
+  const yearsMap = new Map();
+  monthKeys.forEach(mk => {
+    const y = mk.split("-")[0];
+    if (!yearsMap.has(y)) yearsMap.set(y, []);
+    yearsMap.get(y).push(mk);
+  });
+  const years = [...yearsMap.keys()].sort();
+
   const groups = groupPayablesByDue(filteredPayables);
   const paymentPlanSummary = calcPaymentPlanSummary(filteredPayables);
   const availablePlanKeys = paymentPlanSummary.map(item => item.key);
@@ -3910,9 +4187,12 @@ function renderPayables() {
       .sort()
       .map(key => `${key === "보류" ? key : /^\d{4}-\d{2}-\d{2}$/.test(key) ? key.slice(5).replace("-", "/") : key} ${planCounts[key]}건`)
       .join(" · ");
-    const groupSummaryCells = monthKeys.map((key, index) => `
-      <td class="group-summary-cell month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[key] || 0)}</td>
-    `).join("");
+      
+    const groupSummaryCells = monthKeys.map((key, index) => {
+      const year = key.split("-")[0];
+      if (filterState.yearCollapsed[year]) return "";
+      return `<td class="group-summary-cell month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[key] || 0)}</td>`;
+    }).join("");
     const header = `
       <tr class="group-header" data-group="${groupKey}">
         <td colspan="2">
@@ -3933,6 +4213,9 @@ function renderPayables() {
       const partnerKey = encodeURIComponent(getPartnerGroupKey(entry.items[0]));
 
       const monthCells = monthKeys.map((monthKey, index) => {
+        const year = monthKey.split("-")[0];
+        if (filterState.yearCollapsed[year]) return "";
+        
         const decisionValue = entry.monthTotals[monthKey] || 0;
         const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
         const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
@@ -3941,8 +4224,8 @@ function renderPayables() {
         const cellPlanValue = monthItems[0]?.paymentPlan || "";
         const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
         const isMijeong = monthItems.some(item => item.completionStatus === "미정");
-        const planClass = cellPlanValue === "보류" ? "hold" : cellPlanValue ? "set" : "pending";
-        const planLabel = isMijeong ? "미정" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
+        const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
+        const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
         const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
         // raw 지급합이 있으면 합계/지급 정보 표시 (버튼 아님)
         const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
@@ -3997,6 +4280,24 @@ function renderPayables() {
     return header + itemRows;
   }).join("");
 
+  const combinedYearHeaders = years.map(y => {
+    const isCollapsed = filterState.yearCollapsed[y];
+    const count = yearsMap.get(y).length;
+    return `
+      <th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}">
+        <div class="year-header-inner">
+          <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
+        </div>
+      </th>
+    `;
+  }).join("");
+
+  const monthHeaders = monthKeys.map((key, index) => {
+    const year = key.split("-")[0];
+    if (filterState.yearCollapsed[year]) return "";
+    return `<th class="numeric-header month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(key)}</th>`;
+  }).join("");
+
   elements.payables.innerHTML = `
     <div class="panel">
       <div class="panel-title-row">
@@ -4037,19 +4338,32 @@ function renderPayables() {
         <table>
           <thead>
             <tr>
-              <th class="sticky-col sticky-col-1 payable-header-cell">선택</th>
-              <th class="sticky-col sticky-col-2 payable-header-cell">업체명</th>
-              ${monthKeys.map((key, index) => `<th class="numeric-header month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(key)}</th>`).join("")}
-              <th class="numeric-header">합계</th>
+              <th rowspan="2" class="sticky-col sticky-col-1 payable-header-cell">선택</th>
+              <th rowspan="2" class="sticky-col sticky-col-2 payable-header-cell">업체명</th>
+              ${combinedYearHeaders}
+              <th rowspan="2" class="numeric-header">합계</th>
+            </tr>
+            <tr>
+              ${monthHeaders}
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="${3 + monthKeys.length}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
+            ${rows || `<tr><td colspan="${5 + monthKeys.length}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
     </div>
   `;
+
+  // 연도 토글 이벤트 추가
+  document.querySelectorAll(".year-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const y = btn.dataset.year;
+      filterState.yearCollapsed[y] = !filterState.yearCollapsed[y];
+      saveYearToggles();
+      renderPayables();
+    });
+  });
 
   document.querySelectorAll(".vendor-memo-btn").forEach(btn => {
     btn.addEventListener("click", e => { e.stopPropagation(); openVendorMemoEditor(btn.dataset.code, btn.dataset.name); });
@@ -4296,6 +4610,8 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
   let replaceOnNextInput = true;
   let calculatorOpen = false;
   let holdPlan = currentPlanValue === "보류";
+  let excludePlan = monthItems[0].completionStatus === "제외";
+
   const overlay = document.createElement("div");
   overlay.className = "calculator-overlay";
   overlay.innerHTML = `
@@ -4306,8 +4622,7 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
       </div>
       <div class="editor-vendor-meta ${vendorBank || vendorAccount ? "has-vendor" : ""}">
         ${vendorBank || vendorAccount
-      ? `<span>${vendorBank || "은행 없음"}</span><span>${vendorAccount || "계좌 없음"}</span><span>${vendorAccountHolder || "예금주 없음"}</span>`
-      : `<span>업체마스터에 은행/계좌 정보가 아직 없습니다.</span>`}
+      ? `<span>${vendorBank || "은행 없음"}</span><span>${vendorAccount || "계좌 없음"}</span><span>${vendorAccountHolder || "예금주 없음"}</span>" : `<span>업체마스터에 은행/계좌 정보가 아직 없습니다.</span>`}
       </div>
       <div class="editor-panel">
         <div class="editor-input-row">
@@ -4328,12 +4643,13 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
         <div class="editor-plan-row">
           <label class="editor-plan-label">
             결제 예정일
-            <input type="date" class="editor-plan-date-input" value="${holdPlan ? (autoPlanValue || "") : (/^\d{4}-\d{2}-\d{2}$/.test(currentPlanValue) ? currentPlanValue : (autoPlanValue || ""))}" ${holdPlan ? "disabled" : ""} />
+            <input type="date" class="editor-plan-date-input" value="${(holdPlan || excludePlan) ? (autoPlanValue || "") : (/^\d{4}-\d{2}-\d{2}$/.test(currentPlanValue) ? currentPlanValue : (autoPlanValue || ""))}" ${(holdPlan || excludePlan) ? "disabled" : ""} />
           </label>
           <div class="editor-plan-actions">
             <button type="button" class="editor-plan-reset-button">미정</button>
             ${autoPlanValue ? `<button type="button" class="editor-plan-default-button">기본 ${autoPlanValue.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$2/$3")}</button>` : ""}
             <button type="button" class="editor-plan-hold-button ${holdPlan ? "active" : ""}">보류</button>
+            <button type="button" class="editor-plan-exclude-button ${excludePlan ? "active" : ""}">제외</button>
           </div>
         </div>
       </div>
@@ -4368,9 +4684,11 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
   const planHoldButton = overlay.querySelector(".editor-plan-hold-button");
 
   function syncPlanControls() {
-    if (!planDateInput || !planHoldButton) return;
-    planDateInput.disabled = holdPlan;
+    const planExcludeButton = overlay.querySelector(".editor-plan-exclude-button");
+    if (!planDateInput || !planHoldButton || !planExcludeButton) return;
+    planDateInput.disabled = holdPlan || excludePlan;
     planHoldButton.classList.toggle("active", holdPlan);
+    planExcludeButton.classList.toggle("active", excludePlan);
   }
 
   function positionPopovers() {
@@ -4460,16 +4778,34 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
       monthItems[0].decisionAmount += remainder;
       monthItems[0].selected = monthItems[0].decisionAmount > 0;
     }
-    const nextPlanValue = holdPlan ? "보류" : (planDateInput?.value || "");
+    const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : "미정";
+    const nextPlanValue = excludePlan ? "제외" : holdPlan ? "보류" : (planDateInput?.value || "");
+    
     monthItems.forEach(item => {
       item.paymentPlan = nextPlanValue;
-      item.completionStatus = nextPlanValue ? "보류" : "미정";
+      item.completionStatus = nextStatus;
+      if (nextStatus === "제외") {
+        item.selected = false;
+      }
     });
     payablesUiState.lastEdited = { partnerKey: decodedKey, monthKey };
     persistPayablesState();
     closeCalculator();
     preserveViewport(() => rerenderAll());
   }
+
+  planHoldButton?.addEventListener("click", () => {
+    holdPlan = !holdPlan;
+    if (holdPlan) excludePlan = false;
+    syncPlanControls();
+  });
+
+  const planExcludeButton = overlay.querySelector(".editor-plan-exclude-button");
+  planExcludeButton?.addEventListener("click", () => {
+    excludePlan = !excludePlan;
+    if (excludePlan) holdPlan = false;
+    syncPlanControls();
+  });
 
   overlay.querySelectorAll(".calc-button").forEach(button => {
     button.addEventListener("click", () => {
@@ -4635,6 +4971,7 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
 
   const firstDate = targetItems.find(item => /^\d{4}-\d{2}-\d{2}$/.test(item.paymentPlan || ""))?.paymentPlan || "";
   let holdPlan = targetItems.every(item => item.paymentPlan === "보류");
+  let excludePlan = targetItems.every(item => item.completionStatus === "제외");
 
   const overlay = document.createElement("div");
   overlay.className = "batch-plan-overlay";
@@ -4644,11 +4981,12 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
       <p class="batch-plan-note">${targetItems.length}건에 같은 결제 계획을 적용합니다.</p>
       <label class="editor-plan-label">
         결제 예정일
-        <input type="date" class="editor-plan-date-input" value="${holdPlan ? "" : firstDate}" ${holdPlan ? "disabled" : ""} />
+        <input type="date" class="editor-plan-date-input" value="${(holdPlan || excludePlan) ? "" : firstDate}" ${(holdPlan || excludePlan) ? "disabled" : ""} />
       </label>
       <div class="editor-plan-actions">
         <button type="button" class="editor-plan-reset-button">미정</button>
         <button type="button" class="editor-plan-hold-button ${holdPlan ? "active" : ""}">보류</button>
+        <button type="button" class="editor-plan-exclude-button ${excludePlan ? "active" : ""}">제외</button>
       </div>
       <div class="editor-actions compact">
         <button type="button" class="cancel-button">닫기</button>
@@ -4661,11 +4999,13 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
   const popover = overlay.querySelector(".batch-plan-popover");
   const dateInput = overlay.querySelector(".editor-plan-date-input");
   const holdButton = overlay.querySelector(".editor-plan-hold-button");
+  const excludeButton = overlay.querySelector(".editor-plan-exclude-button");
   const resetButton = overlay.querySelector(".editor-plan-reset-button");
 
   function syncState() {
-    dateInput.disabled = holdPlan;
+    dateInput.disabled = holdPlan || excludePlan;
     holdButton.classList.toggle("active", holdPlan);
+    excludeButton.classList.toggle("active", excludePlan);
   }
 
   function positionPopover() {
@@ -4679,10 +5019,15 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
   }
 
   function applyPlan() {
-    const nextPlanValue = holdPlan ? "보류" : (dateInput.value || "");
+    const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : "미정";
+    const nextPlanValue = excludePlan ? "제외" : holdPlan ? "보류" : (dateInput.value || "");
+    
     targetItems.forEach(item => {
       item.paymentPlan = nextPlanValue;
-      item.completionStatus = nextPlanValue ? "보류" : "미정";
+      item.completionStatus = nextStatus;
+      if (nextStatus === "제외") {
+        item.selected = false; // 제외 시 선택 해제
+      }
     });
     persistPayablesState();
     closeBatchPlanEditor();
@@ -4691,11 +5036,19 @@ function openBatchPlanEditor(planKey, targetItems, triggerElement) {
 
   holdButton.addEventListener("click", () => {
     holdPlan = !holdPlan;
+    if (holdPlan) excludePlan = false;
+    syncState();
+  });
+
+  excludeButton.addEventListener("click", () => {
+    excludePlan = !excludePlan;
+    if (excludePlan) holdPlan = false;
     syncState();
   });
 
   resetButton.addEventListener("click", () => {
     holdPlan = false;
+    excludePlan = false;
     dateInput.value = "";
     syncState();
   });
@@ -6437,6 +6790,13 @@ function setupApiTokenButton() {
 async function init() {
   loadGroupOrder();
   loadVendorMemos();
+  
+  // 연도별 접힘 상태 복원
+  const storedToggles = localStorage.getItem(YEAR_TOGGLE_STORAGE_KEY);
+  if (storedToggles) {
+    try { filterState.yearCollapsed = JSON.parse(storedToggles); } catch(e) {}
+  }
+
   renderPartnerFilter();
   renderFilterControls();
   renderVendorMasterPanel();
@@ -6447,6 +6807,12 @@ async function init() {
   setupBankImport();
   setupDataImport();
   setupApiTokenButton();
+
+  const sheetLinkBtn = document.getElementById("sheetLinkButton");
+  if (sheetLinkBtn && typeof SHEET_SPREADSHEET_ID !== "undefined" && SHEET_SPREADSHEET_ID) {
+    sheetLinkBtn.href = `https://docs.google.com/spreadsheets/d/${SHEET_SPREADSHEET_ID}`;
+  }
+
   // 검색창 → 대사 탭 연동
   elements.searchInput?.addEventListener("input", () => {
     const daesaEl = document.getElementById("daesa");
@@ -6454,7 +6820,17 @@ async function init() {
       renderDaesaTab();
     }
   });
-  await Promise.all([loadSheetPayables(), loadSheetReceivables(), loadSheetFixedExpenses()]);
+
+  // 초기 로딩 시 홈 탭 활성화
+  switchTab("home");
+
+  await Promise.all([
+    loadSheetPayables(),
+    loadSheetReceivables(),
+    loadSheetFixedExpenses(),
+    loadAvailableFunds()
+  ]);
+  
   rerenderAll(); // 모든 데이터 로드 후 최종 갱신 보장
 }
 

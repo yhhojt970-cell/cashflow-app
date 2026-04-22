@@ -1,0 +1,862 @@
+// ============================================================
+// 미래오토메이션(주) 웹앱 보고서
+// Apps Script 웹앱으로 배포 후 URL을 이메일에 삽입
+// 배포: 확장프로그램 → Apps Script → 배포 → 새 배포
+//       → 웹 앱 → 액세스 권한: 조직 내 모든 사용자
+// ============================================================
+
+// ── 웹앱 진입점 ──────────────────────────────────────────────
+function doGetReport(e) { 
+  const type = e && e.parameter && e.parameter.type ? e.parameter.type : 'all';
+
+  const showFund = !(e && e.parameter && e.parameter.fund)
+    ? true
+    : String(e.parameter.fund).toUpperCase() === 'Y';
+
+  const showRecv = !(e && e.parameter && e.parameter.recv)
+    ? true
+    : String(e.parameter.recv).toUpperCase() === 'Y';
+
+  const showPay = !(e && e.parameter && e.parameter.pay)
+    ? true
+    : String(e.parameter.pay).toUpperCase() === 'Y';
+
+  // 아무것도 선택 안 된 경우 자금현황은 기본 표시
+  const finalShowFund = (!showFund && !showRecv && !showPay) ? true : showFund;
+
+  const html = buildWebReportHtml(type, {
+    showFund: finalShowFund,
+    showRecv: showRecv,
+    showPay: showPay
+  });
+
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('미래오토메이션 보고서')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
+// ── 웹앱 전체 HTML 생성 ──────────────────────────────────────
+function buildWebReportHtml(type, options) {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const today   = new Date();
+  const year    = today.getFullYear();
+  const month   = today.getMonth() + 1;
+  const dateStr = Utilities.formatDate(today, 'Asia/Seoul', 'yyyy년 MM월 dd일');
+
+  const showFund = options && options.showFund === false ? false : true;
+  const showRecv = options && options.showRecv === true;
+  const showPay  = options && options.showPay === true;
+
+  const recvGroups  = getWebRecvGroups(ss);
+  const payData     = getWebMijigupAll(ss);
+  const fundData    = getWebFundData(ss);
+  const recvByMonth = getWebThisMonthRecv(ss);
+  const payByMonth  = getWebThisMonthPay(ss);
+  const fixByMonth  = getWebThisMonthFixed(ss);
+
+  const recvSection = buildRecvSection(recvGroups);
+  const paySection  = buildPaySection(payData);
+  const fundSection = buildFundSection(fundData, recvByMonth, payByMonth, fixByMonth, year, month);
+
+  const tabList = [];
+  if (showFund) tabList.push({ key: 'fund', label: '💰 자금현황', cls: 'green' });
+  if (showRecv) tabList.push({ key: 'recv', label: '📊 미수보고', cls: '' });
+  if (showPay)  tabList.push({ key: 'pay',  label: '💸 지급보고', cls: 'red' });
+
+  const defaultTab = tabList.length > 0 ? tabList[0].key : 'fund';
+
+  const tabsHtml = tabList.map(tab => {
+    const activeCls = tab.key === defaultTab ? ' active' : '';
+    const colorCls  = tab.cls ? ` ${tab.cls}` : '';
+    return `<div class="tab${colorCls}${activeCls}" onclick="showTab('${tab.key}', this)">${tab.label}</div>`;
+  }).join('');
+
+  const sectionsHtml = [
+    showFund ? `<div id="tab-fund" class="section${defaultTab === 'fund' ? ' active' : ''}">${fundSection}</div>` : '',
+    showRecv ? `<div id="tab-recv" class="section${defaultTab === 'recv' ? ' active' : ''}">${recvSection}</div>` : '',
+    showPay  ? `<div id="tab-pay" class="section${defaultTab === 'pay' ? ' active' : ''}">${paySection}</div>` : ''
+  ].join('');
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>미래오토메이션(주) 보고서</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'맑은 고딕','나눔스퀘어',sans-serif; background:#f0f2f5; color:#333; font-size:14px; }
+
+  .header { background:linear-gradient(135deg,#1565c0,#0d47a1); color:white; padding:20px 24px; }
+  .header h1 { font-size:18px; font-weight:bold; }
+  .header p  { font-size:12px; opacity:0.85; margin-top:4px; }
+
+  .container { max-width:1100px; margin:0 auto; padding:16px; }
+
+  .tabs { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .tab  { padding:8px 20px; border-radius:20px; cursor:pointer; font-size:13px; font-weight:bold;
+          border:2px solid transparent; background:white; color:#666; transition:all .2s; }
+  .tab:hover  { border-color:#1565c0; color:#1565c0; }
+  .tab.active { background:#1565c0; color:white; border-color:#1565c0; }
+  .tab.red.active    { background:#c62828; border-color:#c62828; }
+  .tab.red:hover     { border-color:#c62828; color:#c62828; }
+  .tab.green.active  { background:#2e7d32; border-color:#2e7d32; }
+  .tab.green:hover   { border-color:#2e7d32; color:#2e7d32; }
+
+  .section { display:none; }
+  .section.active { display:block; }
+
+  .card { background:white; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.08); margin-bottom:12px; overflow:hidden; }
+
+  .toggle-header {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 18px; cursor:pointer; user-select:none;
+    border-bottom:1px solid transparent; transition:background .15s;
+  }
+  .toggle-header:hover { background:#f5f5f5; }
+  .toggle-header.open  { border-bottom-color:#eee; }
+  .toggle-title { font-size:14px; font-weight:bold; display:flex; align-items:center; gap:8px; }
+  .toggle-badge { font-size:12px; font-weight:normal; padding:2px 8px; border-radius:10px; }
+  .badge-blue  { background:#e3f2fd; color:#1565c0; }
+  .badge-red   { background:#ffebee; color:#c62828; }
+  .badge-green { background:#e8f5e9; color:#2e7d32; }
+  .toggle-arrow { font-size:12px; color:#999; transition:transform .2s; }
+  .toggle-arrow.open { transform:rotate(180deg); }
+
+  .toggle-body { display:none; padding:0; }
+  .toggle-body.open { display:block; }
+
+  .tbl { width:100%; border-collapse:collapse; font-size:13px; }
+  .tbl th { padding:8px 12px; background:#1565c0; color:white; text-align:center; white-space:nowrap; font-weight:normal; }
+  .tbl th.left { text-align:left; }
+  .tbl th.red  { background:#c62828; }
+  .tbl th.green { background:#2e7d32; }
+  .tbl td { padding:7px 12px; border-bottom:1px solid #f0f0f0; white-space:nowrap; }
+  .tbl td.center { text-align:center; }
+  .tbl td.right  { text-align:right; }
+  .tbl td.gray   { color:#888; font-size:12px; }
+  .tbl tr:last-child td { border-bottom:none; }
+  .tbl tr.hover:hover { background:#fafafa; }
+  .tbl tr.red   { background:#fff0f0; }
+  .tbl tr.yellow { background:#fffde7; }
+  .tbl tr.sub   { background:#f0f4ff; font-weight:bold; }
+  .tbl tfoot td { background:#e3f2fd; font-weight:bold; padding:8px 12px; }
+  .tbl tfoot td.red-foot { background:#ffebee; }
+
+  .e-red   { color:#d32f2f; font-weight:bold; }
+  .e-orange { color:#f57f17; font-weight:bold; }
+  .e-blue  { color:#1565c0; }
+
+  .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:16px; }
+  .summary-card { background:white; border-radius:8px; padding:16px 20px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .summary-card .label { font-size:12px; color:#888; margin-bottom:4px; }
+  .summary-card .value { font-size:20px; font-weight:bold; }
+  .summary-card .value.blue  { color:#1565c0; }
+  .summary-card .value.red   { color:#c62828; }
+  .summary-card .value.green { color:#2e7d32; }
+
+  .sub-label { font-size:12px; font-weight:bold; color:#555; padding:10px 18px 6px; border-top:1px solid #f0f0f0; }
+  .sub-label:first-child { border-top:none; }
+
+  .ledger { max-width:380px; border-collapse:collapse; font-size:14px; }
+  .ledger td { padding:8px 16px; border-bottom:1px solid #f0f0f0; }
+  .ledger tr.total td { background:#e3f2fd; font-weight:bold; font-size:16px; }
+  .ledger td.plus  { color:#1565c0; text-align:right; }
+  .ledger td.minus { color:#c62828; text-align:right; }
+  .ledger td.right { text-align:right; }
+
+  .section-pad { padding:16px 18px; }
+
+  @media(max-width:600px) {
+    .tbl { font-size:12px; }
+    .tbl td, .tbl th { padding:6px 8px; }
+    .summary-card .value { font-size:16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>미래오토메이션(주) 보고서</h1>
+  <p>${dateStr} 기준</p>
+</div>
+
+<div class="container">
+
+  <div class="tabs">
+    ${tabsHtml}
+  </div>
+
+  ${sectionsHtml}
+
+</div>
+
+<script>
+  function showTab(name, el) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+    const section = document.getElementById('tab-' + name);
+    if (section) section.classList.add('active');
+    if (el) el.classList.add('active');
+  }
+
+  function toggle(id) {
+    const body   = document.getElementById('body-' + id);
+    const arrow  = document.getElementById('arrow-' + id);
+    const header = document.getElementById('hdr-' + id);
+    if (!body || !arrow || !header) return;
+
+    const open = body.classList.toggle('open');
+    arrow.classList.toggle('open', open);
+    header.classList.toggle('open', open);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const first = document.querySelector('.toggle-body');
+    if (first) {
+      const id = first.id.replace('body-','');
+      toggle(id);
+    }
+  });
+</script>
+</body>
+</html>`;
+}
+
+
+// ── 미수보고 섹션 (월별 토글) ─────────────────────────────────
+function buildRecvSection(groups) {
+  const allRows = [];
+  Object.values(groups).forEach(g => allRows.push(...g.rows));
+
+  const grandTotal = allRows.reduce((a,r) => a + Number(r[11]), 0);
+  const over60     = allRows.filter(r => Number(r[8]) >= 60).reduce((a,r) => a + Number(r[11]), 0);
+  const over30     = allRows.filter(r => Number(r[8]) >= 30 && Number(r[8]) < 60).reduce((a,r) => a + Number(r[11]), 0);
+
+  let html = `
+    <div class="summary-grid">
+      <div class="summary-card"><div class="label">전체 미수금</div><div class="value blue">${fmt(grandTotal)}</div></div>
+      <div class="summary-card"><div class="label">60일↑ 장기 미수</div><div class="value red">${fmt(over60)}</div></div>
+      <div class="summary-card"><div class="label">30~60일 미수</div><div class="value" style="color:#f57f17;">${fmt(over30)}</div></div>
+    </div>`;
+
+  const byMonth = {};
+  allRows.forEach(r => {
+    const d = r[7];
+    if (!(d instanceof Date)) return;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(r);
+  });
+
+  const monthKeys = Object.keys(byMonth).sort();
+
+  monthKeys.forEach((key, idx) => {
+    const [y, m]    = key.split('-');
+    const monthRows = byMonth[key];
+    const total     = monthRows.reduce((a,r) => a + Number(r[11]), 0);
+    const cnt       = monthRows.length;
+    const id        = 'recv_m_' + idx;
+
+    const sorted = monthRows.slice().sort((a,b) => {
+      const cd = Number(a[0]) - Number(b[0]);
+      return cd !== 0 ? cd : Number(b[8]) - Number(a[8]);
+    });
+
+    const codeOrder = [...new Set(sorted.map(r => String(r[0]).trim()))];
+    const byCode = {};
+    sorted.forEach(r => {
+      const c = String(r[0]).trim();
+      if (!byCode[c]) byCode[c] = [];
+      byCode[c].push(r);
+    });
+
+    let rows = '';
+    codeOrder.forEach(code => {
+      const crows  = byCode[code];
+      const cTotal = crows.reduce((a,r) => a + Number(r[11]), 0);
+
+      crows.forEach((r, i) => {
+        const e      = Number(r[8]);
+        const trCls  = e >= 60 ? 'red' : e >= 30 ? 'yellow' : '';
+        const eCls   = e >= 60 ? 'e-red' : e >= 30 ? 'e-orange' : e < 0 ? 'e-blue' : '';
+        const eLabel = e < 0 ? `D${e}` : `${e}일`;
+        const dd     = r[7] instanceof Date ? fmtDate(r[7]) : String(r[7]);
+
+        rows += `<tr class="hover ${trCls}">
+          <td class="center gray">${i === 0 ? String(r[0]).padStart(5,'0') : ''}</td>
+          <td>${i === 0 ? r[1] : ''}</td>
+          <td class="center" style="color:#7b1fa2;font-weight:bold;">${i === 0 ? r[2] : ''}</td>
+          <td class="center">${r[4]}</td>
+          <td class="center">${r[5]}</td>
+          <td class="center">${dd}</td>
+          <td class="center ${eCls}">${eLabel}</td>
+          <td class="right">${fmt(Number(r[11]))}</td>
+          <td class="gray">${r[6]}</td>
+        </tr>`;
+      });
+
+      if (crows.length > 1) {
+        rows += `<tr class="sub">
+          <td class="center gray">${String(code).padStart(5,'0')}</td>
+          <td>${byCode[code][0][1]} 소계</td>
+          <td colspan="5"></td>
+          <td class="right">${fmt(cTotal)}</td>
+          <td></td>
+        </tr>`;
+      }
+    });
+
+    html += `<div class="card">
+      <div class="toggle-header" id="hdr-${id}" onclick="toggle('${id}')">
+        <div class="toggle-title">
+          ${y}년 ${parseInt(m, 10)}월
+          <span class="toggle-badge badge-blue">${cnt}건</span>
+          <span class="toggle-badge badge-red">${fmt(total)}</span>
+        </div>
+        <span class="toggle-arrow" id="arrow-${id}">▼</span>
+      </div>
+      <div class="toggle-body" id="body-${id}">
+        <table class="tbl">
+          <thead><tr>
+            <th>코드</th><th class="left">거래처명</th>
+            <th>담당자</th><th>매출년월</th><th>수금조건</th>
+            <th>수금예정일</th><th>경과일수</th><th>잔액</th><th>메모</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr>
+            <td colspan="7" class="right">합 계</td>
+            <td class="right">${fmt(total)}</td><td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  return html;
+}
+
+
+// ── 지급보고 섹션 (월별 토글) ─────────────────────────────────
+function buildPaySection(allData) {
+  const grandTotal = allData.reduce((a,r) => a + Number(r[9]), 0);
+  const over60     = allData.filter(r => Number(r[6]) >= 60).reduce((a,r) => a + Number(r[9]), 0);
+
+  let html = `
+    <div class="summary-grid">
+      <div class="summary-card"><div class="label">전체 미지급</div><div class="value red">${fmt(grandTotal)}</div></div>
+      <div class="summary-card"><div class="label">60일↑ 장기 미지급</div><div class="value red">${fmt(over60)}</div></div>
+    </div>`;
+
+  const byMonth = {};
+  allData.forEach(r => {
+    const d = r[5];
+    if (!(d instanceof Date)) return;
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(r);
+  });
+
+  const monthKeys = Object.keys(byMonth).sort();
+
+  monthKeys.forEach((key, idx) => {
+    const [y, m]    = key.split('-');
+    const monthRows = byMonth[key];
+    const total     = monthRows.reduce((a,r) => a + Number(r[9]), 0);
+    const cnt       = monthRows.length;
+    const id        = 'pay_m_' + idx;
+
+    const sorted = monthRows.slice().sort((a,b) => {
+      const cd = Number(a[0]) - Number(b[0]);
+      return cd !== 0 ? cd : String(a[2]).localeCompare(String(b[2]));
+    });
+
+    const codeOrder = [...new Set(sorted.map(r => String(r[0]).trim()))];
+    const byCode = {};
+    sorted.forEach(r => {
+      const c = String(r[0]).trim();
+      if (!byCode[c]) byCode[c] = [];
+      byCode[c].push(r);
+    });
+
+    let rows = '';
+    codeOrder.forEach(code => {
+      const crows  = byCode[code];
+      const cTotal = crows.reduce((a,r) => a + Number(r[9]), 0);
+
+      crows.forEach((r, i) => {
+        const e      = Number(r[6]);
+        const trCls  = e >= 60 ? 'red' : e >= 30 ? 'yellow' : '';
+        const eCls   = e >= 60 ? 'e-red' : e >= 30 ? 'e-orange' : e < 0 ? 'e-blue' : '';
+        const eLabel = e < 0 ? `D${e}` : `${e}일`;
+        const dd     = r[5] instanceof Date ? fmtDate(r[5]) : String(r[5]);
+
+        rows += `<tr class="hover ${trCls}">
+          <td class="center gray">${i === 0 ? String(r[0]).padStart(5,'0') : ''}</td>
+          <td>${i === 0 ? r[1] : ''}</td>
+          <td class="center">${r[2]}</td>
+          <td class="center">${r[3]}</td>
+          <td class="center">${dd}</td>
+          <td class="center ${eCls}">${eLabel}</td>
+          <td class="right">${fmt(Number(r[9]))}</td>
+          <td class="gray">${r[4]}</td>
+        </tr>`;
+      });
+
+      if (crows.length > 1) {
+        rows += `<tr class="sub">
+          <td class="center gray">${String(code).padStart(5,'0')}</td>
+          <td>${byCode[code][0][1]} 소계</td>
+          <td colspan="4"></td>
+          <td class="right">${fmt(cTotal)}</td>
+          <td></td>
+        </tr>`;
+      }
+    });
+
+    html += `<div class="card">
+      <div class="toggle-header" id="hdr-${id}" onclick="toggle('${id}')">
+        <div class="toggle-title">
+          ${y}년 ${parseInt(m, 10)}월
+          <span class="toggle-badge badge-red">${cnt}건</span>
+          <span class="toggle-badge badge-red">${fmt(total)}</span>
+        </div>
+        <span class="toggle-arrow" id="arrow-${id}">▼</span>
+      </div>
+      <div class="toggle-body" id="body-${id}">
+        <table class="tbl">
+          <thead><tr>
+            <th>코드</th><th class="left">거래처명</th>
+            <th>매입년월</th><th>지급조건</th>
+            <th>지급예정일</th><th>경과일수</th><th>잔액</th><th>메모</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr>
+            <td colspan="6" class="right">합 계</td>
+            <td class="right">${fmt(total)}</td><td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  return html;
+}
+
+
+// ── 자금현황 섹션 ─────────────────────────────────────────────
+function buildFundSection(fundData, recvByMonth, payByMonth, fixByMonth, year, month) {
+  const today     = new Date();
+  const thisKey   = `${year}-${String(month).padStart(2,'0')}`;
+  const nextDate  = new Date(year, month, 1);
+  const nextYear  = nextDate.getFullYear();
+  const nextMonth = nextDate.getMonth() + 1;
+  const nextKey   = `${nextYear}-${String(nextMonth).padStart(2,'0')}`;
+
+  const LOAN_LIMIT = 500000000;
+  const acctBal    = fundData ? fundData['계좌'].reduce((a,r) => a + r.amount, 0) : 0;
+  const loanBal    = fundData ? fundData['구매자금'].reduce((a,r) => a + r.balance, 0) : 0;
+  const loanAvail  = LOAN_LIMIT - loanBal;
+
+  const getVal = (obj, key) => obj[key] ? obj[key].total : 0;
+
+  const recv1 = getVal(recvByMonth, thisKey);
+  const pay1  = getVal(payByMonth,  thisKey);
+  const fix1  = getVal(fixByMonth,  thisKey);
+  const exp1  = acctBal + recv1 - pay1 - fix1;
+
+  const recv2 = getVal(recvByMonth, thisKey) + getVal(recvByMonth, nextKey);
+  const pay2  = getVal(payByMonth,  thisKey) + getVal(payByMonth,  nextKey);
+  const fix2  = Object.keys(fixByMonth)
+    .filter(k => k === thisKey || k === nextKey)
+    .reduce((a, k) => a + fixByMonth[k].total, 0);
+  const exp2  = acctBal + recv2 - pay2 - fix2;
+
+  const recv3 = Object.values(recvByMonth).reduce((a, v) => a + v.total, 0);
+  const pay3  = Object.values(payByMonth).reduce((a, v) => a + v.total, 0);
+  const fix3  = Object.values(fixByMonth).reduce((a, v) => a + v.total, 0);
+  const exp3  = acctBal + recv3 - pay3 - fix3;
+
+  const expColor = n => n >= 0 ? '#1565c0' : '#d32f2f';
+  const expColor1 = exp1 >= 0 ? 'blue' : 'red';
+
+  let html = `
+    <div class="summary-grid">
+      <div class="summary-card"><div class="label">계좌잔액</div><div class="value blue">${fmt(acctBal)}</div></div>
+      <div class="summary-card"><div class="label">예상 잔액 (${month}월)</div><div class="value ${expColor1}">${fmt(exp1)}</div></div>
+    </div>`;
+
+  if (fundData) {
+    let fundInner = '';
+
+    if (fundData['계좌'].length > 0) {
+      const total = fundData['계좌'].reduce((a,r) => a + r.amount, 0);
+      fundInner += `<div class="sub-label">▶ 계좌잔액</div>
+        <table class="tbl"><thead><tr><th>은행</th><th>계좌번호</th><th>잔액</th></tr></thead><tbody>`;
+      fundData['계좌'].forEach(r => {
+        fundInner += `<tr class="hover"><td>${r.bank}</td><td class="gray">${r.account}</td><td class="right">${fmt(r.amount)}</td></tr>`;
+      });
+      fundInner += `</tbody><tfoot>
+  <tr><td colspan="2" class="right">계좌잔액 합계</td><td class="right">${fmt(total)}</td></tr>
+  <tr><td colspan="2" class="right">잔여한도 (5억 − 대출잔액)</td><td class="right" style="color:#1565c0;font-weight:bold;">${fmt(loanAvail)}</td></tr>
+</tfoot></table>`;
+    }
+
+    if (fundData['구매자금'].length > 0) {
+      const total = fundData['구매자금'].reduce((a,r) => a + r.balance, 0);
+      fundInner += `<div class="sub-label">▶ 구매자금 대출 내역</div>
+        <table class="tbl"><thead><tr><th>최신만기일</th><th>실행번호</th><th>최종만기</th><th>잔여대출금</th></tr></thead><tbody>`;
+      fundData['구매자금'].forEach(r => {
+        const d    = r.latestDue instanceof Date ? r.latestDue : new Date(r.latestDue);
+        const near = !isNaN(d) && Math.floor((d - today) / 86400000) <= 7;
+        fundInner += `<tr class="hover${near ? ' red' : ''}">
+          <td class="center${near ? ' e-red' : ''}">${fmtDate(r.latestDue)}</td>
+          <td class="center gray">${r.execNo}</td>
+          <td class="center">${fmtDate(r.finalDue)}</td>
+          <td class="right">${fmt(r.balance)}</td>
+        </tr>`;
+      });
+      fundInner += `</tbody><tfoot><tr><td colspan="3" class="right">합 계</td><td class="right">${fmt(total)}</td></tr></tfoot></table>`;
+    }
+
+    if (fundData['구매자금_가능'].length > 0) {
+      const total = fundData['구매자금_가능'].reduce((a,r) => a + r.amount, 0);
+      fundInner += `<div class="sub-label">▶ 구매자금 사용가능 업체</div>
+        <table class="tbl"><thead><tr><th>작성일자</th><th class="left">업체명</th><th>금액</th></tr></thead><tbody>`;
+      fundData['구매자금_가능'].forEach(r => {
+        fundInner += `<tr class="hover"><td class="center">${fmtDate(r.writeDate)}</td><td>${r.client}</td><td class="right">${fmt(r.amount)}</td></tr>`;
+      });
+      fundInner += `</tbody><tfoot><tr><td colspan="2" class="right">합 계</td><td class="right">${fmt(total)}</td></tr></tfoot></table>`;
+    }
+
+    if (fundData['전자채권'].length > 0) {
+      const total = fundData['전자채권'].reduce((a,r) => a + r.amount, 0);
+      fundInner += `<div class="sub-label">▶ 전자채권</div>
+        <table class="tbl"><thead><tr><th>만기일</th><th class="left">거래처명</th><th>수납일</th><th>금액</th></tr></thead><tbody>`;
+      fundData['전자채권'].forEach(r => {
+        fundInner += `<tr class="hover"><td class="center">${fmtDate(r.dueDate)}</td><td>${r.client}</td><td class="center">${fmtDate(r.receiveDate)}</td><td class="right">${fmt(r.amount)}</td></tr>`;
+      });
+      fundInner += `</tbody><tfoot><tr><td colspan="3" class="right">합 계</td><td class="right">${fmt(total)}</td></tr></tfoot></table>`;
+    }
+
+    if (fundData['전자어음'].length > 0) {
+      const total = fundData['전자어음'].reduce((a,r) => a + r.amount, 0);
+      fundInner += `<div class="sub-label">▶ 전자어음</div>
+        <table class="tbl"><thead><tr><th>은행</th><th class="left">거래처명</th><th>수납일</th><th>만기일</th><th>금액</th></tr></thead><tbody>`;
+      fundData['전자어음'].forEach(r => {
+        fundInner += `<tr class="hover"><td class="center">${r.bank}</td><td>${r.client}</td><td class="center">${fmtDate(r.receiveDate)}</td><td class="center">${fmtDate(r.dueDate)}</td><td class="right">${fmt(r.amount)}</td></tr>`;
+      });
+      fundInner += `</tbody><tfoot><tr><td colspan="4" class="right">합 계</td><td class="right">${fmt(total)}</td></tr></tfoot></table>`;
+    }
+
+    html += `<div class="card">
+      <div class="toggle-header" id="hdr-fund1" onclick="toggle('fund1')">
+        <div class="toggle-title">① 가용자금 현황
+          <span class="toggle-badge badge-blue">${fmt(acctBal)}</span>
+        </div>
+        <span class="toggle-arrow" id="arrow-fund1">▼</span>
+      </div>
+      <div class="toggle-body" id="body-fund1">${fundInner}</div>
+    </div>`;
+  }
+
+  const recvKeys = Object.keys(recvByMonth).sort();
+  let recvRows = recvKeys.map(k => {
+    const [y, m] = k.split('-');
+    return `<tr class="hover"><td class="center">${y}년 ${parseInt(m, 10)}월</td><td class="center">${recvByMonth[k].count}건</td><td class="right" style="color:#1565c0;">${fmt(recvByMonth[k].total)}</td></tr>`;
+  }).join('');
+  html += `<div class="card">
+    <div class="toggle-header" id="hdr-fund2" onclick="toggle('fund2')">
+      <div class="toggle-title">② 예정 수금
+        <span class="toggle-badge badge-blue">${fmt(recv3)}</span>
+      </div>
+      <span class="toggle-arrow" id="arrow-fund2">▼</span>
+    </div>
+    <div class="toggle-body" id="body-fund2">
+      <table class="tbl">
+        <thead><tr><th>월</th><th>건수</th><th>금액</th></tr></thead>
+        <tbody>${recvRows}</tbody>
+        <tfoot><tr>
+          <td class="right">합 계</td>
+          <td class="center">${recvKeys.reduce((a,k) => a + recvByMonth[k].count, 0)}건</td>
+          <td class="right">${fmt(recv3)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </div>`;
+
+  const payKeys = Object.keys(payByMonth).sort();
+  let payRows = payKeys.map(k => {
+    const [y, m] = k.split('-');
+    return `<tr class="hover"><td class="center">${y}년 ${parseInt(m, 10)}월</td><td class="center">${payByMonth[k].count}건</td><td class="right" style="color:#c62828;">${fmt(payByMonth[k].total)}</td></tr>`;
+  }).join('');
+  html += `<div class="card">
+    <div class="toggle-header" id="hdr-fund3" onclick="toggle('fund3')">
+      <div class="toggle-title">③ 예정 지급
+        <span class="toggle-badge badge-red">${fmt(pay3)}</span>
+      </div>
+      <span class="toggle-arrow" id="arrow-fund3">▼</span>
+    </div>
+    <div class="toggle-body" id="body-fund3">
+      <table class="tbl">
+        <thead><tr><th>월</th><th>건수</th><th>금액</th></tr></thead>
+        <tbody>${payRows}</tbody>
+        <tfoot><tr>
+          <td class="right">합 계</td>
+          <td class="center">${payKeys.reduce((a,k) => a + payByMonth[k].count, 0)}건</td>
+          <td class="right">${fmt(pay3)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </div>`;
+
+  const fixKeys = Object.keys(fixByMonth).sort();
+  let fixCardsHtml = '';
+  fixKeys.forEach((k, idx) => {
+    const [y, m] = k.split('-');
+    const items  = fixByMonth[k].items;
+    const total  = fixByMonth[k].total;
+    const fid    = 'fix_' + idx;
+
+    let fixRows = items.map(r => `<tr class="hover">
+      <td class="center">${fmtDate(r.realDate)}</td>
+      <td>${r.content}</td>
+      <td class="center">${r.bank || ''}</td>
+      <td class="center gray">${r.category || ''}</td>
+      <td class="right">${fmt(r.realAmount)}</td>
+    </tr>`).join('');
+
+    fixCardsHtml += `
+      <div style="border-bottom:1px solid #f0f0f0;">
+        <div class="toggle-header" id="hdr-${fid}" onclick="toggle('${fid}')" style="padding:10px 18px;">
+          <div class="toggle-title" style="font-size:13px;font-weight:normal;">
+            ${y}년 ${parseInt(m, 10)}월
+            <span class="toggle-badge badge-red" style="font-size:11px;">${items.length}건</span>
+            <span style="color:#c62828;font-size:12px;font-weight:bold;">${fmt(total)}</span>
+          </div>
+          <span class="toggle-arrow" id="arrow-${fid}">▼</span>
+        </div>
+        <div class="toggle-body" id="body-${fid}">
+          <table class="tbl">
+            <thead><tr>
+              <th>실결제일</th><th class="left">내용</th>
+              <th>은행</th><th>분류</th><th>금액</th>
+            </tr></thead>
+            <tbody>${fixRows}</tbody>
+            <tfoot><tr>
+              <td colspan="4" class="right">소 계</td>
+              <td class="right">${fmt(total)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>`;
+  });
+
+  html += `<div class="card">
+    <div class="toggle-header" id="hdr-fund4" onclick="toggle('fund4')">
+      <div class="toggle-title">④ 고정지출
+        <span class="toggle-badge badge-red">${fmt(fix3)}</span>
+      </div>
+      <span class="toggle-arrow" id="arrow-fund4">▼</span>
+    </div>
+    <div class="toggle-body" id="body-fund4">
+      ${fixCardsHtml}
+    </div>
+  </div>`;
+
+  const thStyle  = 'padding:8px 14px;border:1px solid #1565c0;background:#1565c0;color:white;text-align:center;white-space:nowrap;';
+  const thGStyle = 'padding:8px 14px;border:1px solid #0d47a1;background:#0d47a1;color:white;text-align:center;white-space:nowrap;font-size:12px;';
+  const tdL      = 'padding:8px 14px;border:1px solid #ddd;white-space:nowrap;';
+  const tdR      = 'padding:8px 14px;border:1px solid #ddd;white-space:nowrap;text-align:right;';
+  const sumL     = 'padding:9px 14px;border:1px solid #ddd;background:#e3f2fd;font-weight:bold;white-space:nowrap;';
+  const sumR     = 'padding:9px 14px;border:1px solid #ddd;background:#e3f2fd;font-weight:bold;text-align:right;white-space:nowrap;';
+
+  const detailRows = [
+    ['현 계좌잔액', fmt(acctBal), fmt(acctBal), fmt(acctBal)],
+    ['＋ 예정 수금', `+${fmt(recv1)}`, `+${fmt(recv2)}`, `+${fmt(recv3)}`],
+    ['－ 예정 지급', `−${fmt(pay1)}`, `−${fmt(pay2)}`, `−${fmt(pay3)}`],
+    ['－ 고정지출', `−${fmt(fix1)}`, `−${fmt(fix2)}`, `−${fmt(fix3)}`]
+  ];
+
+  const colorCell = (n) =>
+    `<td style="${sumR}color:${expColor(n)};">${fmt(n)}</td>`;
+
+  let detailHtml = detailRows.map(([label, v1, v2, v3]) => `<tr>
+    <td style="${tdL}">${label}</td>
+    <td style="${tdR}color:#555;">${v1}</td>
+    <td style="${tdR}color:#555;">${v2}</td>
+    <td style="${tdR}color:#555;">${v3}</td>
+  </tr>`).join('');
+
+  html += `<div class="card">
+    <div class="toggle-header open" id="hdr-fund5" onclick="toggle('fund5')">
+      <div class="toggle-title">⑤ 예상 잔액
+        <span class="toggle-badge badge-blue" style="${exp1 < 0 ? 'background:#ffebee;color:#c62828;' : ''}">${fmt(exp1)}</span>
+      </div>
+      <span class="toggle-arrow open" id="arrow-fund5">▼</span>
+    </div>
+    <div class="toggle-body open" id="body-fund5">
+      <div class="section-pad">
+        <table style="border-collapse:collapse;width:100%;font-size:13px;">
+          <thead>
+            <tr>
+              <th style="${thStyle}text-align:left;">항목</th>
+              <th style="${thGStyle}">${month}월 기준</th>
+              <th style="${thGStyle}">${month}~${nextMonth}월 기준</th>
+              <th style="${thGStyle}">전체 기준</th>
+            </tr>
+          </thead>
+          <tbody>${detailHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td style="${sumL}">💡 예상 잔액</td>
+              ${colorCell(exp1)}
+              ${colorCell(exp2)}
+              ${colorCell(exp3)}
+            </tr>
+            <tr>
+              <td colspan="4" style="padding:5px 14px;font-size:11px;color:#888;border:1px solid #ddd;">
+                ※ ${month}월: 당월 수금/지급/고정지출만 &nbsp;|&nbsp;
+                ${month}~${nextMonth}월: 두 달치 합산 &nbsp;|&nbsp;
+                전체: 결과 시트 전체 데이터 기준 (계좌잔액 ${fmt(acctBal)} 기준)
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  return html;
+}
+
+
+// ── 데이터 수집 (웹앱 전용) ──────────────────────────────────
+function getWebRecvGroups(ss) {
+  const sheet = ss.getSheetByName('결과');
+  if (!sheet) return {};
+  const data   = sheet.getDataRange().getValues();
+  const groups = {};
+  for (let i = 1; i < data.length; i++) {
+    const row     = data[i];
+    const email   = String(row[3]).trim();
+    const manager = String(row[2]).trim();
+    if (!email) continue;
+    if (!groups[email]) groups[email] = { manager, rows:[] };
+    groups[email].rows.push(row);
+  }
+  return groups;
+}
+
+function getWebMijigupAll(ss) {
+  const sheet = ss.getSheetByName('미지급_결과');
+  if (!sheet) return [];
+  return sheet.getDataRange().getValues().slice(1).filter(r => r[0] !== '' && r[0] !== null);
+}
+
+function getWebFundData(ss) {
+  const sheet = ss.getSheetByName('가용자금');
+  if (!sheet) return null;
+  const rows   = sheet.getDataRange().getValues();
+  const result = { 계좌:[], 구매자금:[], 구매자금_가능:[], 전자채권:[], 전자어음:[] };
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const type = String(r[0]).trim();
+    if (!type || !result[type]) continue;
+
+    switch(type) {
+      case '계좌':
+        result['계좌'].push({ bank:r[1], account:r[2], amount:Number(r[3]) || 0 });
+        break;
+      case '구매자금':
+        result['구매자금'].push({ latestDue:r[1], execNo:r[2], finalDue:r[3], balance:Number(r[4]) || 0 });
+        break;
+      case '구매자금_가능':
+        result['구매자금_가능'].push({ writeDate:r[1], client:r[2], amount:Number(r[3]) || 0 });
+        break;
+      case '전자채권':
+        result['전자채권'].push({ dueDate:r[1], client:r[2], receiveDate:r[3], amount:Number(r[4]) || 0 });
+        break;
+      case '전자어음':
+        result['전자어음'].push({ bank:r[1], client:r[2], receiveDate:r[3], dueDate:r[4], amount:Number(r[5]) || 0 });
+        break;
+    }
+  }
+  return result;
+}
+
+function getWebThisMonthRecv(ss) {
+  const sheet = ss.getSheetByName('결과');
+  if (!sheet) return {};
+  const byMonth = {};
+  sheet.getDataRange().getValues().slice(1).forEach(r => {
+    const d = r[7];
+    if (!(d instanceof Date)) return;
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!byMonth[k]) byMonth[k] = { total:0, count:0 };
+    byMonth[k].total += Number(r[11]) || 0;
+    byMonth[k].count++;
+  });
+  return byMonth;
+}
+
+function getWebThisMonthPay(ss) {
+  const sheet = ss.getSheetByName('미지급_결과');
+  if (!sheet) return {};
+  const byMonth = {};
+  sheet.getDataRange().getValues().slice(1).forEach(r => {
+    const d = r[5];
+    if (!(d instanceof Date)) return;
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!byMonth[k]) byMonth[k] = { total:0, count:0 };
+    byMonth[k].total += Number(r[9]) || 0;
+    byMonth[k].count++;
+  });
+  return byMonth;
+}
+
+function getWebThisMonthFixed(ss) {
+  const sheet = ss.getSheetByName('고정지출');
+  if (!sheet) return {};
+  const FIX = { year:0, month:1, content:2, day:3, date:4, amount:5, bank:6, category:7, realDate:8, payAmount:9, pay:10, realAmount:11 };
+  const byMonth = {};
+
+  sheet.getDataRange().getValues().slice(1).forEach(r => {
+    const amt = Number(r[FIX.realAmount]) || 0;
+    if (!amt) return;
+
+    const rd = r[FIX.realDate];
+    const d  = rd instanceof Date ? rd : new Date(rd);
+    if (isNaN(d)) return;
+
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (!byMonth[k]) byMonth[k] = { items:[], total:0 };
+
+    byMonth[k].items.push({
+      content:r[FIX.content],
+      realDate:d,
+      bank:r[FIX.bank],
+      category:r[FIX.category],
+      realAmount:amt
+    });
+    byMonth[k].total += amt;
+  });
+
+  Object.values(byMonth).forEach(m => m.items.sort((a,b) => a.realDate - b.realDate));
+  return byMonth;
+}
+
+
+// ── 포맷 헬퍼 ────────────────────────────────────────────────
+function fmt(n) {
+  return Number(n).toLocaleString() + '원';
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  const p = d instanceof Date ? d : new Date(d);
+  return isNaN(p) ? String(d) : Utilities.formatDate(p, 'Asia/Seoul', 'yyyy-MM-dd');
+}
