@@ -2845,31 +2845,38 @@ async function fetchSheetWebApp() {
 }
 
 async function fetchAvailableFundsFromApi() {
+  // 1. 구글 시트 직접 조회 (gviz) - 더 정확함
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(AVAILABLE_FUNDS_SHEET_NAME)}&headers=1`;
+    console.log("[가용자금] gviz 호출 시도:", url);
+    const data = await fetchPublicSheetByName(AVAILABLE_FUNDS_SHEET_NAME);
+    if (data && data.length > 0) {
+      console.log("[가용자금] gviz 로드 성공, 데이터 수:", data.length);
+      return data;
+    }
+  } catch (error) {
+    console.warn("가용자금 gviz 조회 실패:", error);
+  }
+
+  // 2. Apps Script 폴백 (위 방식 실패 시에만 시도)
   if (SHEET_APP_SCRIPT_URL) {
     try {
       const url = new URL(SHEET_APP_SCRIPT_URL);
       url.searchParams.set("action", "getAvailableFunds");
       const _token = getApiToken();
       if (_token) url.searchParams.set("token", _token);
-      console.log("[가용자금] Apps Script 호출 URL:", url.toString());
+      console.log("[가용자금] Apps Script 호출 시도:", url.toString());
       const response = await fetch(url.toString());
       if (!response.ok) throw new Error(`가용자금 조회 실패: ${response.status}`);
       const body = await response.json();
-      if (Array.isArray(body)) return body;
-      if (Array.isArray(body.rows)) return body.rows;
-      if (Array.isArray(body.data)) return body.data;
+      const rows = Array.isArray(body) ? body : (body.rows || body.data || []);
+      return rows;
     } catch (error) {
-      console.warn("가용자금 Apps Script 조회 실패, gviz 폴백 시도:", error);
+      console.warn("가용자금 Apps Script 조회 실패:", error);
     }
   }
-  try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(AVAILABLE_FUNDS_SHEET_NAME)}&headers=1`;
-    console.log("[가용자금] gviz 호출 URL:", url);
-    return await fetchPublicSheetByName(AVAILABLE_FUNDS_SHEET_NAME);
-  } catch (error) {
-    console.warn("가용자금 gviz 조회 실패:", error);
-    return [];
-  }
+
+  return [];
 }
 
 function parseAvailableFunds(rows) {
