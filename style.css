@@ -349,18 +349,37 @@ body {
 }
 
 .table-responsive thead .sticky-col {
-  z-index: 12;
+  z-index: 20;
 }
 
 .sticky-col-1 {
   left: 0;
+  width: 62px;
   min-width: 62px;
+  z-index: 10;
 }
 
 .sticky-col-2 {
   left: 62px;
-  min-width: 170px;
-  box-shadow: 10px 0 18px rgba(148, 163, 184, 0.18);
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  z-index: 10;
+  box-shadow: 4px 0 8px rgba(148, 163, 184, 0.1);
+  border-right: 1px solid #e2e8f0;
+}
+
+/* 미수금 전용: 첫 번째 컬럼이 바로 업체명인 경우 */
+.rcv-pivot-table .sticky-col-rcv-name {
+  left: 0;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  z-index: 10;
+  position: sticky;
+  background: white;
+  box-shadow: 4px 0 8px rgba(148, 163, 184, 0.1);
+  border-right: 1px solid #e2e8f0;
 }
 
 .group-filter-label {
@@ -515,6 +534,19 @@ body {
 .numeric-header,
 .numeric-cell {
   text-align: right !important;
+}
+
+.partner-name-cell {
+  max-width: 220px;
+  overflow: hidden;
+}
+
+.partner-name-cell-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  overflow: hidden;
 }
 
 .editable-amount-cell {

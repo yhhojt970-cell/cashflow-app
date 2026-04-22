@@ -2839,9 +2839,22 @@ function parseAvailableFunds(rows) {
   let totalEBonds = 0;
 
   rows.forEach(row => {
-    const type = String(row[""] || row["구분"] || "").trim(); // A열
-    const name = String(row["은행"] || row["만기"] || row["거래처"] || row["client"] || "").trim(); // B열
-    const value = parseSheetNumber(row["가용자금"] || row["금액"] || row["amount"] || 0); // D열
+    // A열 (구분/종류) - 유연한 매핑
+    const typeStr = String(row[""] || row["구분"] || row["종류"] || row["type"] || "").trim();
+    let type = "";
+    if (typeStr.includes("계좌") || typeStr.includes("예금") || typeStr.includes("현금") || typeStr.includes("보통")) {
+      type = "계좌";
+    } else if (typeStr.includes("구매")) {
+      type = "구매자금";
+    } else if (typeStr.includes("채권")) {
+      type = "전자채권";
+    }
+
+    // B열 (은행/거래처)
+    const name = String(row["은행"] || row["만기"] || row["거래처"] || row["client"] || row["금융기관"] || "").trim();
+    
+    // D열 (금액/잔액)
+    const value = parseSheetNumber(row["가용자금"] || row["금액"] || row["잔액"] || row["잔액(원)"] || row["amount"] || row["balance"] || 0);
     
     if (type === "계좌") {
       accounts.push({ name, value });
@@ -3344,7 +3357,7 @@ function renderReceivables() {
       const hasVMemo = !!(getVendorMemo(vCode).common || getVendorMemo(vCode).receivables);
       const mgrHtml = vendor.manager && vendor.manager !== "미지정" ? `<span class="rcv-manager-badge">${escapeHtml(vendor.manager)}</span>` : "";
       return `<tr class="${rowIdx % 2 === 0 ? "rcv-row-even" : "rcv-row-odd"}">
-          <td class="partner-name-cell">
+          <td class="partner-name-cell sticky-col-rcv-name">
             <div class="partner-name-cell-inner">
               <span class="partner-name-button truncate-text ${(vendor.memo || hasVMemo) ? "has-memo" : ""}"${memoAttr}>${escapeHtml(vendor.name)}</span>
               <button type="button" class="vendor-memo-btn" data-code="${escapeHtml(vCode)}" data-name="${escapeHtml(vendor.name)}" title="업체 메모 편집">✎</button>
@@ -3358,7 +3371,7 @@ function renderReceivables() {
     }).join("");
 
     return `<tr class="group-header rcv-group-header">
-        <td>
+        <td class="sticky-col-rcv-name">
           <button type="button" class="group-toggle rcv-group-toggle" data-group="${escapeHtml(group.label)}">${collapsed ? "▶" : "▼"}</button>
           <strong>${escapeHtml(group.label)}</strong>
           <span class="group-count">${group.vendors.size}건</span>
@@ -3404,7 +3417,7 @@ function renderReceivables() {
         <table class="rcv-pivot-table">
           <thead>
             <tr>
-              <th rowspan="2" class="rcv-sort-th sticky-col sticky-col-1" data-sort="code">거래처명</th>
+              <th rowspan="2" class="rcv-sort-th sticky-col-rcv-name" data-sort="code">거래처명</th>
               <th rowspan="2" class="rcv-sort-th" data-sort="elapsed">경과일수</th>
               ${yearHeaders}
               <th rowspan="2" class="numeric-header">합계</th>
@@ -3414,7 +3427,7 @@ function renderReceivables() {
             </tr>
           </thead>
           <tbody>
-            ${groupsHtml || '<tr><td colspan="4" class="empty-state">조건에 맞는 데이터가 없습니다.</td></tr>'}
+            ${groupsHtml || `<tr><td colspan="${monthKeys.length + 3}" class="empty-state">조건에 맞는 데이터가 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4192,7 +4205,7 @@ function renderPayables() {
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="${3 + monthKeys.length}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
+            ${rows || `<tr><td colspan="${monthKeys.length + 3}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
