@@ -2851,6 +2851,7 @@ async function fetchAvailableFundsFromApi() {
       url.searchParams.set("action", "getAvailableFunds");
       const _token = getApiToken();
       if (_token) url.searchParams.set("token", _token);
+      console.log("[가용자금] Apps Script 호출 URL:", url.toString());
       const response = await fetch(url.toString());
       if (!response.ok) throw new Error(`가용자금 조회 실패: ${response.status}`);
       const body = await response.json();
@@ -2862,6 +2863,8 @@ async function fetchAvailableFundsFromApi() {
     }
   }
   try {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(AVAILABLE_FUNDS_SHEET_NAME)}&headers=1`;
+    console.log("[가용자금] gviz 호출 URL:", url);
     return await fetchPublicSheetByName(AVAILABLE_FUNDS_SHEET_NAME);
   } catch (error) {
     console.warn("가용자금 gviz 조회 실패:", error);
