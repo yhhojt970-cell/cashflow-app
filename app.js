@@ -2974,18 +2974,22 @@ function renderDashboard() {
             ${availableFunds.accounts.map(acc => `
               <li><span>${acc.name}</span><strong>${formatNumber(acc.value)}</strong></li>
             `).join("")}
-            <li class="total-line"><span>합계</span><strong>${formatNumber(availableFunds.summary.totalAccountBalance)}</strong></li>
+            <li class="total-line"><span>계좌 합계</span><strong>${formatNumber(availableFunds.summary.totalAccountBalance)}</strong></li>
           </ul>
         </div>
         <div class="dashboard-detail-box">
           <h3>대출 및 채권</h3>
           <ul class="detail-list">
             ${availableFunds.purchaseLoans.map(p => `
-              <li><span>${p.name} (구매자금)</span><strong>${formatNumber(p.value)}</strong></li>
+              <li><span class="loan-badge">구매</span>${p.name}<strong>${formatNumber(p.value)}</strong></li>
             `).join("")}
             ${availableFunds.eBonds.map(e => `
-              <li><span>${e.name} (전자채권)</span><strong>${formatNumber(e.value)}</strong></li>
+              <li><span class="bond-badge">채권</span>${e.name}<strong>${formatNumber(e.value)}</strong></li>
             `).join("")}
+            ${(availableFunds.eBills || []).map(b => `
+              <li><span class="bill-badge">어음</span>${b.name}<strong>${formatNumber(b.value)}</strong></li>
+            `).join("")}
+            <li class="total-line"><span>대출/채권 합계</span><strong>${formatNumber(availableFunds.summary.totalPurchaseLoanBalance + availableFunds.summary.totalEBonds + (availableFunds.summary.totalEBills || 0))}</strong></li>
           </ul>
         </div>
       </div>
@@ -3028,13 +3032,20 @@ async function fetchPublicSheetByName(sheetName) {
   return json.table.rows.map(row => {
     const item = {};
     row.c.forEach((cell, index) => {
-      if (!cell) { item[cols[index]] = ""; return; }
-      // 날짜 셀: v는 "Date(2026,3,21)" 형태 → 사람이 읽을 수 있는 f값 우선 사용
-      if (colTypes[index] === "date" || colTypes[index] === "datetime") {
-        item[cols[index]] = cell.f ?? cell.v ?? "";
-      } else {
-        item[cols[index]] = cell.v ?? "";
+      const colLabel = cols[index] || "";
+      const colLetter = String.fromCharCode(65 + index); // A, B, C...
+      
+      let val = "";
+      if (cell) {
+        if (colTypes[index] === "date" || colTypes[index] === "datetime") {
+          val = cell.f ?? cell.v ?? "";
+        } else {
+          val = cell.v ?? "";
+        }
       }
+      
+      if (colLabel) item[colLabel] = val;
+      item[colLetter] = val; // 무조건 A, B, C... 키도 함께 저장 (더 강력함)
     });
     return item;
   });

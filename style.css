@@ -3338,3 +3338,9 @@ td {
 .rcv-preview-tab:hover { background: #e2e8f0; }
 .rcv-preview-tab.active { background: #3b82f6; border-color: #2563eb; color: #ffffff; }
 .rcv-email-modal { background: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+
+.loan-badge, .bond-badge, .bill-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 8px; color: white; min-width: 32px; text-align: center; }
+.loan-badge { background: #3b82f6; }
+.bond-badge { background: #10b981; }
+.bill-badge { background: #f59e0b; }
+
