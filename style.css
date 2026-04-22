@@ -3253,6 +3253,53 @@ td {
   border-style: dashed;
 }
 
+/* ── Table Alignment & Polish ────────────────────────────────── */
+.partner-name-cell {
+  max-width: 220px; /* 업체명 최대 너비 제한 */
+}
+
+.truncate-text {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+
+.year-summary-column {
+  background: #f8fafc !important;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: right;
+  min-width: 80px;
+}
+
+.group-summary-cell.year-summary-column {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff;
+}
+
+/* ── Header Polish ────────────────────────────────────────── */
+.payable-header-cell, .rcv-sort-th {
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+  vertical-align: middle !important;
+}
+
+.year-header-inner {
+  padding: 4px 0;
+}
+
+.year-toggle-btn {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.rcv-pivot-table thead th, 
+.panel .table-responsive table thead th {
+  border-bottom: 1px solid #e2e8f0;
+}
+
 
 /* 미리보기 팝업용 CSS */
 .rcv-preview-tab { padding: 6px 12px; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; cursor: pointer; color: #475569; font-weight: 500; }

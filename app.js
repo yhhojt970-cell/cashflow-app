@@ -274,33 +274,38 @@ function getFilteredItems(items, section) {
         return false;
       }
     }
-    if (section === "payables" && !filterState.status) {
-      if (item.completionStatus === "완료") return false;
-      if (item.completionStatus === "제외") return false; // 기본값에서 제외
+    // Status filtering
+    if (filterState.status === "completed") {
+      const balance = section === "payables"
+        ? getPayableOutstanding(item)
+        : section === "receivables"
+          ? Number(item.balance || 0)
+          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
+      if (balance !== 0) return false;
+    } else if (filterState.status === "pending") {
+      const balance = section === "payables"
+        ? getPayableOutstanding(item)
+        : section === "receivables"
+          ? Number(item.balance || 0)
+          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
+      if (balance === 0) return false;
+    } else if (filterState.status === "excluded") {
+      const isExcluded = section === "payables" 
+        ? item.completionStatus === "제외"
+        : section === "receivables"
+          ? (item.condition === "제외" || (item.memo && item.memo.includes("제외")))
+          : false;
+      if (!isExcluded) return false;
+    } else if (!filterState.status) {
+      // Default view: hide completed items
+      const balance = section === "payables"
+        ? getPayableOutstanding(item)
+        : section === "receivables"
+          ? Number(item.balance || 0)
+          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
+      if (balance === 0 && item.completionStatus === "완료") return false;
     }
-    if (filterState.status) {
-      if (filterState.status === "excluded") {
-        return item.completionStatus === "제외";
-      }
-      if (item.completionStatus === "제외") return false; // 다른 상태 필터(완료/미완료)에서도 제외는 숨김
 
-      const balance = section === "payables"
-        ? getPayableOutstanding(item)
-        : section === "receivables"
-          ? Number(item.balance || 0)
-          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
-      const isPaid = section === "fixed" ? Boolean(item.paid) : balance === 0;
-      if (filterState.status === "completed" && !isPaid) return false;
-      if (filterState.status === "pending" && isPaid) return false;
-    } else {
-      const balance = section === "payables"
-        ? getPayableOutstanding(item)
-        : section === "receivables"
-          ? Number(item.balance || 0)
-          : (item.purchase || item.sales || item.amount || 0) - (item.paid || 0);
-      const isPaid = section === "fixed" ? Boolean(item.paid) : balance === 0;
-      if (isPaid) return false;
-    }
     return true;
   });
 }
@@ -2629,9 +2634,7 @@ function parseReceivableRow(row) {
   const collection = parseSheetNumber(row["collection"] || row["합계 : 수금합"] || row["수금합"] || row["수금"] || 0);
   const balance = parseSheetNumber(row["balance"] || row["잔 액"] || row["잔액"] || 0);
 
-  if (!name || !Number(balance)) return null;
-  if (condition === "제외") return null;
-  if (memo.includes("제외")) return null;
+  if (!name || (!Number(balance) && condition !== "제외" && !memo.includes("제외"))) return null;
 
   const code = normalizeVendorCode(codeRaw || "00000");
   const dueDate = calcReceivableDueDate(year, month, memo, condition);
@@ -3257,15 +3260,27 @@ function renderReceivables() {
       return rcvSortState.dir === "asc" ? cmp : -cmp;
     });
 
-    const groupTotalCells = monthKeys.map((mk, idx) => {
-      const year = mk.split("-")[0];
-      const isYearCollapsed = filterState.yearCollapsed[year];
-      if (isYearCollapsed) return "";
-      const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
-      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
+    const groupTotalCells = years.map(y => {
+      const isCollapsed = filterState.yearCollapsed[y];
+      const yearMonths = yearsMap.get(y);
+      const yearSum = yearMonths.reduce((sum, mk) => {
+        return sum + [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
+      }, 0);
+      
+      if (isCollapsed) {
+        return `<td class="group-summary-cell year-summary-column month-column-cell">${yearSum ? formatNumber(yearSum) : ""}</td>`;
+      }
+      return yearMonths.map((mk, idx) => {
+        const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
+        return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
+      }).join("");
     }).join("");
 
-    const itemRowsHtml = collapsed ? "" : sortedVendors.map((vendor, rowIdx) => {
+    const itemRowsHtml = collapsed ? "" : sortedVendors.filter(v => {
+      // '제외' 필터링: 상태 필터가 '제외'가 아닐 때만 숨김
+      if (filterState.status === "excluded") return (v.condition === "제외" || (v.memo && v.memo.includes("제외")));
+      return !(v.condition === "제외" || (v.memo && v.memo.includes("제외")));
+    }).map((vendor, rowIdx) => {
       const el = vendor.maxElapsed;
       let elapsedHtml = "-", elapsedClass = "";
       if (el !== null && el !== undefined) {
@@ -3274,12 +3289,22 @@ function renderReceivables() {
         else if (el >= 0) { elapsedHtml = `${el}일`; elapsedClass = "rcv-elapsed-ok"; }
         else { elapsedHtml = `D${el}`; elapsedClass = "rcv-elapsed-future"; }
       }
-      const monthCells = monthKeys.map((mk, idx) => {
-        const year = mk.split("-")[0];
-        if (filterState.yearCollapsed[year]) return "";
-        const val = vendor.months[mk] || 0;
-        return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
+      
+      const monthCells = years.map(y => {
+        const isCollapsed = filterState.yearCollapsed[y];
+        const yearMonths = yearsMap.get(y);
+        
+        if (isCollapsed) {
+          const yearSum = yearMonths.reduce((sum, mk) => sum + (vendor.months[mk] || 0), 0);
+          return `<td class="numeric-cell year-summary-column month-column-cell">${yearSum ? formatNumber(yearSum) : ""}</td>`;
+        }
+        
+        return yearMonths.map((mk, idx) => {
+          const val = vendor.months[mk] || 0;
+          return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
+        }).join("");
       }).join("");
+
       const vCode = normalizeVendorCode(vendor.codeRaw || vendor.name || "");
       const rcvTooltip = buildVendorTooltip(vCode, vendor.memo, "receivables");
       const memoAttr = rcvTooltip ? ` title="${rcvTooltip.replace(/"/g, "&quot;")}"` : "";
@@ -3288,7 +3313,7 @@ function renderReceivables() {
       return `<tr class="${rowIdx % 2 === 0 ? "rcv-row-even" : "rcv-row-odd"}">
           <td class="partner-name-cell">
             <div class="partner-name-cell-inner">
-              <span class="partner-name-button ${(vendor.memo || hasVMemo) ? "has-memo" : ""}"${memoAttr}>${escapeHtml(vendor.name)}</span>
+              <span class="partner-name-button truncate-text ${(vendor.memo || hasVMemo) ? "has-memo" : ""}"${memoAttr}>${escapeHtml(vendor.name)}</span>
               <button type="button" class="vendor-memo-btn" data-code="${escapeHtml(vCode)}" data-name="${escapeHtml(vendor.name)}" title="업체 메모 편집">✎</button>
               ${mgrHtml}
             </div>
@@ -3345,7 +3370,7 @@ function renderReceivables() {
   const combinedYearHeaders = years.map(y => {
     const isCollapsed = filterState.yearCollapsed[y];
     const count = yearsMap.get(y).length;
-    return `<th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}">
+    return `<th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}" rowspan="${isCollapsed ? 2 : 1}">
       <div class="year-header-inner">
         <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
       </div>
@@ -3887,179 +3912,6 @@ function calcPaymentPlanSummary(filteredPayables) {
   ];
 }
 
-function getPayablesForPlanKey(planKey, sourceItems) {
-  if (planKey === "__total__") {
-    return [...sourceItems];
-  }
-  return sourceItems.filter(item => (item.paymentPlan || "") === planKey);
-}
-
-function getPayablesForPlanKeys(planKeys, sourceItems) {
-  const uniqueKeys = [...new Set((planKeys || []).filter(Boolean))];
-  if (!uniqueKeys.length) return [];
-  if (uniqueKeys.includes("__total__")) {
-    return [...sourceItems];
-  }
-  const seen = new Set();
-  const result = [];
-  uniqueKeys.forEach(planKey => {
-    getPayablesForPlanKey(planKey, sourceItems).forEach(item => {
-      const key = item.sourceKey || buildPayableSourceKey(item);
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push(item);
-      }
-    });
-  });
-  return result;
-}
-
-function formatMonthKey(key) {
-  const [year, month] = key.split("-");
-  return `${String(year).slice(2)}-${month}`;
-}
-
-function formatPlanLabel(key) {
-  if (!key) return "미정";
-  if (key === "보류") return "보류";
-  const normalized = normalizeDateValue(key);
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) return `${Number(match[2])}/${Number(match[3])}`;
-  return normalized;
-}
-
-function formatPlanShortLabel(key) {
-  if (!key) return "미정";
-  if (key === "보류") return "보류";
-  const normalized = normalizeDateValue(key);
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) return `${Number(match[2])}/${Number(match[3])}`;
-  return normalized;
-}
-
-function normalizeDueGroupLabel(label) {
-  return String(label || "").replace(/\s+/g, "").trim();
-}
-
-// ── 한국 공휴일 + 평일 보정 ───────────────────────────────────
-const KR_HOLIDAYS = new Set([
-  // 2025
-  "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30",
-  "2025-03-01", "2025-03-03",         // 삼일절(토)→월 대체
-  "2025-05-05", "2025-05-06",         // 어린이날+부처님오신날 대체공휴일
-  "2025-06-06",
-  "2025-08-15",
-  "2025-10-03", "2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09",
-  "2025-12-25",
-  // 2026
-  "2026-01-01",
-  "2026-02-16", "2026-02-17", "2026-02-18",
-  "2026-03-01", "2026-03-02",         // 삼일절(일)→월 대체
-  "2026-05-05",                      // 어린이날
-  "2026-05-24", "2026-05-25",         // 부처님오신날(일)→월 대체
-  "2026-06-06",
-  "2026-08-15",
-  "2026-09-24", "2026-09-25", "2026-09-26",
-  "2026-10-03", "2026-10-09",
-  "2026-12-25",
-]);
-
-function nextBusinessDay(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  while (true) {
-    const dow = d.getDay();
-    const ymd = toYMD(d);
-    if (dow !== 0 && dow !== 6 && !KR_HOLIDAYS.has(ymd)) break;
-    d.setDate(d.getDate() + 1);
-  }
-  return d;
-}
-
-function prevBusinessDay(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  while (true) {
-    const dow = d.getDay();
-    const ymd = toYMD(d);
-    if (dow !== 0 && dow !== 6 && !KR_HOLIDAYS.has(ymd)) break;
-    d.setDate(d.getDate() - 1);
-  }
-  return d;
-}
-
-function toYMD(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function getDueGroupRank(label) {
-  const normalized = normalizeDueGroupLabel(label);
-  const rankMap = {
-    "당말일": 0,
-    "당05일": 1,
-    "당10일": 2,
-    "당15일": 3,
-    "25일": 4,
-    "말일": 5,
-    "60일": 6,
-    "05일": 7,
-    "10일": 8,
-    "15일": 9,
-    "바로": 10,
-    "즉시": 10,
-  };
-  return rankMap[normalized] ?? 99;
-}
-
-function getDueGroup(item) {
-  return item.dueCategory || item.payDate || item.memo || "기타";
-}
-
-const PAYABLE_DUE_RULES = {
-  "당말일": [0, "last"],
-  "말일": [1, "last"],
-  "60일": [2, "last"],
-  "25일": [1, 25],
-  "당05일": [1, 5],
-  "05일": [2, 5],
-  "당10일": [1, 10],
-  "10일": [2, 10],
-  "당15일": [1, 15],
-  "15일": [2, 15],
-};
-
-function calcPayableDueDate(year, month, groupLabel) {
-  const label = normalizeDueGroupLabel(groupLabel);
-  const rule = PAYABLE_DUE_RULES[label];
-  if (!rule || !year || !month) return "";
-  const [addMonths, day] = rule;
-  const rawMonth = month + addMonths;
-  const targetYear = year + Math.floor((rawMonth - 1) / 12);
-  const targetMonth = ((rawMonth - 1) % 12) + 1;
-  let raw;
-  if (day === "last") {
-    raw = new Date(targetYear, targetMonth, 0);
-  } else {
-    raw = new Date(targetYear, targetMonth - 1, day);
-  }
-  return toYMD(nextBusinessDay(raw));
-}
-
-function getGroupAutoPayDate(groupLabel, consolidatedItems) {
-  let maxYear = 0, maxMonth = 0;
-  consolidatedItems.forEach(entry => {
-    (entry.items || []).forEach(item => {
-      const yr = Number(item.year || 0);
-      const mo = Number(item.month || 0);
-      if (yr > maxYear || (yr === maxYear && mo > maxMonth)) {
-        maxYear = yr; maxMonth = mo;
-      }
-    });
-  });
-  if (!maxYear || !maxMonth) return "";
-  return calcPayableDueDate(maxYear, maxMonth, groupLabel);
-}
-
 function getItemAutoPayDate(item) {
   return calcPayableDueDate(Number(item.year || 0), Number(item.month || 0), getDueGroup(item));
 }
@@ -4188,10 +4040,18 @@ function renderPayables() {
       .map(key => `${key === "보류" ? key : /^\d{4}-\d{2}-\d{2}$/.test(key) ? key.slice(5).replace("-", "/") : key} ${planCounts[key]}건`)
       .join(" · ");
       
-    const groupSummaryCells = monthKeys.map((key, index) => {
-      const year = key.split("-")[0];
-      if (filterState.yearCollapsed[year]) return "";
-      return `<td class="group-summary-cell month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[key] || 0)}</td>`;
+    const groupSummaryCells = years.map((y, index) => {
+      const isCollapsed = filterState.yearCollapsed[y];
+      const yearMonths = yearsMap.get(y);
+      const yearSum = yearMonths.reduce((sum, mk) => sum + (groupTotals.monthTotals[mk] || 0), 0);
+      
+      if (isCollapsed) {
+        return `<td class="group-summary-cell year-summary-column month-column-cell">${yearSum ? formatPayableCellNumber(yearSum) : ""}</td>`;
+      }
+      
+      return yearMonths.map((key, idx) => {
+        return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[key] || 0)}</td>`;
+      }).join("");
     }).join("");
     const header = `
       <tr class="group-header" data-group="${groupKey}">
@@ -4208,51 +4068,63 @@ function renderPayables() {
       </tr>
     `;
 
-    const itemRows = collapsed ? "" : group.items.map(entry => {
+    const itemRows = collapsed ? "" : group.items.filter(entry => {
+      // '제외' 필터링
+      const firstItem = entry.items[0];
+      if (filterState.status === "excluded") return firstItem.completionStatus === "제외";
+      return firstItem.completionStatus !== "제외";
+    }).map(entry => {
       const checked = entry.selected ? "checked" : "";
       const partnerKey = encodeURIComponent(getPartnerGroupKey(entry.items[0]));
 
-      const monthCells = monthKeys.map((monthKey, index) => {
-        const year = monthKey.split("-")[0];
-        if (filterState.yearCollapsed[year]) return "";
+      const monthCells = years.map((y, index) => {
+        const isCollapsed = filterState.yearCollapsed[y];
+        const yearMonths = yearsMap.get(y);
         
-        const decisionValue = entry.monthTotals[monthKey] || 0;
-        const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
-        const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
-        const totalPurchase = monthItems.reduce((sum, item) => sum + Number(item.purchase || 0), 0);
-        const totalRawPaid = monthItems.reduce((sum, item) => sum + Number(item.paid || 0), 0);
-        const cellPlanValue = monthItems[0]?.paymentPlan || "";
-        const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
-        const isMijeong = monthItems.some(item => item.completionStatus === "미정");
-        const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
-        const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
-        const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
-        // raw 지급합이 있으면 합계/지급 정보 표시 (버튼 아님)
-        const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
-        const isLastEdited = payablesUiState.lastEdited
-          && payablesUiState.lastEdited.partnerKey === getPartnerGroupKey(entry.items[0])
-          && payablesUiState.lastEdited.monthKey === monthKey;
-        if (originalValue === 0) {
-          return `<td class="editable-amount-cell numeric-cell month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
+        if (isCollapsed) {
+          const yearSum = yearMonths.reduce((sum, mk) => sum + (entry.monthTotals[mk] || 0), 0);
+          return `<td class="numeric-cell year-summary-column month-column-cell">${yearSum ? formatPayableCellNumber(yearSum) : ""}</td>`;
         }
-        return `
-          <td class="editable-amount-cell numeric-cell month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"} ${isLastEdited ? "recently-edited-cell" : ""}">
-            <div class="amount-cell-topline">
-              <span class="cell-plan-badge ${planClass}">${planLabel}</span>
-              <button
-                type="button"
-                class="edit-amount-button"
-                data-partner-key="${partnerKey}"
-                data-month-key="${monthKey}"
-              >
-                ${formatPayableCellNumber(decisionValue)}
-              </button>
-              <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
-            </div>
-            ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
-            ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
-          </td>
-        `;
+
+        return yearMonths.map((monthKey, idx) => {
+          const decisionValue = entry.monthTotals[monthKey] || 0;
+          const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
+          const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
+          const totalPurchase = monthItems.reduce((sum, item) => sum + Number(item.purchase || 0), 0);
+          const totalRawPaid = monthItems.reduce((sum, item) => sum + Number(item.paid || 0), 0);
+          const cellPlanValue = monthItems[0]?.paymentPlan || "";
+          const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
+          const isMijeong = monthItems.some(item => item.completionStatus === "미정");
+          const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
+          const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
+          const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
+          const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
+          const isLastEdited = payablesUiState.lastEdited
+            && payablesUiState.lastEdited.partnerKey === getPartnerGroupKey(entry.items[0])
+            && payablesUiState.lastEdited.monthKey === monthKey;
+          
+          if (originalValue === 0) {
+            return `<td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
+          }
+          return `
+            <td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"} ${isLastEdited ? "recently-edited-cell" : ""}">
+              <div class="amount-cell-topline">
+                <span class="cell-plan-badge ${planClass}">${planLabel}</span>
+                <button
+                  type="button"
+                  class="edit-amount-button"
+                  data-partner-key="${partnerKey}"
+                  data-month-key="${monthKey}"
+                >
+                  ${formatPayableCellNumber(decisionValue)}
+                </button>
+                <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
+              </div>
+              ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
+              ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
+            </td>
+          `;
+        }).join("");
       }).join("");
 
       return `
@@ -4284,7 +4156,7 @@ function renderPayables() {
     const isCollapsed = filterState.yearCollapsed[y];
     const count = yearsMap.get(y).length;
     return `
-      <th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}">
+      <th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}" rowspan="${isCollapsed ? 2 : 1}">
         <div class="year-header-inner">
           <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
         </div>
