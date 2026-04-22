@@ -18,7 +18,6 @@ const PLAN_SHEET_NAME = "결제계획";
 const HISTORY_SHEET_NAME = "결제이력";
 const FIXED_EXPENSES_SHEET_NAME = "고정지출";
 const AVAILABLE_FUNDS_SHEET_NAME = "가용자금";
-const YEAR_TOGGLE_STORAGE_KEY = "receivable-payable-webapp.year-toggles.v1";
 const PAYABLES_SYNC_DEBOUNCE_MS = 700;
 const WOORI_TRANSFER_TEMPLATE_PATH = "우리은행 이체 양식.xlsx";
 const DEFAULT_SENDER_ACCOUNT_DISPLAY = "미래오토메이션(주)";
@@ -73,7 +72,6 @@ const filterState = {
   search: "",
   groups: null, // null=전체, []=없음, [...]= 선택목록
   groupOrder: [], // 미지급 그룹 드래그 순서
-  yearCollapsed: {}, // { "2024": true, ... }
 };
 
 const payablesGroupState = {
@@ -150,6 +148,21 @@ function formatNumber(value) {
 
 function formatPayableCellNumber(value) {
   return Number(value || 0) === 0 ? "" : formatNumber(value);
+}
+
+function formatMonthKey(key) {
+  if (!key) return "-";
+  const parts = key.split("-");
+  if (parts.length < 2) return key;
+  return `${Number(parts[1])}월`;
+}
+
+function formatPlanShortLabel(value) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(5).replace("-", "/");
+  }
+  return value;
 }
 
 function getPayableEffectivePaid(item) {
@@ -2850,7 +2863,7 @@ function parseAvailableFunds(rows) {
       totalAccountBalance,
       totalPurchaseLoanBalance,
       totalEBonds,
-      availableTotal: totalAccountBalance // 보통 가용자금은 계좌잔액 기준이므로 일단 이렇게 설정 (필요시 수정)
+      availableTotal: totalAccountBalance + totalPurchaseLoanBalance + totalEBonds
     }
   };
 }
@@ -3248,10 +3261,6 @@ function setupGroupChipEvents(container, allLabels, getFilter, setFilter, setOrd
   });
 }
 
-function saveYearToggles() {
-  localStorage.setItem(YEAR_TOGGLE_STORAGE_KEY, JSON.stringify(filterState.yearCollapsed));
-}
-
 function renderReceivables() {
   // 칩용: 전체 receivables에서 조건 목록 수집 (필터 전)
   const allCondLabels = (() => {
@@ -3268,7 +3277,6 @@ function renderReceivables() {
   const totalBalance = filtered.reduce((s, i) => s + Number(i.balance || 0), 0);
   const monthKeys = [...new Set(filtered.map(i => `${i.year}-${String(i.month).padStart(2, "0")}`))].sort();
 
-  // 연도별 그룹 수집
   const yearsMap = new Map();
   monthKeys.forEach(mk => {
     const y = mk.split("-")[0];
@@ -3308,24 +3316,12 @@ function renderReceivables() {
       return rcvSortState.dir === "asc" ? cmp : -cmp;
     });
 
-    const groupTotalCells = years.map(y => {
-      const isCollapsed = filterState.yearCollapsed[y];
-      const yearMonths = yearsMap.get(y);
-      const yearSum = yearMonths.reduce((sum, mk) => {
-        return sum + [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
-      }, 0);
-      
-      if (isCollapsed) {
-        return `<td class="group-summary-cell year-summary-column month-column-cell">${yearSum ? formatNumber(yearSum) : ""}</td>`;
-      }
-      return yearMonths.map((mk, idx) => {
-        const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
-        return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
-      }).join("");
+    const groupTotalCells = monthKeys.map((mk, idx) => {
+      const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
+      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
     }).join("");
 
     const itemRowsHtml = collapsed ? "" : sortedVendors.filter(v => {
-      // '제외' 필터링: 상태 필터가 '제외'가 아닐 때만 숨김
       if (filterState.status === "excluded") return (v.condition === "제외" || (v.memo && v.memo.includes("제외")));
       return !(v.condition === "제외" || (v.memo && v.memo.includes("제외")));
     }).map((vendor, rowIdx) => {
@@ -3337,20 +3333,9 @@ function renderReceivables() {
         else if (el >= 0) { elapsedHtml = `${el}일`; elapsedClass = "rcv-elapsed-ok"; }
         else { elapsedHtml = `D${el}`; elapsedClass = "rcv-elapsed-future"; }
       }
-      
-      const monthCells = years.map(y => {
-        const isCollapsed = filterState.yearCollapsed[y];
-        const yearMonths = yearsMap.get(y);
-        
-        if (isCollapsed) {
-          const yearSum = yearMonths.reduce((sum, mk) => sum + (vendor.months[mk] || 0), 0);
-          return `<td class="numeric-cell year-summary-column month-column-cell">${yearSum ? formatNumber(yearSum) : ""}</td>`;
-        }
-        
-        return yearMonths.map((mk, idx) => {
-          const val = vendor.months[mk] || 0;
-          return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
-        }).join("");
+      const monthCells = monthKeys.map((mk, idx) => {
+        const val = vendor.months[mk] || 0;
+        return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
       }).join("");
 
       const vCode = normalizeVendorCode(vendor.codeRaw || vendor.name || "");
@@ -3388,68 +3373,40 @@ function renderReceivables() {
   const chipsHtml = buildGroupChipsHtml(allCondLabels, rcvGroupState.filter, "rcv-chip");
 
   const yearHeaders = years.map(y => {
-    const isCollapsed = filterState.yearCollapsed[y];
     const count = yearsMap.get(y).length;
-    return `<th class="year-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 0 : count}" style="${isCollapsed ? "display:none" : ""}">
+    return `<th class="year-header" colspan="${count}">
       <div class="year-header-inner">
-        <span>${y}</span>
-        <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? "+" : "-"}</button>
+        <span>${y}년</span>
       </div>
     </th>`;
   }).join("");
-  
-  // 접힌 연도들을 위한 별도 헤더 (항상 보이거나 합쳐서 표시)
-  const collapsedYearsHtml = years.filter(y => filterState.yearCollapsed[y]).map(y => `
-    <th class="year-header collapsed">
-      <div class="year-header-inner">
-        <span>${y.slice(2)}</span>
-        <button type="button" class="year-toggle-btn" data-year="${y}">+</button>
-      </div>
-    </th>
-  `).join("");
 
   const monthHeaders = monthKeys.map((mk, idx) => {
-    const year = mk.split("-")[0];
-    if (filterState.yearCollapsed[year]) return "";
-    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${mk.slice(2)}</th>`;
-  }).join("");
-
-  // 실제 렌더링될 연도별 헤더 구조
-  const combinedYearHeaders = years.map(y => {
-    const isCollapsed = filterState.yearCollapsed[y];
-    const count = yearsMap.get(y).length;
-    return `<th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}" rowspan="${isCollapsed ? 2 : 1}">
-      <div class="year-header-inner">
-        <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
-      </div>
-    </th>`;
+    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(mk)}</th>`;
   }).join("");
 
   elements.receivables.innerHTML = `
     <div class="panel">
       <div class="panel-title-row">
         <div class="panel-title-inline">
-          <h3>미수금 목록</h3>
+          <h3>미수금 목록 (피벗)</h3>
           ${filtered.length ? `<span class="rcv-summary-text">${filtered.length}건 · ${formatNumber(totalBalance)}원</span>` : ""}
-        </div>
-        <div class="payable-table-actions">
-          <button type="button" class="table-action-button subtle rcv-expand-all">전체 펼치기</button>
-          <button type="button" class="table-action-button subtle rcv-collapse-all">전체 접기</button>
-          <button type="button" class="header-action-button" id="receivableEmailButton">이메일 발송</button>
+          <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">📧 메일 발송</button>
         </div>
       </div>
-      <div class="rcv-group-chips" id="rcvGroupChips">
+      <div class="rcv-group-chips chips-orderable" id="rcvGroupChips">
         <button type="button" class="group-manage-link chip-select-all">전체 선택</button>
         <button type="button" class="group-manage-link chip-clear-all">전체 해제</button>
         ${chipsHtml}
       </div>
+      <div class="table-scrollbar-top" id="rcvTopScrollbar"><div class="table-scrollbar-inner" id="rcvTopScrollbarInner"></div></div>
       <div class="table-responsive">
         <table class="rcv-pivot-table">
           <thead>
             <tr>
-              <th rowspan="2" class="rcv-sort-th" data-sort="code">거래처명 ${rcvSortState.key === "code" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
-              <th rowspan="2" class="numeric-header rcv-sort-th" data-sort="elapsed">경과일수 ${rcvSortState.key === "elapsed" ? (rcvSortState.dir === "asc" ? "▲" : "▼") : "⇅"}</th>
-              ${combinedYearHeaders}
+              <th rowspan="2" class="rcv-sort-th sticky-col sticky-col-1" data-sort="code">거래처명</th>
+              <th rowspan="2" class="rcv-sort-th" data-sort="elapsed">경과일수</th>
+              ${yearHeaders}
               <th rowspan="2" class="numeric-header">합계</th>
             </tr>
             <tr>
@@ -3457,22 +3414,12 @@ function renderReceivables() {
             </tr>
           </thead>
           <tbody>
-            ${visibleGroups.length ? groupsHtml : `<tr><td colspan="${5 + monthKeys.length}" class="empty-state">${receivables.length ? "표시할 미수금 데이터가 없습니다." : "미수금 데이터를 불러오는 중입니다."}</td></tr>`}
+            ${groupsHtml || '<tr><td colspan="4" class="empty-state">조건에 맞는 데이터가 없습니다.</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>
   `;
-
-  // 이벤트 리스너들
-  elements.receivables.querySelectorAll(".year-toggle-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const y = btn.dataset.year;
-      filterState.yearCollapsed[y] = !filterState.yearCollapsed[y];
-      saveYearToggles();
-      renderReceivables();
-    });
-  });
 
   document.getElementById("receivableEmailButton")?.addEventListener("click", openReceivableEmailDialog);
 
@@ -4088,18 +4035,8 @@ function renderPayables() {
       .map(key => `${key === "보류" ? key : /^\d{4}-\d{2}-\d{2}$/.test(key) ? key.slice(5).replace("-", "/") : key} ${planCounts[key]}건`)
       .join(" · ");
       
-    const groupSummaryCells = years.map((y, index) => {
-      const isCollapsed = filterState.yearCollapsed[y];
-      const yearMonths = yearsMap.get(y);
-      const yearSum = yearMonths.reduce((sum, mk) => sum + (groupTotals.monthTotals[mk] || 0), 0);
-      
-      if (isCollapsed) {
-        return `<td class="group-summary-cell year-summary-column month-column-cell">${yearSum ? formatPayableCellNumber(yearSum) : ""}</td>`;
-      }
-      
-      return yearMonths.map((key, idx) => {
-        return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[key] || 0)}</td>`;
-      }).join("");
+    const groupSummaryCells = monthKeys.map((mk, idx) => {
+      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[mk] || 0)}</td>`;
     }).join("");
     const header = `
       <tr class="group-header" data-group="${groupKey}">
@@ -4125,54 +4062,44 @@ function renderPayables() {
       const checked = entry.selected ? "checked" : "";
       const partnerKey = encodeURIComponent(getPartnerGroupKey(entry.items[0]));
 
-      const monthCells = years.map((y, index) => {
-        const isCollapsed = filterState.yearCollapsed[y];
-        const yearMonths = yearsMap.get(y);
+      const monthCells = monthKeys.map((monthKey, idx) => {
+        const decisionValue = entry.monthTotals[monthKey] || 0;
+        const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
+        const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
+        const totalPurchase = monthItems.reduce((sum, item) => sum + Number(item.purchase || 0), 0);
+        const totalRawPaid = monthItems.reduce((sum, item) => sum + Number(item.paid || 0), 0);
+        const cellPlanValue = monthItems[0]?.paymentPlan || "";
+        const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
+        const isMijeong = monthItems.some(item => item.completionStatus === "미정");
+        const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
+        const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
+        const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
+        const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
+        const isLastEdited = payablesUiState.lastEdited
+          && payablesUiState.lastEdited.partnerKey === getPartnerGroupKey(entry.items[0])
+          && payablesUiState.lastEdited.monthKey === monthKey;
         
-        if (isCollapsed) {
-          const yearSum = yearMonths.reduce((sum, mk) => sum + (entry.monthTotals[mk] || 0), 0);
-          return `<td class="numeric-cell year-summary-column month-column-cell">${yearSum ? formatPayableCellNumber(yearSum) : ""}</td>`;
+        if (originalValue === 0) {
+          return `<td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
         }
-
-        return yearMonths.map((monthKey, idx) => {
-          const decisionValue = entry.monthTotals[monthKey] || 0;
-          const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
-          const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
-          const totalPurchase = monthItems.reduce((sum, item) => sum + Number(item.purchase || 0), 0);
-          const totalRawPaid = monthItems.reduce((sum, item) => sum + Number(item.paid || 0), 0);
-          const cellPlanValue = monthItems[0]?.paymentPlan || "";
-          const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
-          const isMijeong = monthItems.some(item => item.completionStatus === "미정");
-          const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
-          const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
-          const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
-          const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
-          const isLastEdited = payablesUiState.lastEdited
-            && payablesUiState.lastEdited.partnerKey === getPartnerGroupKey(entry.items[0])
-            && payablesUiState.lastEdited.monthKey === monthKey;
-          
-          if (originalValue === 0) {
-            return `<td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
-          }
-          return `
-            <td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"} ${isLastEdited ? "recently-edited-cell" : ""}">
-              <div class="amount-cell-topline">
-                <span class="cell-plan-badge ${planClass}">${planLabel}</span>
-                <button
-                  type="button"
-                  class="edit-amount-button"
-                  data-partner-key="${partnerKey}"
-                  data-month-key="${monthKey}"
-                >
-                  ${formatPayableCellNumber(decisionValue)}
-                </button>
-                <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
-              </div>
-              ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
-              ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
-            </td>
-          `;
-        }).join("");
+        return `
+          <td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"} ${isLastEdited ? "recently-edited-cell" : ""}">
+            <div class="amount-cell-topline">
+              <span class="cell-plan-badge ${planClass}">${planLabel}</span>
+              <button
+                type="button"
+                class="edit-amount-button"
+                data-partner-key="${partnerKey}"
+                data-month-key="${monthKey}"
+              >
+                ${formatPayableCellNumber(decisionValue)}
+              </button>
+              <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
+            </div>
+            ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
+            ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
+          </td>
+        `;
       }).join("");
 
       return `
@@ -4200,21 +4127,18 @@ function renderPayables() {
     return header + itemRows;
   }).join("");
 
-  const combinedYearHeaders = years.map(y => {
-    const isCollapsed = filterState.yearCollapsed[y];
+  const yearHeaders = years.map(y => {
     const count = yearsMap.get(y).length;
     return `
-      <th class="year-group-header ${isCollapsed ? "collapsed" : ""}" colspan="${isCollapsed ? 1 : count}" rowspan="${isCollapsed ? 2 : 1}">
+      <th class="year-group-header" colspan="${count}">
         <div class="year-header-inner">
-          <button type="button" class="year-toggle-btn" data-year="${y}">${isCollapsed ? y.slice(2) + " +" : y + " -"}</button>
+          <span>${y}년</span>
         </div>
       </th>
     `;
   }).join("");
 
   const monthHeaders = monthKeys.map((key, index) => {
-    const year = key.split("-")[0];
-    if (filterState.yearCollapsed[year]) return "";
     return `<th class="numeric-header month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(key)}</th>`;
   }).join("");
 
@@ -4260,7 +4184,7 @@ function renderPayables() {
             <tr>
               <th rowspan="2" class="sticky-col sticky-col-1 payable-header-cell">선택</th>
               <th rowspan="2" class="sticky-col sticky-col-2 payable-header-cell">업체명</th>
-              ${combinedYearHeaders}
+              ${yearHeaders}
               <th rowspan="2" class="numeric-header">합계</th>
             </tr>
             <tr>
@@ -4268,22 +4192,12 @@ function renderPayables() {
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="${5 + monthKeys.length}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
+            ${rows || `<tr><td colspan="${3 + monthKeys.length}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
     </div>
   `;
-
-  // 연도 토글 이벤트 추가
-  document.querySelectorAll(".year-toggle-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const y = btn.dataset.year;
-      filterState.yearCollapsed[y] = !filterState.yearCollapsed[y];
-      saveYearToggles();
-      renderPayables();
-    });
-  });
 
   document.querySelectorAll(".vendor-memo-btn").forEach(btn => {
     btn.addEventListener("click", e => { e.stopPropagation(); openVendorMemoEditor(btn.dataset.code, btn.dataset.name); });
@@ -6712,12 +6626,6 @@ async function init() {
   loadGroupOrder();
   loadVendorMemos();
   
-  // 연도별 접힘 상태 복원
-  const storedToggles = localStorage.getItem(YEAR_TOGGLE_STORAGE_KEY);
-  if (storedToggles) {
-    try { filterState.yearCollapsed = JSON.parse(storedToggles); } catch(e) {}
-  }
-
   renderPartnerFilter();
   renderFilterControls();
   renderVendorMasterPanel();
