@@ -331,9 +331,10 @@ function renderFilterControls() {
   elements.monthFilter.innerHTML = `<option value="">전체</option>` +
     months.map(month => `<option value="${String(month).padStart(2, "0")}">${month}월</option>`).join("");
   elements.statusFilter.innerHTML = `
-    <option value="">전체</option>
+    <option value="">전체 (완료 제외)</option>
     <option value="pending">미완료 / 지급 대기</option>
     <option value="completed">완료 / 지급 완료</option>
+    <option value="excluded">제외 항목</option>
   `;
 
   elements.partnerFilter.addEventListener("change", event => {
@@ -2717,6 +2718,53 @@ function extractDueCategory(payDate, memo) {
   const groups = ["60일", "말일", "당말일", "05일", "당05일", "10일", "당10일", "15일", "당15일", "25일", "바로", "즉시"];
   const match = groups.find(group => text.includes(group));
   return match || text || "기타";
+}
+
+function getDueGroup(item) {
+  if (item.dueCategory && item.dueCategory !== "기타") return item.dueCategory;
+  return extractDueCategory(item.payDate, item.memo);
+}
+
+function getDueGroupRank(group) {
+  const ranks = {
+    "즉시": 1, "바로": 2, "60일": 3,
+    "당말일": 10, "말일": 11,
+    "당05일": 20, "05일": 21,
+    "당10일": 30, "10일": 31,
+    "당15일": 40, "15일": 41,
+    "당25일": 50, "25일": 51,
+    "기타": 99,
+  };
+  return ranks[group] || 90;
+}
+
+function calcPayableDueDate(year, month, group) {
+  if (!year || !month) return "";
+  let targetYear = Number(year);
+  let targetMonth = Number(month);
+  let day = 0;
+
+  if (group === "당말일" || group === "당05일" || group === "당10일" || group === "당15일" || group === "당25일") {
+    // Current month
+  } else if (group === "60일") {
+    targetMonth += 2;
+    while (targetMonth > 12) { targetMonth -= 12; targetYear++; }
+  } else if (group === "말일" || group === "05일" || group === "10일" || group === "15일" || group === "25일" || group === "즉시" || group === "바로") {
+    targetMonth++;
+    while (targetMonth > 12) { targetMonth -= 12; targetYear++; }
+  }
+
+  if (group.includes("말일") || group === "60일") {
+    day = new Date(targetYear, targetMonth, 0).getDate();
+  } else if (group.includes("05일")) day = 5;
+  else if (group.includes("10일")) day = 10;
+  else if (group.includes("15일")) day = 15;
+  else if (group.includes("25일")) day = 25;
+  else {
+    day = new Date(targetYear, targetMonth, 0).getDate();
+  }
+
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function parseSheetNumber(value) {
