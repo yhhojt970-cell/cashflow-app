@@ -24,15 +24,168 @@ Google Sheets 연동 + 로컬 Excel 붙여넣기 방식.
 
 ---
 
-## Google Sheets 연동
+## Google Sheets 연동 구조
 
 ```js
 const SHEET_SPREADSHEET_ID = "1VxYrCD3eZr5PpTORFPCEQPfWM5QSr-tNFNnc_W1C5qM";
-const SHEET_APP_SCRIPT_URL = "https://script.google.com/macros/s/..."; // Apps Script URL
+const SHEET_APP_SCRIPT_URL = "https://script.google.com/macros/s/..."; // Apps Script WebApp URL
 ```
 
-- 데이터 조회: gviz 방식 우선 → Apps Script fallback
-- 업체마스터: Google Sheets `업체마스터` 시트 (⚠️ 중복 문제 미해결 — 아래 참고)
+### Apps Script action 목록
+
+| action | 방향 | 설명 |
+|--------|------|------|
+| (없음, GET) | 읽기 | 미지급 raw 데이터 (`미지급_raw` 시트) |
+| `getReceivables` | 읽기 | 미수금 raw (`raw` 시트) |
+| `getVendorMaster` | 읽기 | 업체마스터 |
+| `getManagerMaster` | 읽기 | 담당자 마스터 |
+| `getPaymentPlans` | 읽기 | 결제계획 |
+| `getPaymentHistory` | 읽기 | 결제이력 |
+| `getFixed` | 읽기 | 고정지출 |
+| `getAvailableFunds` | 읽기 | 가용자금 (gviz fallback 우선) |
+| `getTaxInvoices` | 읽기 | 세금계산서 (대사용) |
+| `getLedgerSales` | 읽기 | 계정별원장 — 외상매출금 (대사용) |
+| `getLedgerPurchase` | 읽기 | 계정별원장 — 외상매입금 (대사용) |
+| `getLedgerPayable` | 읽기 | 계정별원장 — 미지급금 (대사용) |
+| `getDailySales` | 읽기 | 영업현황 일별 (대사용) |
+| `getBizDivision` | 읽기 | 사업부문 마스터 (대사용) |
+| `upsertVendorMaster` | 쓰기 | 업체마스터 저장 (중복 시 덮어쓰기) |
+| `upsertBizDivision` | 쓰기 | 사업부문 마스터 저장 |
+| `upsertTaxInvoices` | 쓰기 | 세금계산서 저장 |
+| `upsertLedger` | 쓰기 | 계정별원장 저장 (ledgerType: 매출/매입/미지급) |
+| `upsertDailySales` | 쓰기 | 영업현황 저장 |
+| `appendPaymentPlans` | 쓰기 | 결제계획 저장 |
+| `appendPaymentHistory` | 쓰기 | 결제이력 저장 |
+| `appendUpdateHistory` | 쓰기 | 변경 이력 기록 |
+| `sendReceivableEmails` | 쓰기 | 미수금 이메일 발송 |
+| `sendRawDiffEmail` | 쓰기 | 미지급 변경 감지 이메일 |
+| `sendPaymentWarningEmail` | 쓰기 | 결제 경고 이메일 |
+
+**읽기**: gviz(공개 URL) 우선, 실패 시 Apps Script fallback  
+**쓰기**: 항상 Apps Script (`postSheetWebApp` 함수)
+
+---
+
+## 미수금 / 미지급 데이터 흐름
+
+### 미지급 (`loadSheetPayables`)
+
+**1단계** — raw + 업체마스터 동시 로드 → diff 없으면 즉시 렌더링:
+```
+fetchVendorMasterRowsFromApi()  → action=getVendorMaster
+fetchSheetWebApp()              → Apps Script 기본 URL (미지급_raw 시트)
+                                   └→ 인증 실패 시 gviz fallback
+```
+
+**2단계** — 백그라운드 로드 후 재적용:
+```
+fetchSavedPaymentPlansFromApi() → action=getPaymentPlans
+fetchPaymentHistoryRowsFromApi()→ action=getPaymentHistory
+```
+
+**데이터 처리 파이프라인:**
+```
+rows
+→ parsePayableRow()               각 행 파싱 (거래처코드, 연월, 매입, 지급합 등)
+→ detectPayablesRawDiff()         이전 스냅샷과 변경 비교 (금액변경/삭제 감지)
+→ applySavedPayablesState()       localStorage 상태 복원 (결제계획, 선택, paidOverride)
+→ applySavedPaymentPlansFromApi() 원격 결제계획 적용 (로컬보다 최신인 경우만)
+→ applyPaymentHistoryRows()       결제이력 기반 완료/부분결제 처리
+→ ensureAutoPaymentPlans()        납기 그룹별 자동 결제일 계산
+→ enrichPayablesWithVendorMaster()업체마스터에서 은행/계좌 정보 매칭
+→ persistPayablesState()          localStorage 저장 + Apps Script 동기화 (700ms debounce)
+```
+
+**로컬 저장 키:** `receivable-payable-webapp.payables-state.v1`
+
+### 미수금 (`loadSheetReceivables`)
+
+**동시 로드:**
+```
+fetchReceivablesFromApi()    → action=getReceivables → 실패 시 gviz (raw 시트)
+fetchManagerMasterFromApi()  → action=getManagerMaster
+```
+
+**처리:**
+```
+rows → parseReceivableRow() → enrichReceivablesWithManager() → renderReceivables()
+```
+
+---
+
+## 자료업로드 버튼
+
+헤더의 **"자료업로드"** 버튼 → 패널 토글 → 5종 파일 업로드
+
+| 항목 | 파일 형식 | 파서 | 헤더 위치 | Apps Script action |
+|------|-----------|------|-----------|-------------------|
+| 세금계산서 (매출/매입 통합) | `.xls/.xlsx` | `parseTaxInvoiceFile` | 7행 (index 6) | `upsertTaxInvoices` |
+| 계정별원장 — 외상매출금 | `.xls/.xlsx` | `parseLedgerFile` | 1행 (index 0) | `upsertLedger` (ledgerType=매출) |
+| 계정별원장 — 외상매입금 | `.xls/.xlsx` | `parseLedgerFile` | 1행 (index 0) | `upsertLedger` (ledgerType=매입) |
+| 계정별원장 — 미지급금 | `.xls/.xlsx` | `parseLedgerFile` | 1행 (index 0) | `upsertLedger` (ledgerType=미지급) |
+| 영업현황 (일별) | `.xls/.xlsx` | `parseDailySalesFile` | 8행 (index 7) | `upsertDailySales` |
+
+**동작 순서:**
+1. 파일 선택 → 로컬에서 즉시 파싱 (XLSX.js)
+2. 업체마스터와 매칭 (`matchVendorEntry` — 사업자번호 or 거래처코드 기준)
+3. "구글시트 저장" 클릭 → `postSheetWebApp(action, rows)` → 중복 행은 자동 덮어쓰기
+
+**중복 방지 키 (`_row_key`):**
+- 세금계산서: 승인번호 (없으면 작성일자+사업자번호+합계)
+- 계정별원장: 일자+견표번호+거래처코드
+- 영업현황: 전표번호 (없으면 거래일자+거래처코드+판매금액+구매금액)
+
+---
+
+## 대사 탭
+
+**목적:** 세금계산서 ↔ 계정별원장 ↔ 영업현황 수치를 업체별·월별로 교차 비교
+
+**데이터 로드 (`loadDaesaData`):**
+
+탭 진입 시 버튼 클릭으로 수동 로드 (앱 시작 시 자동 로드 안 함)
+
+```
+Apps Script 동시 6개 요청:
+  getTaxInvoices    → 세금계산서 (매출/매입)
+  getLedgerSales    → 계정별원장 외상매출금
+  getLedgerPurchase → 계정별원장 외상매입금
+  getLedgerPayable  → 계정별원장 미지급금
+  getDailySales     → 영업현황 (일별)
+  getBizDivision    → 사업부문 마스터 (없으면 빈 배열)
+```
+
+**표시 구조 (`buildDaesaMap`):**
+
+업체코드 기준으로 집계:
+
+| 컬럼 | 출처 |
+|------|------|
+| 세금계산서 매출 | `taxInvoices` 중 매출 행 |
+| 계정원장 매출 | `ledgerSales` |
+| 영업현황 매출 | `dailySales` |
+| 세금계산서 매입 | `taxInvoices` 중 매입 행 |
+| 계정원장 매입+미지급 | `ledgerPurchase` + `ledgerPayable` |
+| 영업현황 매입 | `dailySales` |
+
+필터: 연도·월 선택, 검색창 연동  
+정렬: 컬럼 헤더 클릭 (거래처명/각 금액 컬럼)
+
+---
+
+## 입출금 매칭 버튼
+
+헤더의 **"입출금 매칭"** 버튼 → 은행 입출금 엑셀 파일 업로드
+
+```
+파일 선택 → XLSX.js 파싱 → parseBankSheet()
+  헤더: 날짜 / 적요 / 출금 / 입금 (인식 필수)
+→ openBankImportDialog()  → 대사 탭에 결과 표시
+```
+
+---
+
+## 업체마스터
 
 ---
 
