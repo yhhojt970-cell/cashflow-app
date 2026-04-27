@@ -644,11 +644,10 @@ function openWarningEmailDialog(warnings, reportRows, planKey) {
 
 async function loadSheetPayables() {
   try {
-    const [vendorRows, rows, remotePlanRows, remoteHistoryRows] = await Promise.all([
+    // 1단계: 핵심 데이터(raw + 업체마스터)만 먼저 로드 → 빠르게 화면 표시
+    const [vendorRows, rows] = await Promise.all([
       fetchVendorMasterRowsFromApi(),
       SHEET_APP_SCRIPT_URL ? fetchSheetWebApp() : fetchPublicSheet(),
-      fetchSavedPaymentPlansFromApi(),
-      fetchPaymentHistoryRowsFromApi(),
     ]);
     setVendorMasterRows(vendorRows);
     if (!rows || !rows.length) {
@@ -664,9 +663,8 @@ async function loadSheetPayables() {
     const newParsedItems = rows.map(parsePayableRow);
     const diff = detectPayablesRawDiff(newParsedItems);
 
-    const applyPayables = (completeStableKeys = new Set()) => {
+    const applyPayables = (remotePlanRows, remoteHistoryRows, completeStableKeys = new Set()) => {
       payables = applySavedPayablesState(newParsedItems);
-      // diff에서 완료 체크된 항목 처리
       if (completeStableKeys.size) {
         payables = payables.map(item => {
           if (completeStableKeys.has(item.stableKey || buildPayableStableKey(item))) {
@@ -677,19 +675,30 @@ async function loadSheetPayables() {
       }
       applySavedPaymentPlansFromApi(remotePlanRows);
       applyPaymentHistoryRows(remoteHistoryRows);
-      ensureAutoPaymentPlans(); // 자동계산이 항상 마지막에 적용 (미확정 항목 한정)
+      ensureAutoPaymentPlans();
       enrichPayablesWithVendorMaster();
       persistPayablesState();
-      appendUpdateHistory("payables", diff); // 2단계: 변경 이력 기록
+      appendUpdateHistory("payables", diff);
       renderPartnerFilter();
       renderFilterControls();
       rerenderAll();
     };
 
+    // diff 다이얼로그가 없으면 로컬 상태로 먼저 즉시 렌더링
+    if (diff.length === 0) {
+      applyPayables([], []);
+    }
+
+    // 2단계: 보조 데이터(결제계획, 결제이력) 백그라운드 로드 후 재적용
+    const [remotePlanRows, remoteHistoryRows] = await Promise.all([
+      fetchSavedPaymentPlansFromApi(),
+      fetchPaymentHistoryRowsFromApi(),
+    ]);
+
     if (diff.length > 0) {
-      showPayablesRawDiffDialog(diff, applyPayables);
+      showPayablesRawDiffDialog(diff, (completeStableKeys) => applyPayables(remotePlanRows, remoteHistoryRows, completeStableKeys));
     } else {
-      applyPayables();
+      applyPayables(remotePlanRows, remoteHistoryRows);
     }
   } catch (error) {
     elements.payables.innerHTML = `
@@ -2887,7 +2896,7 @@ async function fetchAvailableFundsFromApi() {
 
 function parseAvailableFunds(rows) {
   const accounts = [];
-  const purchaseLoans = [];
+  const purchaseVendors = [];
   const eBonds = [];
 
   let totalAccountBalance = 0;
@@ -2915,21 +2924,23 @@ function parseAvailableFunds(rows) {
     if (idx < 3) console.log(`[가용자금] 행 ${idx} 파싱:`, { typeStr, type, name, value });
 
     if (type === "계좌") {
-      accounts.push({ name, value });
+      accounts.push({ bank: name, accountNo: "", balance: value });
       totalAccountBalance += value;
     } else if (type === "구매자금") {
-      purchaseLoans.push({ name, value });
+      purchaseVendors.push({ date: "", name, amount: value });
       totalPurchaseLoanBalance += value;
     } else if (type === "전자채권") {
-      eBonds.push({ name, value });
+      eBonds.push({ expiry: "", client: name, receiptDate: "", amount: value });
       totalEBonds += value;
     }
   });
 
   return {
     accounts,
-    purchaseLoans,
+    b2bLoans: [],
+    purchaseVendors,
     eBonds,
+    eNotes: [],
     summary: {
       totalAccountBalance,
       totalPurchaseLoanBalance,
@@ -2962,11 +2973,11 @@ async function loadAvailableFunds() {
 function saveAvailableFundsLocal() {
   try {
     localStorage.setItem(AVAILABLE_FUNDS_LOCAL_KEY, JSON.stringify({
-      accounts: availableFunds.accounts,
-      b2bLoans: availableFunds.b2bLoans,
-      purchaseVendors: availableFunds.purchaseVendors,
-      eBonds: availableFunds.eBonds,
-      eNotes: availableFunds.eNotes,
+      accounts: availableFunds.accounts || [],
+      b2bLoans: availableFunds.b2bLoans || [],
+      purchaseVendors: availableFunds.purchaseVendors || [],
+      eBonds: availableFunds.eBonds || [],
+      eNotes: availableFunds.eNotes || [],
     }));
   } catch (e) {
     console.warn("[가용자금] localStorage 저장 실패:", e);
@@ -2992,12 +3003,12 @@ function loadAvailableFundsLocal() {
 }
 
 function recalcAvailableFundsSummary() {
-  const totalAccountBalance = availableFunds.accounts.reduce((s, r) => s + (r.balance || 0), 0);
-  const b2bUsed = availableFunds.b2bLoans.reduce((s, r) => s + (r.used || 0), 0);
+  const totalAccountBalance = (availableFunds.accounts || []).reduce((s, r) => s + (r.balance || 0), 0);
+  const b2bUsed = (availableFunds.b2bLoans || []).reduce((s, r) => s + (r.used || 0), 0);
   const b2bAvailable = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
-  const totalPurchase = availableFunds.purchaseVendors.reduce((s, r) => s + (r.amount || 0), 0);
-  const totalEBonds = availableFunds.eBonds.reduce((s, r) => s + (r.amount || 0), 0);
-  const totalENotes = availableFunds.eNotes.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalPurchase = (availableFunds.purchaseVendors || []).reduce((s, r) => s + (r.amount || 0), 0);
+  const totalEBonds = (availableFunds.eBonds || []).reduce((s, r) => s + (r.amount || 0), 0);
+  const totalENotes = (availableFunds.eNotes || []).reduce((s, r) => s + (r.amount || 0), 0);
   availableFunds.summary = {
     totalAccountBalance,
     b2bUsed,
@@ -3086,7 +3097,7 @@ function renderAvailableFunds() {
   // ① 계좌
   const accTable = fundsTableHtml(
     ["은행", "계좌번호", "가용자금"],
-    af.accounts.map(r => [r.bank, r.accountNo, r.balance]),
+    (af.accounts || []).map(r => [r.bank, r.accountNo, r.balance]),
     ["합계", "", s.totalAccountBalance]
   );
 
@@ -3095,7 +3106,7 @@ function renderAvailableFunds() {
   const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
   const b2bTable = fundsTableHtml(
     ["최신만기일", "실행번호", "최종만기", "합계"],
-    af.b2bLoans.map(r => [r.latestExpiry, r.execNo, r.finalExpiry, r.used]),
+    (af.b2bLoans || []).map(r => [r.latestExpiry, r.execNo, r.finalExpiry, r.used]),
     ["", "", "", b2bUsed]
   );
   const b2bSummaryHtml = `<div class="b2b-summary">
@@ -3110,7 +3121,7 @@ function renderAvailableFunds() {
   const pvTotal = s.totalPurchaseLoanBalance || 0;
   const pvTable = fundsTableHtml(
     ["작성일자", "업체명", "금액"],
-    af.purchaseVendors.map(r => [r.date, r.name, r.amount]),
+    (af.purchaseVendors || []).map(r => [r.date, r.name, r.amount]),
     ["합계", "", pvTotal]
   );
 
@@ -3118,7 +3129,7 @@ function renderAvailableFunds() {
   const ebTotal = s.totalEBonds || 0;
   const ebTable = fundsTableHtml(
     ["만기일", "거래처명", "수납일", "합계"],
-    af.eBonds.map(r => [r.expiry, r.client, r.receiptDate, r.amount]),
+    (af.eBonds || []).map(r => [r.expiry, r.client, r.receiptDate, r.amount]),
     ["합계", "", "", ebTotal]
   );
 
@@ -3126,7 +3137,7 @@ function renderAvailableFunds() {
   const enTotal = s.totalENotes || 0;
   const enTable = fundsTableHtml(
     ["은행", "거래처명", "수납일", "만기일", "합계"],
-    af.eNotes.map(r => [r.bank, r.client, r.receiptDate, r.expiry, r.amount]),
+    (af.eNotes || []).map(r => [r.bank, r.client, r.receiptDate, r.expiry, r.amount]),
     ["합계", "", "", "", enTotal]
   );
 
@@ -3267,23 +3278,23 @@ function renderDashboard() {
   const s = availableFunds.summary;
   const totalExpected = (s.totalAccountBalance + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
 
-  const accRows = availableFunds.accounts.map(r =>
+  const accRows = (availableFunds.accounts || []).map(r =>
     `<li><span>${r.bank || ""}${r.accountNo ? ` (${r.accountNo})` : ""}</span><strong>${formatNumber(r.balance)}</strong></li>`
   ).join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
 
   const b2bUsed = s.b2bUsed || 0;
   const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
   const loanRows = [
-    ...availableFunds.b2bLoans.map(r =>
+    ...(availableFunds.b2bLoans || []).map(r =>
       `<li><span class="loan-badge">B2B</span>${r.execNo || r.latestExpiry || ""}<strong class="red">${formatNumber(r.used)}</strong></li>`
     ),
-    ...availableFunds.purchaseVendors.map(r =>
+    ...(availableFunds.purchaseVendors || []).map(r =>
       `<li><span class="loan-badge">구매</span>${r.name || ""}<strong>${formatNumber(r.amount)}</strong></li>`
     ),
-    ...availableFunds.eBonds.map(r =>
+    ...(availableFunds.eBonds || []).map(r =>
       `<li><span class="bond-badge">채권</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
     ),
-    ...availableFunds.eNotes.map(r =>
+    ...(availableFunds.eNotes || []).map(r =>
       `<li><span class="bill-badge">어음</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
     ),
   ].join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
