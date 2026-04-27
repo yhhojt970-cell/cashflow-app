@@ -52,10 +52,16 @@ const RECEIVABLE_DEPT_HEAD = { name: "김도연", email: "kdy@mauto.co.kr" };
 const RECEIVABLE_CEO = { name: "장운기", email: "jug@mauto.co.kr" };
 
 let fixedExpenses = [];
+const AVAILABLE_FUNDS_LOCAL_KEY = "cashflow-app.available-funds-v2";
+const B2B_TOTAL_LIMIT = 500000000; // 총대출액 5억 고정
+
 let availableFunds = {
-  accounts: [],
-  purchaseLoans: [],
-  eBonds: [],
+  accounts: [],       // [{bank, accountNo, balance}]
+  b2bLoans: [],       // [{latestExpiry, execNo, finalExpiry, used}]
+  purchaseVendors: [], // [{date, name, amount}]
+  eBonds: [],         // [{expiry, client, receiptDate, amount}]
+  eNotes: [],         // [{bank, client, receiptDate, expiry, amount}]
+  // 대시보드용 요약 (계산값)
   summary: {
     totalAccountBalance: 0,
     totalPurchaseLoanBalance: 0,
@@ -2934,21 +2940,353 @@ function parseAvailableFunds(rows) {
 }
 
 async function loadAvailableFunds() {
+  // localStorage에 저장된 데이터가 있으면 우선 사용
+  const local = loadAvailableFundsLocal();
+  if (local) {
+    availableFunds = local;
+    recalcAvailableFundsSummary();
+    return;
+  }
+  // 없으면 구글시트 fallback
   try {
     const rows = await fetchAvailableFundsFromApi();
     availableFunds = parseAvailableFunds(rows);
-    console.log("[가용자금] 로드 완료. 합계:", formatNumber(availableFunds.summary.availableTotal));
+    console.log("[가용자금] 구글시트 로드 완료. 합계:", formatNumber(availableFunds.summary.availableTotal));
   } catch (err) {
     console.error("[가용자금] 로드 중 오류 발생:", err);
   }
 }
 
+// ── 가용자금 localStorage 저장/로드 ─────────────────────────────
+
+function saveAvailableFundsLocal() {
+  try {
+    localStorage.setItem(AVAILABLE_FUNDS_LOCAL_KEY, JSON.stringify({
+      accounts: availableFunds.accounts,
+      b2bLoans: availableFunds.b2bLoans,
+      purchaseVendors: availableFunds.purchaseVendors,
+      eBonds: availableFunds.eBonds,
+      eNotes: availableFunds.eNotes,
+    }));
+  } catch (e) {
+    console.warn("[가용자금] localStorage 저장 실패:", e);
+  }
+}
+
+function loadAvailableFundsLocal() {
+  try {
+    const raw = localStorage.getItem(AVAILABLE_FUNDS_LOCAL_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return {
+      accounts: d.accounts || [],
+      b2bLoans: d.b2bLoans || [],
+      purchaseVendors: d.purchaseVendors || [],
+      eBonds: d.eBonds || [],
+      eNotes: d.eNotes || [],
+      summary: { totalAccountBalance: 0, totalPurchaseLoanBalance: 0, totalEBonds: 0, availableTotal: 0 },
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function recalcAvailableFundsSummary() {
+  const totalAccountBalance = availableFunds.accounts.reduce((s, r) => s + (r.balance || 0), 0);
+  const b2bUsed = availableFunds.b2bLoans.reduce((s, r) => s + (r.used || 0), 0);
+  const b2bAvailable = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
+  const totalPurchase = availableFunds.purchaseVendors.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalEBonds = availableFunds.eBonds.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalENotes = availableFunds.eNotes.reduce((s, r) => s + (r.amount || 0), 0);
+  availableFunds.summary = {
+    totalAccountBalance,
+    b2bUsed,
+    b2bAvailable,
+    totalPurchaseLoanBalance: totalPurchase,
+    totalEBonds,
+    totalENotes,
+    availableTotal: totalAccountBalance,
+  };
+}
+
+// ── 엑셀 붙여넣기 파서 ────────────────────────────────────────────
+
+function parseNum(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  return Number(String(v).replace(/[^0-9.\-]/g, "")) || 0;
+}
+
+function parseFundsPaste(text, fieldDefs) {
+  // fieldDefs: [{col: '은행', key: 'bank', isNum: false}, ...]
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split("\t").map(h => h.trim());
+  return lines.slice(1)
+    .filter(l => l.trim())
+    .map(l => {
+      const cols = l.split("\t");
+      const row = {};
+      fieldDefs.forEach(def => {
+        const idx = headers.findIndex(h => h === def.col);
+        const raw = idx >= 0 ? (cols[idx] || "").trim() : "";
+        row[def.key] = def.isNum ? parseNum(raw) : raw;
+      });
+      return row;
+    })
+    .filter(r => Object.values(r).some(v => v !== "" && v !== 0));
+}
+
+// ── 가용자금 탭 렌더 ────────────────────────────────────────────
+
+function fundsTableHtml(headers, rows, totalRow) {
+  const thCells = headers.map(h => `<th>${h}</th>`).join("");
+  const bodyCells = rows.length
+    ? rows.map(cells => `<tr>${cells.map((c, i) => {
+        const isNum = typeof c === "number";
+        return `<td${isNum ? ' class="funds-num"' : ""}>${isNum ? formatNumber(c) : (c || "")}</td>`;
+      }).join("")}</tr>`).join("")
+    : `<tr><td colspan="${headers.length}" class="funds-empty">데이터 없음 — 엑셀에서 복사 후 붙여넣기 버튼을 사용하세요</td></tr>`;
+  const footCells = totalRow.map((c, i) => {
+    const isNum = typeof c === "number";
+    return `<td${isNum ? ' class="funds-num"' : ""}>${isNum ? formatNumber(c) : (c || "")}</td>`;
+  }).join("");
+  return `<table class="funds-table">
+    <thead><tr>${thCells}</tr></thead>
+    <tbody>${bodyCells}</tbody>
+    <tfoot><tr>${footCells}</tr></tfoot>
+  </table>`;
+}
+
+function fundsSection(id, title, tableHtml, hint) {
+  return `<div class="funds-section" id="fs-${id}">
+    <div class="funds-sec-header">
+      <span class="funds-sec-title">${title}</span>
+      <button type="button" class="funds-paste-btn" data-fs="${id}">📋 붙여넣기 입력</button>
+    </div>
+    <div class="funds-paste-area hidden" id="fpa-${id}">
+      <div class="funds-paste-hint">${hint}</div>
+      <textarea class="funds-textarea" id="fpt-${id}" placeholder="엑셀에서 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V)"></textarea>
+      <div class="funds-paste-actions">
+        <button type="button" class="funds-apply-btn" data-fs="${id}">✔ 적용</button>
+        <button type="button" class="funds-cancel-btn" data-fs="${id}">취소</button>
+      </div>
+    </div>
+    ${tableHtml}
+  </div>`;
+}
+
+function renderAvailableFunds() {
+  const sec = document.getElementById("funds");
+  if (!sec) return;
+
+  recalcAvailableFundsSummary();
+  const af = availableFunds;
+  const s = af.summary;
+
+  // ① 계좌
+  const accTable = fundsTableHtml(
+    ["은행", "계좌번호", "가용자금"],
+    af.accounts.map(r => [r.bank, r.accountNo, r.balance]),
+    ["합계", "", s.totalAccountBalance]
+  );
+
+  // ② B2B 대출
+  const b2bUsed = s.b2bUsed || 0;
+  const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
+  const b2bTable = fundsTableHtml(
+    ["최신만기일", "실행번호", "최종만기", "합계"],
+    af.b2bLoans.map(r => [r.latestExpiry, r.execNo, r.finalExpiry, r.used]),
+    ["", "", "", b2bUsed]
+  );
+  const b2bSummaryHtml = `<div class="b2b-summary">
+    <span>총대출액 <strong>${formatNumber(B2B_TOTAL_LIMIT)}</strong></span>
+    <span class="sep">|</span>
+    <span>현사용액 <strong class="red">${formatNumber(b2bUsed)}</strong></span>
+    <span class="sep">|</span>
+    <span>사용가능액 <strong class="blue">${formatNumber(b2bAvail)}</strong></span>
+  </div>`;
+
+  // ③ 구매자금 사용가능 업체
+  const pvTotal = s.totalPurchaseLoanBalance || 0;
+  const pvTable = fundsTableHtml(
+    ["작성일자", "업체명", "금액"],
+    af.purchaseVendors.map(r => [r.date, r.name, r.amount]),
+    ["합계", "", pvTotal]
+  );
+
+  // ④ 전자채권
+  const ebTotal = s.totalEBonds || 0;
+  const ebTable = fundsTableHtml(
+    ["만기일", "거래처명", "수납일", "합계"],
+    af.eBonds.map(r => [r.expiry, r.client, r.receiptDate, r.amount]),
+    ["합계", "", "", ebTotal]
+  );
+
+  // ⑤ 전자어음
+  const enTotal = s.totalENotes || 0;
+  const enTable = fundsTableHtml(
+    ["은행", "거래처명", "수납일", "만기일", "합계"],
+    af.eNotes.map(r => [r.bank, r.client, r.receiptDate, r.expiry, r.amount]),
+    ["합계", "", "", "", enTotal]
+  );
+
+  sec.innerHTML = `<div class="funds-container">
+    <div class="funds-top-bar">
+      <h2 class="funds-title">가용자금 현황</h2>
+      <button type="button" id="fundsClearBtn" class="funds-clear-btn">🗑 전체 초기화</button>
+    </div>
+    ${fundsSection("accounts", "① 계좌",
+        accTable,
+        "헤더: 은행 / 계좌번호 / 가용자금")}
+    ${fundsSection("b2b", "② B2B 대출",
+        b2bSummaryHtml + b2bTable,
+        "헤더: 최신만기일 / 실행번호 / 최종만기 / 합계")}
+    ${fundsSection("pv", "③ 구매자금 사용가능 업체",
+        pvTable,
+        "헤더: 작성일자 / 업체명 / 금액")}
+    ${fundsSection("eb", "④ 전자채권",
+        ebTable,
+        "헤더: 만기일 / 거래처명 / 수납일 / 합계")}
+    ${fundsSection("en", "⑤ 전자어음",
+        enTable,
+        "헤더: 은행 / 거래처명 / 수납일 / 만기일 / 합계")}
+  </div>`;
+
+  // 이벤트 바인딩
+  sec.querySelectorAll(".funds-paste-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.fs;
+      const area = document.getElementById(`fpa-${id}`);
+      if (area) {
+        area.classList.toggle("hidden");
+        if (!area.classList.contains("hidden")) {
+          document.getElementById(`fpt-${id}`)?.focus();
+        }
+      }
+    });
+  });
+
+  sec.querySelectorAll(".funds-cancel-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const area = document.getElementById(`fpa-${btn.dataset.fs}`);
+      if (area) area.classList.add("hidden");
+    });
+  });
+
+  sec.querySelectorAll(".funds-apply-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyFundsPaste(btn.dataset.fs));
+  });
+
+  // textarea에서 Ctrl+V 후 자동 적용 (붙여넣기 감지)
+  sec.querySelectorAll(".funds-textarea").forEach(ta => {
+    ta.addEventListener("paste", (e) => {
+      const id = ta.id.replace("fpt-", "");
+      setTimeout(() => applyFundsPaste(id), 50);
+    });
+  });
+
+  document.getElementById("fundsClearBtn")?.addEventListener("click", () => {
+    if (!confirm("가용자금 데이터를 전체 초기화하시겠습니까?")) return;
+    availableFunds.accounts = [];
+    availableFunds.b2bLoans = [];
+    availableFunds.purchaseVendors = [];
+    availableFunds.eBonds = [];
+    availableFunds.eNotes = [];
+    saveAvailableFundsLocal();
+    renderAvailableFunds();
+    renderDashboard();
+  });
+}
+
+function applyFundsPaste(sectionId) {
+  const ta = document.getElementById(`fpt-${sectionId}`);
+  if (!ta) return;
+  const text = ta.value.trim();
+  if (!text) return;
+
+  const DEFS = {
+    accounts: [
+      { col: "은행", key: "bank", isNum: false },
+      { col: "계좌번호", key: "accountNo", isNum: false },
+      { col: "가용자금", key: "balance", isNum: true },
+    ],
+    b2b: [
+      { col: "최신만기일", key: "latestExpiry", isNum: false },
+      { col: "실행번호", key: "execNo", isNum: false },
+      { col: "최종만기", key: "finalExpiry", isNum: false },
+      { col: "합계", key: "used", isNum: true },
+    ],
+    pv: [
+      { col: "작성일자", key: "date", isNum: false },
+      { col: "업체명", key: "name", isNum: false },
+      { col: "금액", key: "amount", isNum: true },
+    ],
+    eb: [
+      { col: "만기일", key: "expiry", isNum: false },
+      { col: "거래처명", key: "client", isNum: false },
+      { col: "수납일", key: "receiptDate", isNum: false },
+      { col: "합계", key: "amount", isNum: true },
+    ],
+    en: [
+      { col: "은행", key: "bank", isNum: false },
+      { col: "거래처명", key: "client", isNum: false },
+      { col: "수납일", key: "receiptDate", isNum: false },
+      { col: "만기일", key: "expiry", isNum: false },
+      { col: "합계", key: "amount", isNum: true },
+    ],
+  };
+
+  const defs = DEFS[sectionId];
+  if (!defs) return;
+
+  const parsed = parseFundsPaste(text, defs);
+  if (!parsed.length) {
+    alert("데이터를 읽지 못했습니다.\n엑셀 헤더가 정확한지 확인하세요.");
+    return;
+  }
+
+  const MAP = {
+    accounts: "accounts",
+    b2b: "b2bLoans",
+    pv: "purchaseVendors",
+    eb: "eBonds",
+    en: "eNotes",
+  };
+  availableFunds[MAP[sectionId]] = parsed;
+  saveAvailableFundsLocal();
+  renderAvailableFunds();
+  renderDashboard();
+}
+
 function renderDashboard() {
+  recalcAvailableFundsSummary();
   const summary = calculateSummary();
   const homeSection = document.getElementById("home");
   if (!homeSection) return;
 
-  const totalExpected = (availableFunds.summary.availableTotal + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
+  const s = availableFunds.summary;
+  const totalExpected = (s.totalAccountBalance + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
+
+  const accRows = availableFunds.accounts.map(r =>
+    `<li><span>${r.bank || ""}${r.accountNo ? ` (${r.accountNo})` : ""}</span><strong>${formatNumber(r.balance)}</strong></li>`
+  ).join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
+
+  const b2bUsed = s.b2bUsed || 0;
+  const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
+  const loanRows = [
+    ...availableFunds.b2bLoans.map(r =>
+      `<li><span class="loan-badge">B2B</span>${r.execNo || r.latestExpiry || ""}<strong class="red">${formatNumber(r.used)}</strong></li>`
+    ),
+    ...availableFunds.purchaseVendors.map(r =>
+      `<li><span class="loan-badge">구매</span>${r.name || ""}<strong>${formatNumber(r.amount)}</strong></li>`
+    ),
+    ...availableFunds.eBonds.map(r =>
+      `<li><span class="bond-badge">채권</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
+    ),
+    ...availableFunds.eNotes.map(r =>
+      `<li><span class="bill-badge">어음</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
+    ),
+  ].join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
 
   homeSection.innerHTML = `
     <div class="dashboard-container">
@@ -2956,36 +3294,36 @@ function renderDashboard() {
         <h2>금융 통합 대시보드</h2>
         <span class="last-updated">최근 업데이트: ${new Date().toLocaleString()}</span>
       </div>
-      
+
       <div class="dashboard-summary-cards">
-        <div class="dashboard-card funds" data-tab="home">
+        <div class="dashboard-card funds" data-tab="funds">
           <div class="card-icon">💰</div>
-          <div class="card-label">가용자금</div>
-          <div class="card-value">${formatNumber(availableFunds.summary.availableTotal)}</div>
-          <div class="card-footer">계좌잔액 합계</div>
+          <div class="card-label">가용자금 (계좌)</div>
+          <div class="card-value">${formatNumber(s.totalAccountBalance)}</div>
+          <div class="card-footer">B2B 가능 ${formatNumber(b2bAvail)}</div>
         </div>
-        
+
         <div class="dashboard-card receivables" data-tab="receivables">
           <div class="card-icon">📈</div>
           <div class="card-label">수금예상(미수금)</div>
           <div class="card-value">${formatNumber(summary.totalOutstanding)}</div>
           <div class="card-footer">${receivables.length}개 업체</div>
         </div>
-        
+
         <div class="dashboard-card payables" data-tab="payables">
           <div class="card-icon">📉</div>
           <div class="card-label">외상대지급(미지급)</div>
           <div class="card-value">${formatNumber(summary.totalUnpaid)}</div>
           <div class="card-footer">${payables.length}건</div>
         </div>
-        
+
         <div class="dashboard-card fixed" data-tab="fixed">
           <div class="card-icon">🏠</div>
           <div class="card-label">고정지출</div>
           <div class="card-value">${formatNumber(summary.totalFixed)}</div>
           <div class="card-footer">이번 달 납부 예정</div>
         </div>
-        
+
         <div class="dashboard-card expected highlight">
           <div class="card-icon">⚖️</div>
           <div class="card-label">예상 잔액</div>
@@ -2993,42 +3331,30 @@ function renderDashboard() {
           <div class="card-footer">최종 가용 예상</div>
         </div>
       </div>
-      
+
       <div class="dashboard-details-row">
         <div class="dashboard-detail-box">
           <h3>현금 계좌 내역</h3>
           <ul class="detail-list">
-            ${availableFunds.accounts.map(acc => `
-              <li><span>${acc.name}</span><strong>${formatNumber(acc.value)}</strong></li>
-            `).join("")}
-            <li class="total-line"><span>계좌 합계</span><strong>${formatNumber(availableFunds.summary.totalAccountBalance)}</strong></li>
+            ${accRows}
+            <li class="total-line"><span>계좌 합계</span><strong>${formatNumber(s.totalAccountBalance)}</strong></li>
           </ul>
         </div>
         <div class="dashboard-detail-box">
-          <h3>대출 및 채권</h3>
+          <h3>대출 · 채권 · 어음</h3>
           <ul class="detail-list">
-            ${availableFunds.purchaseLoans.map(p => `
-              <li><span class="loan-badge">구매</span>${p.name}<strong>${formatNumber(p.value)}</strong></li>
-            `).join("")}
-            ${availableFunds.eBonds.map(e => `
-              <li><span class="bond-badge">채권</span>${e.name}<strong>${formatNumber(e.value)}</strong></li>
-            `).join("")}
-            ${(availableFunds.eBills || []).map(b => `
-              <li><span class="bill-badge">어음</span>${b.name}<strong>${formatNumber(b.value)}</strong></li>
-            `).join("")}
-            <li class="total-line"><span>대출/채권 합계</span><strong>${formatNumber(availableFunds.summary.totalPurchaseLoanBalance + availableFunds.summary.totalEBonds + (availableFunds.summary.totalEBills || 0))}</strong></li>
+            ${loanRows}
+            <li class="total-line b2b-avail-line">
+              <span>B2B 사용가능</span><strong class="blue">${formatNumber(b2bAvail)}</strong>
+            </li>
           </ul>
         </div>
       </div>
     </div>
   `;
 
-  // 카드 클릭 시 탭 이동 이벤트 추가
   homeSection.querySelectorAll(".dashboard-card[data-tab]").forEach(card => {
-    card.addEventListener("click", () => {
-      const tab = card.dataset.tab;
-      switchTab(tab);
-    });
+    card.addEventListener("click", () => switchTab(card.dataset.tab));
   });
 }
 
@@ -3088,6 +3414,7 @@ function rerenderAll() {
   renderReceivables();
   renderPayables();
   renderFixedExpenses();
+  renderAvailableFunds();
 }
 
 function calculateSummary() {
