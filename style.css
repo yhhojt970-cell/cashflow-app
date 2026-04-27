@@ -3402,6 +3402,70 @@ td {
 }
 .funds-clear-btn:hover { background: #fee2e2; }
 
+/* 가용자금 요약 카드 그리드 */
+.funds-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+@media (max-width: 860px) {
+  .funds-summary-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 560px) {
+  .funds-summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.fsc {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+.fsc-account { border-top: 3px solid #2563eb; }
+.fsc-b2b     { border-top: 3px solid #7c3aed; }
+.fsc-bond    { border-top: 3px solid #059669; }
+.fsc-note    { border-top: 3px solid #d97706; }
+.fsc-total   { border-top: 3px solid #0f172a; background: #f8fafc; }
+
+.fsc-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  line-height: 1;
+}
+.fsc-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+.fsc-amount {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.fsc-total .fsc-label { font-size: 13px; font-weight: 700; color: #0f172a; }
+.fsc-total .fsc-amount { font-size: 1.25rem; color: #1d4ed8; }
+.fsc-sub {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+/* B2B 참고 섹션 */
+.funds-ref-section {
+  border-top: 1px dashed #e2e8f0;
+  margin-top: 8px;
+}
+.funds-ref-header {
+  background: #fafafa !important;
+  border-bottom: 1px dashed #e2e8f0 !important;
+}
+
 /* 각 섹션 */
 .funds-section {
   background: var(--surface);

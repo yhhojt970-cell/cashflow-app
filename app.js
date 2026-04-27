@@ -3009,6 +3009,8 @@ function recalcAvailableFundsSummary() {
   const totalPurchase = (availableFunds.purchaseVendors || []).reduce((s, r) => s + (r.amount || 0), 0);
   const totalEBonds = (availableFunds.eBonds || []).reduce((s, r) => s + (r.amount || 0), 0);
   const totalENotes = (availableFunds.eNotes || []).reduce((s, r) => s + (r.amount || 0), 0);
+  // 가용자금 합계 = ①계좌 + ②B2B사용가능 + ③전자채권 + ④전자어음
+  const grandTotal = totalAccountBalance + b2bAvailable + totalEBonds + totalENotes;
   availableFunds.summary = {
     totalAccountBalance,
     b2bUsed,
@@ -3016,7 +3018,8 @@ function recalcAvailableFundsSummary() {
     totalPurchaseLoanBalance: totalPurchase,
     totalEBonds,
     totalENotes,
-    availableTotal: totalAccountBalance,
+    grandTotal,
+    availableTotal: grandTotal,
   };
 }
 
@@ -3115,6 +3118,12 @@ function renderAvailableFunds() {
   const af = availableFunds;
   const s = af.summary;
 
+  const b2bUsed = s.b2bUsed || 0;
+  const b2bAvail = s.b2bAvailable || 0;
+  const ebTotal = s.totalEBonds || 0;
+  const enTotal = s.totalENotes || 0;
+  const grandTotal = s.grandTotal || 0;
+
   // ① 계좌
   const accTable = fundsTableHtml(
     ["은행", "계좌번호", "가용자금"],
@@ -3123,39 +3132,50 @@ function renderAvailableFunds() {
   );
 
   // ② B2B 대출
-  const b2bUsed = s.b2bUsed || 0;
-  const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
   const b2bTable = fundsTableHtml(
     ["최신만기일", "실행번호", "최종만기", "합계"],
     (af.b2bLoans || []).map(r => [r.latestExpiry, r.execNo, r.finalExpiry, r.used]),
-    ["", "", "", b2bUsed]
+    ["", "", "현사용액", b2bUsed]
   );
-  const b2bSummaryHtml = `<div class="b2b-summary">
-    <span>총대출액 <strong>${formatNumber(B2B_TOTAL_LIMIT)}</strong></span>
-    <span class="sep">|</span>
+  const b2bInfoHtml = `<div class="b2b-summary">
+    <span>총한도 <strong>${formatNumber(B2B_TOTAL_LIMIT)}</strong></span>
+    <span class="sep">−</span>
     <span>현사용액 <strong class="red">${formatNumber(b2bUsed)}</strong></span>
-    <span class="sep">|</span>
-    <span>사용가능액 <strong class="blue">${formatNumber(b2bAvail)}</strong></span>
+    <span class="sep">=</span>
+    <span>사용가능 <strong class="blue">${formatNumber(b2bAvail)}</strong></span>
   </div>`;
 
-  // ③ 구매자금 사용가능 업체
+  // ② 구매자금 사용가능 업체 (B2B 참고)
   const pvTotal = s.totalPurchaseLoanBalance || 0;
   const pvTable = fundsTableHtml(
     ["작성일자", "업체명", "금액"],
     (af.purchaseVendors || []).map(r => [r.date, r.name, r.amount]),
     ["합계", "", pvTotal]
   );
+  const pvSection = `<div class="funds-ref-section">
+    <div class="funds-sec-header funds-ref-header">
+      <span class="funds-sec-title" style="color:#64748b;font-weight:600;font-size:12px;">📎 구매자금 사용가능 업체 (참고)</span>
+      <button type="button" class="funds-paste-btn" data-fs="pv">📋 붙여넣기 입력</button>
+    </div>
+    <div class="funds-paste-area hidden" id="fpa-pv">
+      <div class="funds-paste-hint">헤더: 작성일자 / 업체명 / 금액</div>
+      <textarea class="funds-textarea" id="fpt-pv" placeholder="엑셀에서 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V)"></textarea>
+      <div class="funds-paste-actions">
+        <button type="button" class="funds-apply-btn" data-fs="pv">✔ 적용</button>
+        <button type="button" class="funds-cancel-btn" data-fs="pv">취소</button>
+      </div>
+    </div>
+    ${pvTable}
+  </div>`;
 
-  // ④ 전자채권
-  const ebTotal = s.totalEBonds || 0;
+  // ③ 전자채권
   const ebTable = fundsTableHtml(
     ["만기일", "거래처명", "수납일", "합계"],
     (af.eBonds || []).map(r => [r.expiry, r.client, r.receiptDate, r.amount]),
     ["합계", "", "", ebTotal]
   );
 
-  // ⑤ 전자어음
-  const enTotal = s.totalENotes || 0;
+  // ④ 전자어음
   const enTable = fundsTableHtml(
     ["은행", "거래처명", "수납일", "만기일", "합계"],
     (af.eNotes || []).map(r => [r.bank, r.client, r.receiptDate, r.expiry, r.amount]),
@@ -3167,19 +3187,47 @@ function renderAvailableFunds() {
       <h2 class="funds-title">가용자금 현황</h2>
       <button type="button" id="fundsClearBtn" class="funds-clear-btn">🗑 전체 초기화</button>
     </div>
+
+    <!-- 요약 카드 -->
+    <div class="funds-summary-grid">
+      <div class="fsc fsc-account">
+        <div class="fsc-badge">①</div>
+        <div class="fsc-label">계좌</div>
+        <div class="fsc-amount">${formatNumber(s.totalAccountBalance)}</div>
+      </div>
+      <div class="fsc fsc-b2b">
+        <div class="fsc-badge">②</div>
+        <div class="fsc-label">B2B 사용가능</div>
+        <div class="fsc-amount">${formatNumber(b2bAvail)}</div>
+        <div class="fsc-sub">한도 ${formatNumber(B2B_TOTAL_LIMIT)} · 사용 ${formatNumber(b2bUsed)}</div>
+      </div>
+      <div class="fsc fsc-bond">
+        <div class="fsc-badge">③</div>
+        <div class="fsc-label">전자채권</div>
+        <div class="fsc-amount">${formatNumber(ebTotal)}</div>
+      </div>
+      <div class="fsc fsc-note">
+        <div class="fsc-badge">④</div>
+        <div class="fsc-label">전자어음</div>
+        <div class="fsc-amount">${formatNumber(enTotal)}</div>
+      </div>
+      <div class="fsc fsc-total">
+        <div class="fsc-label">합 계</div>
+        <div class="fsc-amount">${formatNumber(grandTotal)}</div>
+        <div class="fsc-sub">①+②+③+④</div>
+      </div>
+    </div>
+
     ${fundsSection("accounts", "① 계좌",
         accTable,
         "헤더: 은행 / 계좌번호 / 가용자금")}
     ${fundsSection("b2b", "② B2B 대출",
-        b2bSummaryHtml + b2bTable,
+        b2bInfoHtml + b2bTable + pvSection,
         "헤더: 최신만기일 / 실행번호 / 최종만기 / 합계")}
-    ${fundsSection("pv", "③ 구매자금 사용가능 업체",
-        pvTable,
-        "헤더: 작성일자 / 업체명 / 금액")}
-    ${fundsSection("eb", "④ 전자채권",
+    ${fundsSection("eb", "③ 전자채권",
         ebTable,
         "헤더: 만기일 / 거래처명 / 수납일 / 합계")}
-    ${fundsSection("en", "⑤ 전자어음",
+    ${fundsSection("en", "④ 전자어음",
         enTable,
         "헤더: 은행 / 거래처명 / 수납일 / 만기일 / 합계")}
   </div>`;
@@ -3299,26 +3347,8 @@ function renderDashboard() {
   const s = availableFunds.summary;
   const totalExpected = (s.totalAccountBalance + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
 
-  const accRows = (availableFunds.accounts || []).map(r =>
-    `<li><span>${r.bank || ""}${r.accountNo ? ` (${r.accountNo})` : ""}</span><strong>${formatNumber(r.balance)}</strong></li>`
-  ).join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
-
   const b2bUsed = s.b2bUsed || 0;
   const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
-  const loanRows = [
-    ...(availableFunds.b2bLoans || []).map(r =>
-      `<li><span class="loan-badge">B2B</span>${r.execNo || r.latestExpiry || ""}<strong class="red">${formatNumber(r.used)}</strong></li>`
-    ),
-    ...(availableFunds.purchaseVendors || []).map(r =>
-      `<li><span class="loan-badge">구매</span>${r.name || ""}<strong>${formatNumber(r.amount)}</strong></li>`
-    ),
-    ...(availableFunds.eBonds || []).map(r =>
-      `<li><span class="bond-badge">채권</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
-    ),
-    ...(availableFunds.eNotes || []).map(r =>
-      `<li><span class="bill-badge">어음</span>${r.client || ""}<strong>${formatNumber(r.amount)}</strong></li>`
-    ),
-  ].join("") || `<li class="muted">데이터 없음 — 가용자금 탭에서 입력</li>`;
 
   homeSection.innerHTML = `
     <div class="dashboard-container">
@@ -3330,8 +3360,8 @@ function renderDashboard() {
       <div class="dashboard-summary-cards">
         <div class="dashboard-card funds" data-tab="funds">
           <div class="card-icon">💰</div>
-          <div class="card-label">가용자금 (계좌)</div>
-          <div class="card-value">${formatNumber(s.totalAccountBalance)}</div>
+          <div class="card-label">가용자금 합계</div>
+          <div class="card-value">${formatNumber(s.grandTotal || s.totalAccountBalance)}</div>
           <div class="card-footer">B2B 가능 ${formatNumber(b2bAvail)}</div>
         </div>
 
@@ -3364,24 +3394,6 @@ function renderDashboard() {
         </div>
       </div>
 
-      <div class="dashboard-details-row">
-        <div class="dashboard-detail-box">
-          <h3>현금 계좌 내역</h3>
-          <ul class="detail-list">
-            ${accRows}
-            <li class="total-line"><span>계좌 합계</span><strong>${formatNumber(s.totalAccountBalance)}</strong></li>
-          </ul>
-        </div>
-        <div class="dashboard-detail-box">
-          <h3>대출 · 채권 · 어음</h3>
-          <ul class="detail-list">
-            ${loanRows}
-            <li class="total-line b2b-avail-line">
-              <span>B2B 사용가능</span><strong class="blue">${formatNumber(b2bAvail)}</strong>
-            </li>
-          </ul>
-        </div>
-      </div>
     </div>
   `;
 

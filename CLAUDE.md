@@ -16,11 +16,11 @@ Google Sheets 연동 + 로컬 Excel 붙여넣기 방식.
 | 탭 ID | 탭명 | 설명 |
 |-------|------|------|
 | `home` | 홈 | 금융 통합 대시보드 |
+| `funds` | 가용자금 | **Excel 붙여넣기 입력** (localStorage 저장) |
 | `receivables` | 미수금 | Google Sheets `raw` 시트에서 로드 |
 | `payables` | 미지급 | Google Sheets `미지급_raw` 시트에서 로드 |
 | `fixed` | 고정지출 | Google Sheets `고정지출` 시트에서 로드 |
 | `daesa` | 대사 | 입출금 매칭 |
-| `funds` | 가용자금 | **Excel 붙여넣기 입력** (localStorage 저장) |
 
 ---
 
@@ -86,6 +86,23 @@ availableFunds = {
 ---
 
 ## 버그 수정 이력
+
+### 2026-04-27 (4): 가용자금 탭 요약 카드 추가 + 구매자금 B2B 참고로 이동
+
+- 가용자금 탭 상단에 요약 카드 그리드 추가 (①계좌 / ②B2B사용가능 / ③전자채권 / ④전자어음 / 합계)
+- `grandTotal = ①+②+③+④` (구매자금 제외) — `recalcAvailableFundsSummary` 업데이트
+- 구매자금 사용가능 업체 섹션 → ② B2B 대출 섹션 내부 "참고" 로 이동
+- 홈 대시보드 가용자금 카드도 grandTotal 표시로 변경
+- `style.css`: `.funds-summary-grid`, `.fsc` 계열 스타일 추가
+
+---
+
+### 2026-04-27 (3): 홈 상세 내역 제거 + 탭 순서 변경
+
+- 홈 대시보드에서 "현금 계좌 내역", "대출·채권·어음" 상세 박스 제거
+- 탭 순서 변경: 홈 → 가용자금 → 미수금 → 미지급 → 고정지출 → 대사 (`index.html`)
+
+---
 
 ### 2026-04-27 (2): 가용자금 B2B/전자채권 합계 0원 표시 수정
 
