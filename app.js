@@ -3032,13 +3032,34 @@ function parseFundsPaste(text, fieldDefs) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const headers = lines[0].split("\t").map(h => h.trim());
+
+  // 공백 제거 후 비교로 헤더 인덱스 탐색
+  const findColIdx = (col) => {
+    let idx = headers.findIndex(h => h === col);
+    if (idx >= 0) return idx;
+    const norm = col.replace(/\s/g, "");
+    return headers.findIndex(h => h.replace(/\s/g, "") === norm);
+  };
+
   return lines.slice(1)
     .filter(l => l.trim())
     .map(l => {
       const cols = l.split("\t");
       const row = {};
+      const usedIdxs = new Set();
       fieldDefs.forEach(def => {
-        const idx = headers.findIndex(h => h === def.col);
+        let idx = findColIdx(def.col);
+        if (idx >= 0) usedIdxs.add(idx);
+        // 숫자 필드이고 헤더 매칭 실패 → 마지막 미사용 숫자 컬럼으로 fallback
+        if (idx < 0 && def.isNum) {
+          for (let i = cols.length - 1; i >= 0; i--) {
+            if (!usedIdxs.has(i) && parseNum(cols[i].trim()) !== 0) {
+              idx = i;
+              usedIdxs.add(i);
+              break;
+            }
+          }
+        }
         const raw = idx >= 0 ? (cols[idx] || "").trim() : "";
         row[def.key] = def.isNum ? parseNum(raw) : raw;
       });
