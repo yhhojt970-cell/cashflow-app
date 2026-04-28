@@ -53,7 +53,12 @@ const RECEIVABLE_CEO = { name: "장운기", email: "jug@mauto.co.kr" };
 
 let fixedExpenses = [];
 const AVAILABLE_FUNDS_LOCAL_KEY = "cashflow-app.available-funds-v2";
+const MAUTO_LOCAL_KEY = "cashflow-app.mauto-v1";
 const B2B_TOTAL_LIMIT = 500000000; // 총대출액 5억 고정
+const MAUTO_FIXED_ACCOUNTS = [
+  { bankAccount: "국민(415310)", bank: "국민", accountNo: "415310" },
+  { bankAccount: "부산(008320)", bank: "부산", accountNo: "008320" },
+];
 
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
@@ -68,6 +73,13 @@ let availableFunds = {
     totalEBonds: 0,
     availableTotal: 0
   }
+};
+
+let mautoData = {
+  funds: MAUTO_FIXED_ACCOUNTS.map(account => ({ ...account, amount: 0 })),
+  receivables: [],
+  payables: [],
+  fixed: [],
 };
 
 const filterState = {
@@ -141,6 +153,7 @@ const elements = {
   receivables: document.getElementById("receivables"),
   payables: document.getElementById("payables"),
   fixed: document.getElementById("fixed"),
+  mauto: document.getElementById("mauto"),
   tabButtons: [...document.querySelectorAll(".tab-button")],
 };
 
@@ -3338,6 +3351,647 @@ function applyFundsPaste(sectionId) {
   renderDashboard();
 }
 
+// ── 엠오토 탭: localStorage 저장/붙여넣기/렌더 ─────────────────────
+
+function createDefaultMautoData() {
+  return {
+    funds: MAUTO_FIXED_ACCOUNTS.map(account => ({ ...account, amount: 0 })),
+    receivables: [],
+    payables: [],
+    fixed: [],
+  };
+}
+
+function normalizeMautoYear(value) {
+  const n = Math.round(parseNum(value));
+  if (!n) return 0;
+  return n > 0 && n < 100 ? 2000 + n : n;
+}
+
+function normalizeMautoMonth(value) {
+  const n = Math.round(parseNum(value));
+  return n >= 1 && n <= 12 ? n : 0;
+}
+
+function normalizeMautoDay(value) {
+  const n = Math.round(parseNum(value));
+  return n >= 1 && n <= 31 ? n : 0;
+}
+
+function normalizeMautoData(data) {
+  const d = data && typeof data === "object" ? data : {};
+  const savedFunds = Array.isArray(d.funds) ? d.funds.filter(row => row && typeof row === "object") : [];
+  const funds = MAUTO_FIXED_ACCOUNTS.map((account, idx) => {
+    const saved = savedFunds.find(row =>
+      row.accountNo === account.accountNo ||
+      row.bankAccount === account.bankAccount ||
+      String(row.bankAccount || "").includes(account.accountNo)
+    ) || savedFunds[idx] || {};
+    return {
+      ...account,
+      amount: parseNum(saved.amount ?? saved.balance ?? saved.value ?? 0),
+    };
+  });
+
+  return {
+    funds,
+    receivables: Array.isArray(d.receivables) ? d.receivables : [],
+    payables: Array.isArray(d.payables) ? d.payables : [],
+    fixed: Array.isArray(d.fixed) ? d.fixed : [],
+  };
+}
+
+function saveMautoDataLocal() {
+  try {
+    localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData));
+  } catch (error) {
+    console.warn("[엠오토] localStorage 저장 실패:", error);
+  }
+}
+
+function loadMautoDataLocal() {
+  try {
+    const raw = localStorage.getItem(MAUTO_LOCAL_KEY);
+    mautoData = raw ? normalizeMautoData(JSON.parse(raw)) : createDefaultMautoData();
+  } catch (error) {
+    console.warn("[엠오토] localStorage 복원 실패:", error);
+    mautoData = createDefaultMautoData();
+  }
+}
+
+function splitMautoPasteRows(text) {
+  return String(text || "")
+    .trim()
+    .split(/\r?\n/)
+    .map(line => line.split("\t").map(cell => cell.trim()))
+    .filter(row => row.some(Boolean));
+}
+
+function normalizeMautoHeader(value) {
+  return normalizeKey(value).replace(/[()]/g, "");
+}
+
+function parseMautoTablePaste(text, defs) {
+  const rows = splitMautoPasteRows(text);
+  if (!rows.length) return [];
+
+  const firstRowHeaders = rows[0].map(normalizeMautoHeader);
+  const matchCount = defs.reduce((count, def) => {
+    const aliases = (def.aliases || [def.label || def.key]).map(normalizeMautoHeader);
+    return count + (aliases.some(alias => firstRowHeaders.includes(alias)) ? 1 : 0);
+  }, 0);
+  const hasHeader = matchCount >= Math.min(2, defs.length);
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+
+  const findHeaderIndex = (def, fallbackIndex) => {
+    if (!hasHeader) return fallbackIndex;
+    const aliases = (def.aliases || [def.label || def.key]).map(normalizeMautoHeader);
+    return firstRowHeaders.findIndex(header => aliases.includes(header));
+  };
+
+  return dataRows.map(cols => {
+    const row = {};
+    defs.forEach((def, idx) => {
+      const colIdx = findHeaderIndex(def, idx);
+      const raw = colIdx >= 0 ? (cols[colIdx] || "") : "";
+      row[def.key] = def.numeric ? parseNum(raw) : raw;
+    });
+    return row;
+  }).filter(row => Object.values(row).some(value => value !== "" && value !== 0));
+}
+
+function parseMautoFundsPaste(text) {
+  const rows = splitMautoPasteRows(text);
+  const values = [];
+
+  rows.forEach(cols => {
+    const candidates = cols.flatMap(cell => {
+      const matches = String(cell || "").match(/-?[\d,]+(?:\.\d+)?/g) || [];
+      return matches.map(match => parseNum(match)).filter(value => Number.isFinite(value));
+    });
+    if (candidates.length) {
+      values.push(candidates[candidates.length - 1]);
+    }
+  });
+
+  if (!values.length) return null;
+  return MAUTO_FIXED_ACCOUNTS.map((account, idx) => ({
+    ...account,
+    amount: values[idx] || 0,
+  }));
+}
+
+function parseMautoAccountingPaste(text, kind) {
+  const isReceivable = kind === "receivables";
+  const defs = [
+    { key: "year", aliases: ["작성연도", "연도", "년"], numeric: false },
+    { key: "month", aliases: ["작성", "작성월", "월"], numeric: false },
+    { key: "company", aliases: ["상호", "거래처", "거래처명", "업체명"], numeric: false },
+    { key: "total", aliases: [isReceivable ? "매출합계" : "매입합계", "합계"], numeric: true },
+    { key: "supply", aliases: [isReceivable ? "매출공급가액" : "매입공급가액", "공급가액"], numeric: true },
+    { key: "tax", aliases: [isReceivable ? "매출세액" : "매입세액", "세액"], numeric: true },
+    { key: "inout", aliases: ["입출금", "수금", "지급", "입금", "출금"], numeric: true },
+    { key: "balance", aliases: ["잔액", "잔 액"], numeric: true },
+  ];
+
+  return parseMautoTablePaste(text, defs).map(row => ({
+    year: normalizeMautoYear(row.year),
+    month: normalizeMautoMonth(row.month),
+    company: String(row.company || "").trim(),
+    total: Number(row.total || 0),
+    supply: Number(row.supply || 0),
+    tax: Number(row.tax || 0),
+    inout: Number(row.inout || 0),
+    balance: Number(row.balance || 0),
+  })).filter(row => row.company || row.total || row.balance);
+}
+
+function parseMautoDateParts(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return { year: value.getFullYear(), month: value.getMonth() + 1, day: value.getDate() };
+  }
+
+  const raw = String(value).trim();
+  const gvizMatch = raw.match(/^Date\((\d+),(\d+),(\d+)\)/);
+  if (gvizMatch) {
+    return {
+      year: Number(gvizMatch[1]),
+      month: Number(gvizMatch[2]) + 1,
+      day: Number(gvizMatch[3]),
+    };
+  }
+
+  const fullMatch = raw.match(/(\d{4})[-./년\s]+(\d{1,2})[-./월\s]+(\d{1,2})/);
+  if (fullMatch) {
+    return { year: Number(fullMatch[1]), month: Number(fullMatch[2]), day: Number(fullMatch[3]) };
+  }
+
+  const serial = Number(raw);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+  }
+
+  return null;
+}
+
+function parseMautoFixedPaste(text) {
+  const defs = [
+    { key: "year", aliases: ["연도", "년"], numeric: false },
+    { key: "month", aliases: ["월"], numeric: false },
+    { key: "title", aliases: ["내용", "적요"], numeric: false },
+    { key: "day", aliases: ["일", "일자"], numeric: false },
+    { key: "date", aliases: ["날짜", "일시", "date"], numeric: false },
+    { key: "amount", aliases: ["금액", "결제금액", "실결제금액"], numeric: true },
+    { key: "bank", aliases: ["은행", "bank"], numeric: false },
+    { key: "category", aliases: ["분류", "구분"], numeric: false },
+  ];
+
+  return parseMautoTablePaste(text, defs).map(row => {
+    const dateParts = parseMautoDateParts(row.date);
+    const year = normalizeMautoYear(row.year) || dateParts?.year || 0;
+    const month = normalizeMautoMonth(row.month) || dateParts?.month || 0;
+    const day = normalizeMautoDay(row.day) || dateParts?.day || 0;
+    const date = year && month && day
+      ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+      : "";
+    return {
+      year,
+      month,
+      day,
+      date,
+      title: String(row.title || "").trim(),
+      amount: Number(row.amount || 0),
+      bank: String(row.bank || "").trim() || "미지정",
+      category: String(row.category || "").trim(),
+    };
+  }).filter(row => row.title || row.amount);
+}
+
+function calcMautoTotals() {
+  const available = (mautoData.funds || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const receivable = (mautoData.receivables || []).reduce((sum, row) => sum + Number(row.balance || 0), 0);
+  const payable = (mautoData.payables || []).reduce((sum, row) => sum + Number(row.balance || 0), 0);
+  const fixed = (mautoData.fixed || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  return {
+    available,
+    receivable,
+    payable,
+    fixed,
+    expected: available + receivable - payable - fixed,
+  };
+}
+
+function mautoNumericCell(value, extraClass = "") {
+  return `<td class="mauto-num ${extraClass}">${formatNumber(value)}</td>`;
+}
+
+function renderMautoFundsTable() {
+  const rows = normalizeMautoData(mautoData).funds;
+  const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const body = rows.map(row => `
+    <tr>
+      <td>${escapeHtml(row.bankAccount)}</td>
+      <td class="mauto-num">${formatNumber(row.amount)}</td>
+    </tr>
+  `).join("");
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table mauto-compact-table">
+      <thead><tr><th>은행(계좌)</th><th>가용자금</th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td>합계</td><td class="mauto-num">${formatNumber(total)}</td></tr></tfoot>
+    </table>
+  </div>`;
+}
+
+function sumMautoRows(rows) {
+  return rows.reduce((acc, row) => {
+    acc.total += Number(row.total || 0);
+    acc.supply += Number(row.supply || 0);
+    acc.tax += Number(row.tax || 0);
+    acc.inout += Number(row.inout || 0);
+    acc.balance += Number(row.balance || 0);
+    acc.amount += Number(row.amount || 0);
+    return acc;
+  }, { total: 0, supply: 0, tax: 0, inout: 0, balance: 0, amount: 0 });
+}
+
+function renderMautoAccountingTable(rows, kind) {
+  const isReceivable = kind === "receivables";
+  const labels = isReceivable
+    ? { total: "매출합계", supply: "매출공급가액", tax: "매출세액" }
+    : { total: "매입합계", supply: "매입공급가액", tax: "매입세액" };
+
+  const sorted = [...(rows || [])].sort((a, b) =>
+    (a.year || 9999) - (b.year || 9999) ||
+    (a.month || 99) - (b.month || 99) ||
+    String(a.company || "").localeCompare(String(b.company || ""), "ko")
+  );
+
+  if (!sorted.length) {
+    return `<div class="mauto-table-wrap">
+      <table class="mauto-table">
+        <thead><tr><th>작성연도</th><th>작성</th><th>상호</th><th>${labels.total}</th><th>${labels.supply}</th><th>${labels.tax}</th><th>입출금</th><th>잔액</th></tr></thead>
+        <tbody><tr><td colspan="8" class="mauto-empty">데이터 없음</td></tr></tbody>
+      </table>
+    </div>`;
+  }
+
+  const years = new Map();
+  sorted.forEach(row => {
+    const yearKey = row.year || "연도 없음";
+    const monthKey = row.month || "월 없음";
+    if (!years.has(yearKey)) years.set(yearKey, new Map());
+    if (!years.get(yearKey).has(monthKey)) years.get(yearKey).set(monthKey, []);
+    years.get(yearKey).get(monthKey).push(row);
+  });
+
+  const body = [...years.entries()].map(([year, monthMap]) => {
+    const yearRows = [...monthMap.values()].flat();
+    const yearSum = sumMautoRows(yearRows);
+    const yearHtml = `<tr class="mauto-year-row">
+      <td colspan="3">⊟ ${escapeHtml(year)}${Number(year) ? "년" : ""}</td>
+      ${mautoNumericCell(yearSum.total)}
+      ${mautoNumericCell(yearSum.supply)}
+      ${mautoNumericCell(yearSum.tax)}
+      ${mautoNumericCell(yearSum.inout)}
+      ${mautoNumericCell(yearSum.balance, "mauto-balance-cell")}
+    </tr>`;
+
+    const monthHtml = [...monthMap.entries()].map(([month, monthRows]) => {
+      const monthSum = sumMautoRows(monthRows);
+      const detailRows = monthRows.map(row => `
+        <tr>
+          <td></td>
+          <td>${escapeHtml(row.month || "")}</td>
+          <td>${escapeHtml(row.company || "")}</td>
+          ${mautoNumericCell(row.total)}
+          ${mautoNumericCell(row.supply)}
+          ${mautoNumericCell(row.tax)}
+          ${mautoNumericCell(row.inout)}
+          ${mautoNumericCell(row.balance, "mauto-balance-cell")}
+        </tr>
+      `).join("");
+      return `${detailRows}
+        <tr class="mauto-month-row">
+          <td></td>
+          <td>${escapeHtml(month)}${Number(month) ? " 요약" : ""}</td>
+          <td></td>
+          ${mautoNumericCell(monthSum.total)}
+          ${mautoNumericCell(monthSum.supply)}
+          ${mautoNumericCell(monthSum.tax)}
+          ${mautoNumericCell(monthSum.inout)}
+          ${mautoNumericCell(monthSum.balance, "mauto-balance-cell")}
+        </tr>`;
+    }).join("");
+
+    return yearHtml + monthHtml;
+  }).join("");
+
+  const total = sumMautoRows(sorted);
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table">
+      <thead>
+        <tr>
+          <th>작성연도</th>
+          <th>작성</th>
+          <th>상호</th>
+          <th>${labels.total}</th>
+          <th>${labels.supply}</th>
+          <th>${labels.tax}</th>
+          <th>입출금</th>
+          <th>잔액</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3">총합계</td>
+          ${mautoNumericCell(total.total)}
+          ${mautoNumericCell(total.supply)}
+          ${mautoNumericCell(total.tax)}
+          ${mautoNumericCell(total.inout)}
+          ${mautoNumericCell(total.balance, "mauto-balance-cell")}
+        </tr>
+      </tfoot>
+    </table>
+  </div>`;
+}
+
+function getMautoFixedDateLabel(row) {
+  if (row.date) return row.date;
+  if (row.year && row.month && row.day) {
+    return `${row.year}-${String(row.month).padStart(2, "0")}-${String(row.day).padStart(2, "0")}`;
+  }
+  if (row.year && row.month) return `${row.year}-${String(row.month).padStart(2, "0")}`;
+  return "날짜 없음";
+}
+
+function renderMautoFixedTable(rows) {
+  const sorted = [...(rows || [])].sort((a, b) =>
+    (a.year || 9999) - (b.year || 9999) ||
+    (a.month || 99) - (b.month || 99) ||
+    (a.day || 99) - (b.day || 99) ||
+    String(a.title || "").localeCompare(String(b.title || ""), "ko")
+  );
+  const banks = [...new Set(sorted.map(row => row.bank || "미지정"))].sort((a, b) => a.localeCompare(b, "ko"));
+  const bankHeaders = banks.length ? banks : ["금액"];
+
+  if (!sorted.length) {
+    return `<div class="mauto-table-wrap">
+      <table class="mauto-table">
+        <thead><tr><th>날짜</th><th>내용</th><th>분류</th><th>금액</th><th>총합계</th></tr></thead>
+        <tbody><tr><td colspan="5" class="mauto-empty">데이터 없음</td></tr></tbody>
+      </table>
+    </div>`;
+  }
+
+  const groups = new Map();
+  sorted.forEach(row => {
+    const key = getMautoFixedDateLabel(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+
+  const body = [...groups.entries()].map(([dateLabel, items]) => {
+    const groupTotal = items.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const bankTotals = {};
+    bankHeaders.forEach(bank => { bankTotals[bank] = 0; });
+    items.forEach(row => {
+      const bank = row.bank || "미지정";
+      if (bankTotals[bank] == null) bankTotals[bank] = 0;
+      bankTotals[bank] += Number(row.amount || 0);
+    });
+
+    const detailRows = items.map(row => `
+      <tr>
+        <td></td>
+        <td>${escapeHtml(row.title || "")}</td>
+        <td>${escapeHtml(row.category || "")}</td>
+        ${bankHeaders.map(bank => `<td class="mauto-num">${bank === (row.bank || "미지정") ? formatNumber(row.amount) : ""}</td>`).join("")}
+        <td class="mauto-num mauto-balance-cell">${formatNumber(row.amount)}</td>
+      </tr>
+    `).join("");
+
+    return `<tr class="mauto-date-row">
+        <td>${escapeHtml(dateLabel)}</td>
+        <td>${items.length}건 요약</td>
+        <td></td>
+        ${bankHeaders.map(bank => `<td class="mauto-num">${bankTotals[bank] ? formatNumber(bankTotals[bank]) : ""}</td>`).join("")}
+        <td class="mauto-num mauto-balance-cell">${formatNumber(groupTotal)}</td>
+      </tr>
+      ${detailRows}`;
+  }).join("");
+
+  const grandTotal = sorted.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const grandBankTotals = {};
+  bankHeaders.forEach(bank => { grandBankTotals[bank] = 0; });
+  sorted.forEach(row => {
+    const bank = row.bank || "미지정";
+    if (grandBankTotals[bank] == null) grandBankTotals[bank] = 0;
+    grandBankTotals[bank] += Number(row.amount || 0);
+  });
+
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table">
+      <thead>
+        <tr>
+          <th>날짜</th>
+          <th>내용</th>
+          <th>분류</th>
+          ${bankHeaders.map(bank => `<th class="mauto-num">${escapeHtml(bank)}</th>`).join("")}
+          <th class="mauto-num">총합계</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3">총합계</td>
+          ${bankHeaders.map(bank => `<td class="mauto-num">${grandBankTotals[bank] ? formatNumber(grandBankTotals[bank]) : ""}</td>`).join("")}
+          <td class="mauto-num mauto-balance-cell">${formatNumber(grandTotal)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>`;
+}
+
+function renderMautoExpectedTable(totals) {
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table mauto-compact-table">
+      <tbody>
+        <tr><td>가용자금</td><td class="mauto-num">${formatNumber(totals.available)}</td></tr>
+        <tr><td>미수금</td><td class="mauto-num positive">+ ${formatNumber(totals.receivable)}</td></tr>
+        <tr><td>미지급</td><td class="mauto-num negative">- ${formatNumber(totals.payable)}</td></tr>
+        <tr><td>고정지출</td><td class="mauto-num negative">- ${formatNumber(totals.fixed)}</td></tr>
+      </tbody>
+      <tfoot><tr><td>예상 잔액</td><td class="mauto-num">${formatNumber(totals.expected)}</td></tr></tfoot>
+    </table>
+  </div>`;
+}
+
+function mautoPasteSection(id, title, tableHtml, hint) {
+  return `<div class="mauto-section" id="mauto-section-${id}">
+    <div class="mauto-section-header">
+      <div>
+        <h3>${escapeHtml(title)}</h3>
+      </div>
+      <button type="button" class="mauto-paste-btn" data-mauto-section="${id}">붙여넣기 입력</button>
+    </div>
+    <div class="mauto-paste-area hidden" id="mauto-paste-area-${id}">
+      <div class="mauto-paste-hint">${escapeHtml(hint)}</div>
+      <textarea class="mauto-textarea" id="mauto-textarea-${id}" placeholder="엑셀에서 복사한 표를 여기에 붙여넣으세요"></textarea>
+      <div class="mauto-paste-actions">
+        <button type="button" class="mauto-apply-btn" data-mauto-section="${id}">적용</button>
+        <button type="button" class="mauto-cancel-btn" data-mauto-section="${id}">취소</button>
+      </div>
+    </div>
+    ${tableHtml}
+  </div>`;
+}
+
+function renderMautoTab() {
+  const sec = elements.mauto || document.getElementById("mauto");
+  if (!sec) return;
+
+  mautoData = normalizeMautoData(mautoData);
+  const totals = calcMautoTotals();
+  const expectedClass = totals.expected < 0 ? "negative" : "positive";
+
+  sec.innerHTML = `<div class="mauto-container">
+    <div class="mauto-top-bar">
+      <div>
+        <h2>엠오토</h2>
+        <p>엠오토 전용 현금흐름</p>
+      </div>
+      <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
+    </div>
+
+    <div class="mauto-summary-grid">
+      <div class="mauto-card card-funds">
+        <span>가용자금</span>
+        <strong>${formatNumber(totals.available)}</strong>
+      </div>
+      <div class="mauto-card card-receivable">
+        <span>미수금</span>
+        <strong>${formatNumber(totals.receivable)}</strong>
+      </div>
+      <div class="mauto-card card-payable">
+        <span>미지급</span>
+        <strong>${formatNumber(totals.payable)}</strong>
+      </div>
+      <div class="mauto-card card-fixed">
+        <span>고정지출</span>
+        <strong>${formatNumber(totals.fixed)}</strong>
+      </div>
+      <div class="mauto-card card-expected ${expectedClass}">
+        <span>예상 잔액</span>
+        <strong>${formatNumber(totals.expected)}</strong>
+      </div>
+    </div>
+
+    ${mautoPasteSection("funds", "가용자금",
+      renderMautoFundsTable(),
+      "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)")}
+
+    ${mautoPasteSection("receivables", "미수금",
+      renderMautoAccountingTable(mautoData.receivables, "receivables"),
+      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입출금 / 잔액")}
+
+    ${mautoPasteSection("payables", "미지급",
+      renderMautoAccountingTable(mautoData.payables, "payables"),
+      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 입출금 / 잔액")}
+
+    ${mautoPasteSection("fixed", "고정지출",
+      renderMautoFixedTable(mautoData.fixed),
+      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류")}
+
+    <div class="mauto-section mauto-expected-section">
+      <div class="mauto-section-header">
+        <div><h3>예상 잔액</h3></div>
+      </div>
+      ${renderMautoExpectedTable(totals)}
+    </div>
+  </div>`;
+
+  sec.querySelectorAll(".mauto-paste-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.mautoSection;
+      const area = document.getElementById(`mauto-paste-area-${id}`);
+      if (!area) return;
+      area.classList.toggle("hidden");
+      if (!area.classList.contains("hidden")) {
+        document.getElementById(`mauto-textarea-${id}`)?.focus();
+      }
+    });
+  });
+
+  sec.querySelectorAll(".mauto-cancel-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById(`mauto-paste-area-${btn.dataset.mautoSection}`)?.classList.add("hidden");
+    });
+  });
+
+  sec.querySelectorAll(".mauto-apply-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyMautoPaste(btn.dataset.mautoSection));
+  });
+
+  sec.querySelectorAll(".mauto-textarea").forEach(textarea => {
+    textarea.addEventListener("paste", () => {
+      const id = textarea.id.replace("mauto-textarea-", "");
+      setTimeout(() => applyMautoPaste(id), 50);
+    });
+  });
+
+  document.getElementById("mautoClearBtn")?.addEventListener("click", () => {
+    if (!confirm("엠오토 데이터를 전체 초기화하시겠습니까?")) return;
+    mautoData = createDefaultMautoData();
+    saveMautoDataLocal();
+    renderMautoTab();
+  });
+}
+
+function applyMautoPaste(sectionId) {
+  const textarea = document.getElementById(`mauto-textarea-${sectionId}`);
+  if (!textarea) return;
+  const text = textarea.value.trim();
+  if (!text) return;
+
+  let parsed = null;
+  if (sectionId === "funds") {
+    parsed = parseMautoFundsPaste(text);
+    if (!parsed) {
+      alert("가용자금 금액을 읽지 못했습니다.\n금액만 2줄로 붙여넣거나, 은행/금액 표를 붙여넣어 주세요.");
+      return;
+    }
+    mautoData.funds = parsed;
+  } else if (sectionId === "receivables") {
+    parsed = parseMautoAccountingPaste(text, "receivables");
+    if (!parsed.length) {
+      alert("미수금 데이터를 읽지 못했습니다.\n헤더를 확인해 주세요.");
+      return;
+    }
+    mautoData.receivables = parsed;
+  } else if (sectionId === "payables") {
+    parsed = parseMautoAccountingPaste(text, "payables");
+    if (!parsed.length) {
+      alert("미지급 데이터를 읽지 못했습니다.\n헤더를 확인해 주세요.");
+      return;
+    }
+    mautoData.payables = parsed;
+  } else if (sectionId === "fixed") {
+    parsed = parseMautoFixedPaste(text);
+    if (!parsed.length) {
+      alert("고정지출 데이터를 읽지 못했습니다.\n헤더를 확인해 주세요.");
+      return;
+    }
+    mautoData.fixed = parsed;
+  }
+
+  saveMautoDataLocal();
+  renderMautoTab();
+}
+
 function renderDashboard() {
   recalcAvailableFundsSummary();
   const summary = calculateSummary();
@@ -3414,6 +4068,8 @@ function switchTab(tabId) {
     content.classList.toggle("active", content.id === tabId);
   });
 
+  if (tabId === "mauto") renderMautoTab();
+
   // 탭 이동 시 스크롤 상단으로
   window.scrollTo(0, 0);
 }
@@ -3459,6 +4115,7 @@ function rerenderAll() {
   renderPayables();
   renderFixedExpenses();
   renderAvailableFunds();
+  renderMautoTab();
 }
 
 function calculateSummary() {
@@ -5626,6 +6283,7 @@ function setupTabs() {
       });
       if (target === "daesa") renderDaesaTab();
       if (target === "fixed") renderFixedExpenses();
+      if (target === "mauto") renderMautoTab();
     });
   });
 }
@@ -7078,6 +7736,7 @@ function setupApiTokenButton() {
 async function init() {
   loadGroupOrder();
   loadVendorMemos();
+  loadMautoDataLocal();
 
   renderPartnerFilter();
   renderFilterControls();
