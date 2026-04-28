@@ -1460,12 +1460,15 @@ function buildPlannedPaymentReportRows(planKey = "__total__") {
         대표자명: item.vendorRepresentative || "",
         지급금액: 0,
         연월목록: [],
+        연월키목록: [],
         메모목록: [],
       });
     }
     const row = grouped.get(key);
     row.지급금액 += Number(item.decisionAmount || 0);
-    row.연월목록.push(formatMonthKey(getMonthKey(item)));
+    const mk = getMonthKey(item);
+    row.연월목록.push(mk ? mk.replace(/^20(\d{2})-/, "$1-") : "");
+    row.연월키목록.push(mk);
     if (item.memo) {
       row.메모목록.push(item.memo);
     }
@@ -1475,6 +1478,7 @@ function buildPlannedPaymentReportRows(planKey = "__total__") {
     ...row,
     지급금액: Math.round(row.지급금액),
     연월목록: [...new Set(row.연월목록)].join(", "),
+    연월키목록: [...new Set(row.연월키목록)],
     메모목록: [...new Set(row.메모목록)].join(", "),
   }));
 }
@@ -2004,6 +2008,7 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
           <p>${reportRows.length}개 업체 · ${formatNumber(totalAmount)}원</p>
         </div>
         <div class="payment-report-actions">
+          <button type="button" class="report-selected-plan-button" style="display:none;">선택 계획 변경</button>
           <button type="button" class="report-html-button">결재용 HTML 복사</button>
           <button type="button" class="report-completed-button">최종 보고서</button>
           <button type="button" class="report-bank-export-button">우리은행 양식 저장</button>
@@ -2033,6 +2038,7 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
         <table class="payment-report-table">
           <thead>
             <tr>
+              <th style="width:32px;"><input type="checkbox" class="report-select-all" title="전체 선택" /></th>
               <th>업체명</th>
               <th>예정일</th>
               <th>은행</th>
@@ -2043,21 +2049,25 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
             </tr>
           </thead>
           <tbody>
-            ${reportRows.length ? reportRows.map(row => {
+            ${reportRows.length ? reportRows.map((row, idx) => {
     const holderRaw = String(row.예금주 || "").trim();
     const repRaw = String(row.대표자명 || "").trim();
     const holderNorm = holderRaw.replace(/\s+/g, "");
     const repNorm = repRaw.replace(/\s+/g, "");
+    const vendorNorm = String(row.거래처명 || "").replace(/\s+/g, "");
     const holderIsPersonName = isPersonName(holderRaw);
-    const mismatch = holderIsPersonName && repNorm && holderNorm !== repNorm;
+    const mismatch = holderIsPersonName && repNorm && holderNorm !== repNorm && holderNorm !== vendorNorm;
     const holderHtml = holderRaw
       ? (mismatch
         ? `<span class="report-holder-mismatch" title="대표자명: ${escapeHtml(repRaw)}">${escapeHtml(holderRaw)}</span>`
         : escapeHtml(holderRaw))
       : '<span class="report-missing">확인 필요</span>';
+    const partnerKey = encodeURIComponent(`${row.거래처코드 || ""}||${row.거래처명 || ""}`);
+    const firstMonthKey = row.연월키목록?.[0] || "";
     return `
-              <tr>
-                <td>${escapeHtml(row.거래처명 || "-")}</td>
+              <tr data-row-idx="${idx}">
+                <td><input type="checkbox" class="report-row-check" data-idx="${idx}" /></td>
+                <td><button type="button" class="report-vendor-link" data-partner-key="${partnerKey}" data-month-key="${firstMonthKey}">${escapeHtml(row.거래처명 || "-")}</button></td>
                 <td>${formatPlanLabel(row.결제예정일 || "")}</td>
                 <td>${row.은행 || '<span class="report-missing">확인 필요</span>'}</td>
                 <td>${row.계좌번호 || '<span class="report-missing">확인 필요</span>'}</td>
@@ -2065,7 +2075,7 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
                 <td>${escapeHtml(row.연월목록 || "-")}</td>
                 <td class="numeric-cell">${formatNumber(row.지급금액 || 0)}</td>
               </tr>`;
-  }).join("") : `<tr><td colspan="7" class="empty-state">보고서로 만들 결제 대상이 없습니다.</td></tr>`}
+  }).join("") : `<tr><td colspan="8" class="empty-state">보고서로 만들 결제 대상이 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -2081,6 +2091,78 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
     popover.style.left = `${Math.max(12, (window.innerWidth - width) / 2)}px`;
     popover.style.top = `${Math.max(12, (window.innerHeight - Math.min(window.innerHeight - 24, popover.offsetHeight || 640)) / 2)}px`;
   }
+
+  // ── 체크박스 선택 관리
+  const selectedIndices = new Set();
+  const selectedPlanBtn = overlay.querySelector(".report-selected-plan-button");
+
+  function updateSelectedPlanBtn() {
+    selectedPlanBtn.style.display = selectedIndices.size > 0 ? "" : "none";
+    selectedPlanBtn.textContent = `선택 계획 변경 (${selectedIndices.size}건)`;
+  }
+
+  overlay.querySelector(".report-select-all").addEventListener("change", e => {
+    overlay.querySelectorAll(".report-row-check").forEach(cb => {
+      cb.checked = e.target.checked;
+      const idx = Number(cb.dataset.idx);
+      if (e.target.checked) selectedIndices.add(idx);
+      else selectedIndices.delete(idx);
+    });
+    updateSelectedPlanBtn();
+  });
+
+  overlay.querySelectorAll(".report-row-check").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const idx = Number(cb.dataset.idx);
+      if (cb.checked) selectedIndices.add(idx);
+      else selectedIndices.delete(idx);
+      updateSelectedPlanBtn();
+    });
+  });
+
+  selectedPlanBtn.addEventListener("click", () => {
+    const selectedRows = reportRows.filter((_, i) => selectedIndices.has(i));
+    const selectedVendorKeys = new Set(selectedRows.map(r => `${r.거래처코드 || ""}||${r.거래처명 || ""}`));
+    const items = payables.filter(item => selectedVendorKeys.has(getPartnerGroupKey(item)));
+    if (!items.length) return;
+    closePaymentReportModal();
+    openBatchPlanEditor("선택 업체", items, document.querySelector(".payment-plan-summary-grid") || document.body);
+  });
+
+  // ── 업체명 클릭 → 미지급 테이블 해당 행으로 이동
+  overlay.querySelectorAll(".report-vendor-link").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const partnerKey = decodeURIComponent(btn.dataset.partnerKey || "");
+      const monthKey = btn.dataset.monthKey || "";
+      closePaymentReportModal();
+      const vendorItems = payables.filter(item => getPartnerGroupKey(item) === partnerKey);
+      vendorItems.forEach(item => {
+        const group = getDueGroup(item);
+        if (group) payablesGroupState.collapsed[group] = false;
+      });
+      switchTab("payables");
+      rerenderAll();
+      window.requestAnimationFrame(() => {
+        const encodedKey = encodeURIComponent(partnerKey);
+        const targetBtn = elements.payables.querySelector(
+          monthKey
+            ? `.edit-amount-button[data-partner-key="${encodedKey}"][data-month-key="${monthKey}"]`
+            : `.payable-select-checkbox[data-partner-key="${encodedKey}"]`
+        );
+        if (!targetBtn) return;
+        const row = targetBtn.closest("tr");
+        if (!row) return;
+        const tableResponsive = elements.payables.querySelector(".table-responsive");
+        if (tableResponsive) {
+          const cellEl = targetBtn.closest("td");
+          if (cellEl) tableResponsive.scrollLeft = Math.max(0, cellEl.offsetLeft - tableResponsive.clientWidth / 3);
+          tableResponsive.scrollTop = Math.max(0, row.offsetTop - tableResponsive.clientHeight / 3);
+        }
+        row.classList.add("report-nav-highlight");
+        setTimeout(() => row.classList.remove("report-nav-highlight"), 1500);
+      });
+    });
+  });
 
   overlay.querySelector(".report-close-button").addEventListener("click", closePaymentReportModal);
 
@@ -4809,7 +4891,11 @@ function renderPayables() {
   const tableResponsive = elements.payables.querySelector(".table-responsive");
   const table = tableResponsive?.querySelector("table");
   if (topScrollbar && topScrollbarInner && tableResponsive && table) {
-    topScrollbarInner.style.width = `${table.scrollWidth}px`;
+    const updateScrollbarWidth = () => {
+      topScrollbarInner.style.width = `${table.scrollWidth}px`;
+    };
+    updateScrollbarWidth();
+    window.requestAnimationFrame(updateScrollbarWidth);
     let syncing = false;
     topScrollbar.addEventListener("scroll", () => {
       if (syncing) return;
