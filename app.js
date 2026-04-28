@@ -5794,11 +5794,14 @@ function parseMautoFixedPaste(text) {
   ];
   return parseMautoTablePaste(text, defs).map(row => {
     const dp = parseMautoDateParts(row.date);
-    const year = normalizeMautoYear(row.year) || dp?.year || 0;
-    const month = normalizeMautoMonth(row.month) || dp?.month || 0;
-    const day = normalizeMautoDay(row.day) || dp?.day || 0;
+    // 날짜 컬럼 우선, 없으면 연도/월/일 컬럼으로 보완
+    const year = dp?.year || normalizeMautoYear(row.year) || 0;
+    const month = dp?.month || normalizeMautoMonth(row.month) || 0;
+    const day = dp?.day || normalizeMautoDay(row.day) || 0;
+    const rawDate = String(row.date || "").trim();
     const date = year && month && day
-      ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : "";
+      ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+      : rawDate || "";
     return {
       year, month, day, date,
       title: String(row.title || "").trim(),
