@@ -3868,6 +3868,18 @@ td {
 .mauto-table .positive { color: #047857; }
 .mauto-table .negative { color: #dc2626; }
 
+.mauto-toggle-icon {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  color: #64748b;
+  margin-right: 4px;
+  transition: transform 0.15s;
+}
+
+.mauto-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mauto-table { min-width: 540px; }
+
 @media (max-width: 980px) {
   .mauto-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
