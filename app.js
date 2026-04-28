@@ -6107,6 +6107,16 @@ function renderMautoTab() {
   });
 
   setupMautoToggleHandlers(sec);
+
+  // 기본 전체 접기
+  sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-fxdate").forEach(row => {
+    row.dataset.collapsed = "1";
+    const icon = row.querySelector(".mauto-toggle-icon");
+    if (icon) icon.textContent = "▶";
+  });
+  sec.querySelectorAll(".mauto-toggle-month, [data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+    r.style.display = "none";
+  });
 }
 
 function applyMautoPaste(sectionId) {
