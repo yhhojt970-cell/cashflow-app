@@ -1429,6 +1429,18 @@ function enrichPayablesWithVendorMaster() {
   });
 }
 
+function getPayablesForPlanKey(planKey, items) {
+  if (planKey === "__total__") return items;
+  return items.filter(item => (item.paymentPlan || "") === planKey);
+}
+
+function getPayablesForPlanKeys(planKeys, items) {
+  if (!planKeys || !planKeys.length) return items;
+  const keySet = new Set(planKeys);
+  if (keySet.has("__total__")) return items;
+  return items.filter(item => keySet.has(item.paymentPlan || ""));
+}
+
 function buildPlannedPaymentReportRows(planKey = "__total__") {
   const filteredPayables = getFilteredItems(payables, "payables");
   const targetItems = getPayablesForPlanKey(planKey, filteredPayables)
@@ -3889,7 +3901,7 @@ function renderReceivables() {
     </div>
   `;
 
-  document.getElementById("receivableEmailButton")?.addEventListener("click", openReceivableEmailDialog);
+  elements.receivables.querySelector(".rcv-email-btn")?.addEventListener("click", openReceivableEmailDialog);
 
   elements.receivables.querySelectorAll(".vendor-memo-btn").forEach(btn => {
     btn.addEventListener("click", e => { e.stopPropagation(); openVendorMemoEditor(btn.dataset.code, btn.dataset.name); });
