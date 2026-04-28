@@ -2920,14 +2920,17 @@ function calcPayableDueDate(year, month, group) {
   let day = 0;
 
   if (group === "당말일" || group === "당05일" || group === "당10일" || group === "당15일" || group === "당25일") {
-    // Current month
+    // 당월 기준 — 월 변경 없음
   } else if (group === "60일") {
-    targetMonth += 2;
-    while (targetMonth > 12) { targetMonth -= 12; targetYear++; }
-  } else if (group === "말일" || group === "05일" || group === "10일" || group === "15일" || group === "25일" || group === "즉시" || group === "바로") {
-    targetMonth++;
-    while (targetMonth > 12) { targetMonth -= 12; targetYear++; }
+    targetMonth += 2;  // 익익월
+  } else if (group === "말일") {
+    targetMonth += 1;  // 익월 말일
+  } else if (group === "05일" || group === "10일" || group === "15일" || group === "25일") {
+    targetMonth += 2;  // 익익월 N일 (말일 마감 다음달)
+  } else {
+    targetMonth += 1;  // 즉시/바로/기타 → 익월
   }
+  while (targetMonth > 12) { targetMonth -= 12; targetYear++; }
 
   if (group.includes("말일") || group === "60일") {
     day = new Date(targetYear, targetMonth, 0).getDate();
