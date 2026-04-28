@@ -3708,14 +3708,40 @@ td {
   padding: 11px 14px;
   background: #f8fafc;
   border-bottom: 1px solid #dbe3ef;
+  border-left: 4px solid #e2e8f0;
 }
+
+.mauto-section[data-kind="funds"]       .mauto-section-header { border-left-color: #2563eb; }
+.mauto-section[data-kind="receivables"] .mauto-section-header { border-left-color: #059669; }
+.mauto-section[data-kind="payables"]    .mauto-section-header { border-left-color: #d97706; }
+.mauto-section[data-kind="fixed"]       .mauto-section-header { border-left-color: #7c3aed; }
 
 .mauto-section-header h3 {
   margin: 0;
   font-size: 14px;
   color: #0f172a;
-  font-weight: 800;
+  font-weight: 700;
 }
+
+.mauto-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mauto-ctrl-btn {
+  padding: 4px 9px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mauto-ctrl-btn:hover { background: #f1f5f9; }
 
 .mauto-paste-btn {
   padding: 5px 11px;
@@ -3841,17 +3867,47 @@ td {
 
 .mauto-year-row td {
   background: #e2e8f0;
-  font-weight: 800;
+  font-weight: 600;
+  font-size: 12.5px;
 }
 
 .mauto-month-row td {
-  background: #fef9c3;
-  font-weight: 800;
+  background: #f1f5f9;
+  font-weight: 500;
+  font-size: 12px;
+  color: #475569;
 }
 
 .mauto-date-row td {
   background: #f1f5f9;
-  font-weight: 800;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+/* 미수금 — 초록 */
+.mauto-table[data-kind="receivables"] .mauto-year-row td {
+  background: #dcfce7;
+  color: #14532d;
+}
+.mauto-table[data-kind="receivables"] .mauto-month-row td {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+/* 미지급 — 주황 */
+.mauto-table[data-kind="payables"] .mauto-year-row td {
+  background: #fef3c7;
+  color: #78350f;
+}
+.mauto-table[data-kind="payables"] .mauto-month-row td {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+/* 고정지출 — 보라 */
+.mauto-table[data-kind="fixed"] .mauto-date-row td {
+  background: #ede9fe;
+  color: #3b0764;
 }
 
 .mauto-empty {

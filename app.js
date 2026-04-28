@@ -5903,13 +5903,14 @@ function renderMautoAccountingTable(rows, kind) {
   }).join("");
 
   const total = sumMautoRows(sorted);
+  const inoutLabel = isReceivable ? "입금" : "출금";
   return `<div class="mauto-table-wrap">
-    <table class="mauto-table">
+    <table class="mauto-table" data-kind="${kind}">
       <thead>
         <tr>
           <th>작성연도</th><th>작성월</th><th>상호</th>
           <th class="mauto-num">${totalLabel}</th>
-          <th class="mauto-num">입출금</th>
+          <th class="mauto-num">${inoutLabel}</th>
           <th class="mauto-num">잔액</th>
         </tr>
       </thead>
@@ -5988,7 +5989,7 @@ function renderMautoFixedTable(rows) {
   sorted.forEach(r => { grandBankTotals[r.bank || "미지정"] = (grandBankTotals[r.bank || "미지정"] || 0) + Number(r.amount || 0); });
 
   return `<div class="mauto-table-wrap">
-    <table class="mauto-table">
+    <table class="mauto-table" data-kind="fixed">
       <thead>
         <tr>
           <th>날짜</th><th>내용</th><th>분류</th>
@@ -6008,11 +6009,17 @@ function renderMautoFixedTable(rows) {
   </div>`;
 }
 
-function mautoPasteSection(id, title, tableHtml, hint) {
-  return `<div class="mauto-section" id="mauto-section-${id}">
+function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false) {
+  const toggleBtns = hasToggle ? `
+    <button type="button" class="mauto-ctrl-btn" data-mauto-expand-all="${id}">전체 펼치기</button>
+    <button type="button" class="mauto-ctrl-btn" data-mauto-collapse-all="${id}">전체 접기</button>` : "";
+  return `<div class="mauto-section" id="mauto-section-${id}" data-kind="${id}">
     <div class="mauto-section-header">
       <div><h3>${escapeHtml(title)}</h3></div>
-      <button type="button" class="mauto-paste-btn" data-mauto-section="${id}">붙여넣기 입력</button>
+      <div class="mauto-section-actions">
+        ${toggleBtns}
+        <button type="button" class="mauto-paste-btn" data-mauto-section="${id}">붙여넣기 입력</button>
+      </div>
     </div>
     <div class="mauto-paste-area hidden" id="mauto-paste-area-${id}">
       <div class="mauto-paste-hint">${escapeHtml(hint)}</div>
@@ -6051,16 +6058,16 @@ function renderMautoTab() {
     </div>
     ${mautoPasteSection("funds", "가용자금",
       renderMautoFundsTable(),
-      "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)")}
+      "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)", false)}
     ${mautoPasteSection("receivables", "미수금",
       renderMautoAccountingTable(mautoData.receivables, "receivables"),
-      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입출금 / 잔액")}
+      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", true)}
     ${mautoPasteSection("payables", "미지급",
       renderMautoAccountingTable(mautoData.payables, "payables"),
-      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 입출금 / 잔액")}
+      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true)}
     ${mautoPasteSection("fixed", "고정지출",
       renderMautoFixedTable(mautoData.fixed),
-      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류")}
+      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true)}
   </div>`;
 
   sec.querySelectorAll(".mauto-paste-btn").forEach(btn => {
@@ -6127,6 +6134,44 @@ function applyMautoPaste(sectionId) {
 }
 
 function setupMautoToggleHandlers(container) {
+  container.querySelectorAll("[data-mauto-expand-all]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoExpandAll}`);
+      if (!sec) return;
+      sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate").forEach(row => {
+        row.dataset.collapsed = "0";
+        const icon = row.querySelector(".mauto-toggle-icon");
+        if (icon) icon.textContent = "▼";
+      });
+      sec.querySelectorAll("[data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+        r.style.display = "";
+      });
+    });
+  });
+
+  container.querySelectorAll("[data-mauto-collapse-all]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoCollapseAll}`);
+      if (!sec) return;
+      sec.querySelectorAll(".mauto-toggle-year").forEach(row => {
+        row.dataset.collapsed = "1";
+        const icon = row.querySelector(".mauto-toggle-icon");
+        if (icon) icon.textContent = "▶";
+      });
+      sec.querySelectorAll(".mauto-toggle-month, [data-mauto-yr], [data-mauto-mo]").forEach(r => {
+        r.style.display = "none";
+      });
+      sec.querySelectorAll(".mauto-toggle-fxdate").forEach(row => {
+        row.dataset.collapsed = "1";
+        const icon = row.querySelector(".mauto-toggle-icon");
+        if (icon) icon.textContent = "▶";
+      });
+      sec.querySelectorAll("[data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+        r.style.display = "none";
+      });
+    });
+  });
+
   container.querySelectorAll(".mauto-toggle-year").forEach(row => {
     row.addEventListener("click", () => {
       const yk = row.dataset.mautoYear;
