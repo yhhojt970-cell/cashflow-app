@@ -3943,27 +3943,6 @@ function setupGroupChipEvents(container, allLabels, getFilter, setFilter, setOrd
   });
 }
 
-function fixStickyHeaderOffsets() {
-  requestAnimationFrame(() => {
-    const payTable = document.querySelector(".payables-table-wrap table");
-    if (payTable) {
-      const r1 = payTable.querySelector("thead tr:first-child");
-      if (r1) {
-        const h = r1.getBoundingClientRect().height;
-        payTable.querySelectorAll("thead tr:nth-child(2) th").forEach(th => { th.style.top = h + "px"; });
-      }
-    }
-    const rcvTable = document.querySelector(".rcv-pivot-table");
-    if (rcvTable) {
-      const r1 = rcvTable.querySelector("thead tr:first-child");
-      if (r1) {
-        const h = r1.getBoundingClientRect().height;
-        rcvTable.querySelectorAll("thead tr:nth-child(2) th").forEach(th => { th.style.top = h + "px"; });
-      }
-    }
-  });
-}
-
 function renderReceivables() {
   // 칩용: 전체 receivables에서 조건 목록 수집 (필터 전)
   const allCondLabels = (() => {
@@ -3987,6 +3966,18 @@ function renderReceivables() {
     yearsMap.get(y).push(mk);
   });
   const years = [...yearsMap.keys()].sort();
+
+  // 연도별 음영 클래스: 연도가 바뀔 때마다 even/odd 전환 + 첫 컬럼에 굵은 구분선
+  const mkToYearIdx = {};
+  const mkIsStart = new Set();
+  years.forEach((y, yIdx) => {
+    const mks = yearsMap.get(y) || [];
+    mks.forEach((mk, i) => { mkToYearIdx[mk] = yIdx; if (i === 0) mkIsStart.add(mk); });
+  });
+  const mkcls = (mk) => {
+    const ev = (mkToYearIdx[mk] || 0) % 2 === 0 ? "month-column-even" : "month-column-odd";
+    return mkIsStart.has(mk) ? ev + " month-column-year-start" : ev;
+  };
 
   const condGroups = new Map();
   filtered.forEach(item => {
@@ -4019,9 +4010,9 @@ function renderReceivables() {
       return rcvSortState.dir === "asc" ? cmp : -cmp;
     });
 
-    const groupTotalCells = monthKeys.map((mk, idx) => {
+    const groupTotalCells = monthKeys.map((mk) => {
       const t = [...group.vendors.values()].reduce((s, v) => s + (v.months[mk] || 0), 0);
-      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${t ? formatNumber(t) : ""}</td>`;
+      return `<td class="group-summary-cell month-column-cell ${mkcls(mk)}">${t ? formatNumber(t) : ""}</td>`;
     }).join("");
 
     const itemRowsHtml = collapsed ? "" : sortedVendors.filter(v => {
@@ -4036,9 +4027,9 @@ function renderReceivables() {
         else if (el >= 0) { elapsedHtml = `${el}일`; elapsedClass = "rcv-elapsed-ok"; }
         else { elapsedHtml = `D${el}`; elapsedClass = "rcv-elapsed-future"; }
       }
-      const monthCells = monthKeys.map((mk, idx) => {
+      const monthCells = monthKeys.map((mk) => {
         const val = vendor.months[mk] || 0;
-        return `<td class="numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${val ? formatNumber(val) : ""}</td>`;
+        return `<td class="numeric-cell month-column-cell ${mkcls(mk)}">${val ? formatNumber(val) : ""}</td>`;
       }).join("");
 
       const vCode = normalizeVendorCode(vendor.codeRaw || vendor.name || "");
@@ -4084,8 +4075,8 @@ function renderReceivables() {
     </th>`;
   }).join("");
 
-  const monthHeaders = monthKeys.map((mk, idx) => {
-    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(mk)}</th>`;
+  const monthHeaders = monthKeys.map((mk) => {
+    return `<th class="numeric-header month-column-cell ${mkcls(mk)}">${formatMonthKey(mk)}</th>`;
   }).join("");
 
   elements.receivables.innerHTML = `
@@ -4172,7 +4163,6 @@ function renderReceivables() {
       renderReceivables();
     });
   });
-  fixStickyHeaderOffsets();
 }
 
 // ── 미수금 이메일 발송 ───────────────────────────────────────
@@ -4730,6 +4720,24 @@ function renderPayables() {
     }
   });
 
+  const dkToYearIdx = {};
+  const dkIsStart = new Set();
+  years.forEach((y, yIdx) => {
+    if (payablesYearCollapsed[y]) {
+      dkToYearIdx[`__year__${y}`] = yIdx;
+      dkIsStart.add(`__year__${y}`);
+    } else {
+      yearsMap.get(y).forEach((mk, i) => {
+        dkToYearIdx[mk] = yIdx;
+        if (i === 0) dkIsStart.add(mk);
+      });
+    }
+  });
+  const dkcls = (dk) => {
+    const ev = (dkToYearIdx[dk] || 0) % 2 === 0 ? "month-column-even" : "month-column-odd";
+    return dkIsStart.has(dk) ? ev + " month-column-year-start" : ev;
+  };
+
   const groups = groupPayablesByDue(filteredPayables);
   const paymentPlanSummary = calcPaymentPlanSummary(filteredPayables);
   const availablePlanKeys = paymentPlanSummary.map(item => item.key);
@@ -4764,7 +4772,7 @@ function renderPayables() {
       } else {
         val = groupTotals.monthTotals[dk] || 0;
       }
-      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(val)}</td>`;
+      return `<td class="group-summary-cell month-column-cell ${dkcls(dk)}">${formatPayableCellNumber(val)}</td>`;
     }).join("");
     const header = `
       <tr class="group-header" data-group="${groupKey}">
@@ -4796,7 +4804,7 @@ function renderPayables() {
           const y = dk.replace("__year__", "");
           const yearMks = yearsMap.get(y) || [];
           const yearVal = yearMks.reduce((s, mk) => s + (entry.monthTotals[mk] || 0), 0);
-          return `<td class="editable-amount-cell numeric-cell month-column-cell year-collapsed-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${yearVal ? formatPayableCellNumber(yearVal) : ""}</td>`;
+          return `<td class="editable-amount-cell numeric-cell month-column-cell year-collapsed-cell ${dkcls(dk)}">${yearVal ? formatPayableCellNumber(yearVal) : ""}</td>`;
         }
         const monthKey = dk;
         const decisionValue = entry.monthTotals[monthKey] || 0;
@@ -4816,10 +4824,10 @@ function renderPayables() {
           && payablesUiState.lastEdited.monthKey === monthKey;
 
         if (originalValue === 0) {
-          return `<td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}"></td>`;
+          return `<td class="editable-amount-cell numeric-cell month-column-cell ${dkcls(dk)}"></td>`;
         }
         return `
-          <td class="editable-amount-cell numeric-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"} ${isLastEdited ? "recently-edited-cell" : ""}">
+          <td class="editable-amount-cell numeric-cell month-column-cell ${dkcls(dk)} ${isLastEdited ? "recently-edited-cell" : ""}">
             <div class="amount-cell-topline">
               <span class="cell-plan-badge ${planClass}">${planLabel}</span>
               <button
@@ -4877,7 +4885,7 @@ function renderPayables() {
     if (dk.startsWith("__year__")) {
       return `<th class="numeric-header year-collapsed-header">합계</th>`;
     }
-    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(dk)}</th>`;
+    return `<th class="numeric-header month-column-cell ${dkcls(dk)}">${formatMonthKey(dk)}</th>`;
   }).join("");
 
   elements.payables.innerHTML = `
@@ -5095,7 +5103,6 @@ function renderPayables() {
       wrap.style.maxHeight = Math.max(200, remaining) + "px";
     }
   });
-  fixStickyHeaderOffsets();
 }
 
 function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {

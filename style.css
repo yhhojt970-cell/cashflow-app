@@ -1182,11 +1182,16 @@ body {
 }
 
 .month-column-even {
-  background: rgba(248, 250, 252, 0.92);
+  background: #eef4ff;
 }
 
 .month-column-odd {
-  background: rgba(255, 255, 255, 0.96);
+  background: #fafafa;
+}
+
+/* 연도 그룹 첫 번째 컬럼 — 굵은 구분선 */
+.month-column-year-start {
+  border-left: 3px solid #64748b !important;
 }
 
 .table-responsive thead .month-column-cell {
@@ -2159,40 +2164,42 @@ td {
 
 /* ── 미수금 테이블 ── */
 .rcv-pivot-table { border-collapse: collapse; }
+
+/* thead 전체를 하나의 블록으로 고정 */
+.rcv-pivot-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* .table-responsive thead th 의 per-th sticky 무효화 */
 .rcv-pivot-table thead th {
+  position: static;
   background: #dcfce7;
   padding: 7px 10px;
   font-size: 0.82rem;
   white-space: nowrap;
-  position: sticky;
-  top: 0;
-  z-index: 10;
   border-color: #86efac;
 }
 
-/* tbody에 인접한 셀만 하단 선을 box-shadow로 처리 (border-collapse와 충돌 방지) */
+/* 연도↔월 구분선: 1행의 non-rowspan 셀 하단 */
+.rcv-pivot-table thead tr:first-child th:not([rowspan]) {
+  border-bottom: 2px solid #4ade80 !important;
+}
+
+/* tbody 직전 셀: border-bottom 없애고 box-shadow로 헤더 하단선 */
 .rcv-pivot-table thead tr:last-child th,
 .rcv-pivot-table thead th[rowspan="2"] {
   border-bottom: none !important;
   box-shadow: 0 2px 0 #22c55e;
 }
 
-/* 이중 헤더 고정: 두 번째 줄(월)은 첫 번째 줄 아래에 고정 - JS로 top 보정 */
-.rcv-pivot-table thead tr:nth-child(2) th {
-  top: 36px;
-  z-index: 9;
-  border-top: 2px solid #4ade80;
-}
-
-/* rowspan="2"인 셀은 전체를 덮으므로 top 0 고정 유지 */
-.rcv-pivot-table thead th[rowspan="2"] {
-  top: 0;
-  z-index: 11;
-}
-
-/* 업체명 고정 컬럼 헤더: 본문 고정보다 높게 */
+/* 업체명 고정 컬럼: 수평 sticky 유지 */
 .rcv-pivot-table thead .sticky-col-rcv-name {
-  z-index: 15;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #dcfce7;
 }
 
 
@@ -3467,29 +3474,37 @@ td {
   overflow-y: auto;
   overflow-x: auto;
 }
-.payables-table-wrap table thead th {
+/* thead 전체를 하나의 블록으로 고정 */
+.payables-table-wrap table thead {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+/* .table-responsive thead th 의 per-th sticky 무효화 */
+.payables-table-wrap table thead th {
+  position: static;
   background: #dbeafe;
   border-color: #93c5fd;
 }
-/* 두 번째 헤더 행(월)은 첫 번째 행 아래에 고정 - JS로 top 보정 */
-.payables-table-wrap table thead tr:nth-child(2) th {
-  top: 36px;
-  z-index: 10;
-  border-top: 2px solid #60a5fa;
+
+/* 연도↔월 구분선: 1행의 non-rowspan 셀 하단 */
+.payables-table-wrap table thead tr:first-child th:not([rowspan]) {
+  border-bottom: 2px solid #60a5fa !important;
 }
-/* tbody에 인접한 셀만 box-shadow로 구분선 처리 */
+
+/* tbody 직전 셀: border-bottom 없애고 box-shadow로 헤더 하단선 */
 .payables-table-wrap table thead tr:last-child th,
 .payables-table-wrap table thead th[rowspan] {
   border-bottom: none !important;
   box-shadow: 0 2px 0 #3b82f6;
 }
-/* 고정 컬럼 헤더는 본문 고정 컬럼(z-index:4)보다 높아야 함 */
+
+/* 수평 고정 컬럼 (선택/업체명): sticky left 재적용 */
 .payables-table-wrap table thead th.sticky-col-1,
 .payables-table-wrap table thead th.sticky-col-2 {
-  z-index: 20;
+  position: sticky;
+  z-index: 2;
   background: #dbeafe;
 }
 
