@@ -3388,7 +3388,8 @@ function renderAvailableFunds() {
         <div class="fsc-badge">②</div>
         <div class="fsc-label">B2B 사용가능</div>
         <div class="fsc-amount">${formatNumber(b2bAvail)}</div>
-        <div class="fsc-sub">한도 ${formatNumber(B2B_TOTAL_LIMIT)} · 사용 ${formatNumber(b2bUsed)}</div>
+        <div class="fsc-sub">한도 ${formatNumber(B2B_TOTAL_LIMIT)}</div>
+        <div class="fsc-sub">사용 ${formatNumber(b2bUsed)}</div>
       </div>
       <div class="fsc fsc-bond">
         <div class="fsc-badge">③</div>
