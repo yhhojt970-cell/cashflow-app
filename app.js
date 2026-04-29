@@ -3605,7 +3605,7 @@ function renderDashboard() {
   if (!homeSection) return;
 
   const s = availableFunds.summary;
-  const totalExpected = (s.totalAccountBalance + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
+  const totalExpected = ((s.grandTotal || s.totalAccountBalance) + summary.totalOutstanding) - (summary.totalUnpaid + summary.totalFixed);
 
   const b2bUsed = s.b2bUsed || 0;
   const b2bAvail = Math.max(0, B2B_TOTAL_LIMIT - b2bUsed);
