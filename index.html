@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>현금흐름 관리</title>
-  <link rel="stylesheet" href="style.css?v=202604294" />
+  <link rel="stylesheet" href="style.css?v=202604295" />
 </head>
 <body>
   <div class="app-shell">
@@ -35,40 +35,41 @@
     </header>
 
     <section class="top-controls">
-      <div class="filter-row">
-        <label>
-          검색
-          <input id="searchInput" type="search" placeholder="거래처명, 코드, 메모 검색" />
-        </label>
-        <label>
-          연도
-          <select id="yearFilter"></select>
-        </label>
-        <label>
-          월
-          <select id="monthFilter"></select>
-        </label>
-        <label>
-          상태
-          <select id="statusFilter"></select>
-        </label>
-        <div id="groupFilterContainer" hidden></div>
+      <div class="ctrl-combined">
+        <nav class="tab-bar">
+          <button class="tab-button active" data-tab="home">홈</button>
+          <button class="tab-button" data-tab="funds">가용자금</button>
+          <button class="tab-button" data-tab="receivables">미수금</button>
+          <button class="tab-button" data-tab="payables">미지급</button>
+          <button class="tab-button" data-tab="fixed">고정지출</button>
+          <button class="tab-button" data-tab="daesa">대사</button>
+          <button class="tab-button" data-tab="mauto">엠오토</button>
+        </nav>
+        <div class="filter-row">
+          <label>
+            검색
+            <input id="searchInput" type="search" placeholder="거래처명, 코드, 메모 검색" />
+          </label>
+          <label>
+            연도
+            <select id="yearFilter"></select>
+          </label>
+          <label>
+            월
+            <select id="monthFilter"></select>
+          </label>
+          <label>
+            상태
+            <select id="statusFilter"></select>
+          </label>
+          <div id="groupFilterContainer" hidden></div>
+        </div>
       </div>
     </section>
 
     <section id="vendorMasterPanel" class="vendor-master-panel hidden"></section>
     <section id="dataImportPanel" class="data-import-panel hidden"></section>
     <section class="summary-panel" id="summaryPanel"></section>
-
-    <nav class="tab-bar">
-      <button class="tab-button active" data-tab="home">홈</button>
-      <button class="tab-button" data-tab="funds">가용자금</button>
-      <button class="tab-button" data-tab="receivables">미수금</button>
-      <button class="tab-button" data-tab="payables">미지급</button>
-      <button class="tab-button" data-tab="fixed">고정지출</button>
-      <button class="tab-button" data-tab="daesa">대사</button>
-      <button class="tab-button" data-tab="mauto">엠오토</button>
-    </nav>
 
     <main>
       <section id="home" class="tab-content active"></section>
@@ -82,6 +83,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260429d"></script>
+  <script src="app.js?v=20260429e"></script>
 </body>
 </html>

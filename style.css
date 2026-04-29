@@ -72,9 +72,27 @@ body {
 }
 
 .top-controls {
-  display: grid;
-  gap: 6px;
   margin-bottom: 8px;
+}
+.ctrl-combined {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ctrl-combined .tab-bar {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  gap: 4px;
+}
+.ctrl-combined .filter-row {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 0;
 }
 
 .hidden {
@@ -326,7 +344,8 @@ body {
 .table-responsive table {
   width: max-content;
   min-width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 .table-responsive thead th {
@@ -2137,11 +2156,9 @@ td {
 .chip-label input[type=checkbox] { margin: 0; cursor: pointer; }
 
 /* ── 미수금 테이블 ── */
-.rcv-pivot-table { border-collapse: collapse; }
+.rcv-pivot-table { border-collapse: separate; border-spacing: 0; }
 .rcv-pivot-table thead th {
   background: #dcfce7;
-  border-bottom: 2px solid #86efac !important;
-  border-top: 2px solid #86efac;
   box-shadow: 0 2px 0 #86efac;
   padding: 7px 10px;
   font-size: 0.82rem;
@@ -3411,21 +3428,21 @@ td {
   overflow-y: auto;
   overflow-x: auto;
 }
+.payables-table-wrap table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
 .payables-table-wrap table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
   background: #dbeafe;
-  border-bottom: 2px solid #93c5fd !important;
   box-shadow: 0 2px 0 #93c5fd;
 }
 .payables-table-wrap table thead th.sticky-col-1,
 .payables-table-wrap table thead th.sticky-col-2 {
   z-index: 4;
   background: #dbeafe;
-}
-.payables-table-wrap table thead tr:first-child th {
-  border-top: 2px solid #93c5fd;
 }
 
 /* ── Header Polish ────────────────────────────────────────── */
