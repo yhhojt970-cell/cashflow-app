@@ -3270,6 +3270,21 @@ function fundsTableHtml(headers, rows, totalRow) {
   </table>`;
 }
 
+function fundsAccountTableHtml(accounts, totalBalance) {
+  const body = accounts.length
+    ? accounts.map((r, i) => `<tr>
+        <td>${escapeHtml(r.bank || "")}</td>
+        <td>${escapeHtml(r.accountNo || "")}</td>
+        <td class="funds-num"><input type="text" class="funds-inline-input" data-acc-idx="${i}" value="${formatNumber(r.balance || 0)}" /></td>
+      </tr>`).join("")
+    : `<tr><td colspan="3" class="funds-empty">데이터 없음 — 엑셀에서 복사 후 붙여넣기 버튼을 사용하세요</td></tr>`;
+  return `<table class="funds-table" id="funds-acc-table">
+    <thead><tr><th>은행</th><th>계좌번호</th><th>가용자금</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td>합계</td><td></td><td class="funds-num" id="funds-acc-total">${formatNumber(totalBalance)}</td></tr></tfoot>
+  </table>`;
+}
+
 function fundsSection(id, title, tableHtml, hint) {
   return `<div class="funds-section" id="fs-${id}">
     <div class="funds-sec-header">
@@ -3303,11 +3318,7 @@ function renderAvailableFunds() {
   const grandTotal = s.grandTotal || 0;
 
   // ① 계좌
-  const accTable = fundsTableHtml(
-    ["은행", "계좌번호", "가용자금"],
-    (af.accounts || []).map(r => [r.bank, r.accountNo, r.balance]),
-    ["합계", "", s.totalAccountBalance]
-  );
+  const accTable = fundsAccountTableHtml(af.accounts || [], s.totalAccountBalance);
 
   // ② B2B 대출
   const b2bTable = fundsTableHtml(
@@ -3440,6 +3451,37 @@ function renderAvailableFunds() {
     ta.addEventListener("paste", (e) => {
       const id = ta.id.replace("fpt-", "");
       setTimeout(() => applyFundsPaste(id), 50);
+    });
+  });
+
+  // 계좌 금액 직접 수정
+  sec.querySelectorAll(".funds-inline-input[data-acc-idx]").forEach(input => {
+    const idx = parseInt(input.dataset.accIdx, 10);
+    input.addEventListener("focus", () => {
+      input.value = String(availableFunds.accounts[idx]?.balance || 0);
+      input.select();
+    });
+    input.addEventListener("blur", () => {
+      const val = parseNum(input.value);
+      if (availableFunds.accounts[idx]) availableFunds.accounts[idx].balance = val;
+      input.value = formatNumber(val);
+      recalcAvailableFundsSummary();
+      const s2 = availableFunds.summary;
+      const totalEl = document.getElementById("funds-acc-total");
+      if (totalEl) totalEl.textContent = formatNumber(s2.totalAccountBalance);
+      const cardEl = sec.querySelector(".fsc-account .fsc-amount");
+      if (cardEl) cardEl.textContent = formatNumber(s2.totalAccountBalance);
+      const grandEl = sec.querySelector(".fsc-total .fsc-amount");
+      if (grandEl) grandEl.textContent = formatNumber(s2.grandTotal);
+      saveAvailableFundsLocal();
+      renderDashboard();
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") {
+        input.value = formatNumber(availableFunds.accounts[idx]?.balance || 0);
+        input.blur();
+      }
     });
   });
 
@@ -5998,16 +6040,16 @@ function sumMautoRows(rows) {
 function renderMautoFundsTable() {
   const rows = normalizeMautoData(mautoData).funds;
   const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const body = rows.map(r => `
+  const body = rows.map((r, i) => `
     <tr>
       <td>${escapeHtml(r.bankAccount)}</td>
-      <td class="mauto-num">${formatNumber(r.amount)}</td>
+      <td class="mauto-num"><input type="text" class="mauto-inline-input" data-mauto-acc-idx="${i}" value="${formatNumber(r.amount || 0)}" /></td>
     </tr>`).join("");
   return `<div class="mauto-table-wrap">
-    <table class="mauto-table mauto-compact-table">
+    <table class="mauto-table mauto-compact-table" id="mauto-funds-table">
       <thead><tr><th>은행(계좌)</th><th>가용자금</th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr><td>합계</td><td class="mauto-num">${formatNumber(total)}</td></tr></tfoot>
+      <tfoot><tr><td>합계</td><td class="mauto-num" id="mauto-funds-total">${formatNumber(total)}</td></tr></tfoot>
     </table>
   </div>`;
 }
@@ -6265,6 +6307,34 @@ function renderMautoTab() {
     textarea.addEventListener("paste", () => {
       const id = textarea.id.replace("mauto-textarea-", "");
       setTimeout(() => applyMautoPaste(id), 50);
+    });
+  });
+
+  // 가용자금 금액 직접 수정
+  sec.querySelectorAll(".mauto-inline-input[data-mauto-acc-idx]").forEach(input => {
+    const idx = parseInt(input.dataset.mautoAccIdx, 10);
+    input.addEventListener("focus", () => {
+      input.value = String(mautoData.funds[idx]?.amount || 0);
+      input.select();
+    });
+    input.addEventListener("blur", () => {
+      const val = parseNum(input.value);
+      if (mautoData.funds[idx]) mautoData.funds[idx].amount = val;
+      input.value = formatNumber(val);
+      saveMautoDataLocal();
+      // 합계 및 요약 카드 업데이트
+      const newTotal = (mautoData.funds || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+      const totalEl = document.getElementById("mauto-funds-total");
+      if (totalEl) totalEl.textContent = formatNumber(newTotal);
+      const cardEl = sec.querySelector(".card-funds strong");
+      if (cardEl) cardEl.textContent = formatNumber(newTotal);
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") {
+        input.value = formatNumber(mautoData.funds[idx]?.amount || 0);
+        input.blur();
+      }
     });
   });
 

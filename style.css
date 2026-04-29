@@ -3608,6 +3608,27 @@ td {
   color: var(--text);
 }
 .funds-num { text-align: right; font-variant-numeric: tabular-nums; }
+.funds-inline-input {
+  width: 100%;
+  min-width: 80px;
+  text-align: right;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  padding: 0;
+  cursor: text;
+  box-sizing: border-box;
+}
+.funds-inline-input:hover { background: #f1f5f9; border-radius: 3px; }
+.funds-inline-input:focus {
+  outline: 2px solid var(--accent);
+  border-radius: 3px;
+  background: #eff6ff;
+  padding: 0 4px;
+}
 .funds-empty {
   text-align: center;
   color: #94a3b8;
@@ -3879,6 +3900,27 @@ td {
   text-align: right !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.mauto-inline-input {
+  width: 100%;
+  min-width: 70px;
+  text-align: right;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  padding: 0;
+  cursor: text;
+  box-sizing: border-box;
+}
+.mauto-inline-input:hover { background: #f1f5f9; border-radius: 3px; }
+.mauto-inline-input:focus {
+  outline: 2px solid var(--accent);
+  border-radius: 3px;
+  background: #eff6ff;
+  padding: 0 4px;
 }
 
 .mauto-balance-cell {
