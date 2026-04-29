@@ -5688,12 +5688,14 @@ function renderFixedExpenses() {
     dateGroups[key].items.push(item);
   });
 
-  const grandTotal = sortedFixed.reduce((s, i) => s + (i.amount || 0), 0);
+  // 결제금액(paidAmount) 우선, 없으면 금액(amount) fallback
+  const effectiveAmt = i => i.paidAmount || i.amount || 0;
+  const grandTotal = sortedFixed.reduce((s, i) => s + effectiveAmt(i), 0);
   const grandBankTotals = {};
   uniqueBanks.forEach(b => grandBankTotals[b] = 0);
   sortedFixed.forEach(item => {
     if (grandBankTotals[item.bank] !== undefined) {
-      grandBankTotals[item.bank] += (item.amount || 0);
+      grandBankTotals[item.bank] += effectiveAmt(item);
     }
   });
 
@@ -5702,7 +5704,7 @@ function renderFixedExpenses() {
   // 날짜별 그룹 행 생성
   const groupRows = dateOrder.map(key => {
     const { items, month, day } = dateGroups[key];
-    const dayTotal = items.reduce((s, i) => s + (i.amount || 0), 0);
+    const dayTotal = items.reduce((s, i) => s + effectiveAmt(i), 0);
     const groupId = `fixed-date-${key.replace(/\W/g, "")}`;
 
     // 해당 날짜의 은행별 합계 계산
@@ -5710,7 +5712,7 @@ function renderFixedExpenses() {
     uniqueBanks.forEach(b => dayBankTotals[b] = 0);
     items.forEach(item => {
       if (dayBankTotals[item.bank] !== undefined) {
-        dayBankTotals[item.bank] += (item.amount || 0);
+        dayBankTotals[item.bank] += effectiveAmt(item);
       }
     });
 
@@ -5721,15 +5723,13 @@ function renderFixedExpenses() {
           <span class="fx-item-dot" style="margin-right:8px;color:#cbd5e1;font-size:12px;">↳</span>
           ${item.title}
         </td>
-        <td style="text-align:center;font-size:13px;padding:10px 8px;color:#64748b;">${item.actualPayDate || ""}</td>
-        <td style="text-align:right;font-size:13.5px;padding:10px 8px;color:${item.paidAmount ? '#16a34a' : '#94a3b8'};">${item.paidAmount ? formatNumber(item.paidAmount) : ""}</td>
         ${uniqueBanks.map(b => `
           <td style="text-align:right;font-size:13.5px;padding:10px 12px;">
-            ${b === item.bank && item.amount ? `<span style="color:#0f172a;">${formatNumber(item.amount)}</span>` : ''}
+            ${b === item.bank && effectiveAmt(item) ? `<span style="color:#0f172a;">${formatNumber(effectiveAmt(item))}</span>` : ''}
           </td>
         `).join("")}
         <td style="text-align:right;font-weight:600;color:#1e293b;padding:10px 12px;font-size:14px;">
-          ${item.amount ? formatNumber(item.amount) : ''}
+          ${effectiveAmt(item) ? formatNumber(effectiveAmt(item)) : ''}
         </td>
       </tr>
     `).join("");
@@ -5748,8 +5748,6 @@ function renderFixedExpenses() {
           <span class="fx-count-pill" style="font-size:12px;color:#3b82f6;background:#dbeafe;padding:3px 8px;border-radius:12px;font-weight:600;">${items.length}건</span>
           ${todayBadge}
         </td>
-        <td></td>
-        <td></td>
         ${uniqueBanks.map(b => `
           <td style="text-align:right;font-weight:600;color:#334155;font-size:14px;padding:0 12px;">
             ${dayBankTotals[b] > 0 ? formatNumber(dayBankTotals[b]) : ''}
@@ -5822,8 +5820,6 @@ function renderFixedExpenses() {
             <tr>
               <th style="width:40px;padding:14px 8px;"></th>
               <th style="text-align:left;padding:14px 12px;font-weight:700;color:#1e293b;font-size:13px;">내용</th>
-              <th style="text-align:center;width:90px;padding:14px 8px;font-weight:700;color:#475569;font-size:13px;">실결제일</th>
-              <th style="text-align:right;width:100px;padding:14px 8px;font-weight:700;color:#475569;font-size:13px;">결제금액</th>
               ${uniqueBanks.map(b => `
                 <th style="text-align:right;width:${bankColWidth}px;padding:14px 12px;font-weight:700;color:#475569;font-size:13px;">${b}</th>
               `).join("")}
@@ -5832,7 +5828,7 @@ function renderFixedExpenses() {
           </thead>
           <tbody>
             ${dateOrder.length ? groupRows : `
-            <tr><td colspan="${5 + uniqueBanks.length}" style="text-align:center;padding:60px 0;color:#94a3b8;font-size:14px;">
+            <tr><td colspan="${3 + uniqueBanks.length}" style="text-align:center;padding:60px 0;color:#94a3b8;font-size:14px;">
               📭 해당 월의 고정지출 데이터가 없습니다.
             </td></tr>`}
           </tbody>
@@ -5842,10 +5838,6 @@ function renderFixedExpenses() {
               <td></td>
               <td style="text-align:right;padding:16px 12px;font-weight:700;font-size:14px;color:#334155;">
                 총 합계 (전체)
-              </td>
-              <td></td>
-              <td style="text-align:right;padding:16px 12px;font-weight:700;color:#16a34a;">
-                ${sortedFixed.some(i => i.paidAmount) ? formatNumber(sortedFixed.reduce((s, i) => s + (i.paidAmount || 0), 0)) : ""}
               </td>
               ${uniqueBanks.map(b => `
                 <td style="text-align:right;padding:16px 12px;font-weight:600;color:#475569;">
@@ -6270,8 +6262,8 @@ function renderMautoFixedTable(rows) {
   if (!sorted.length) {
     return `<div class="mauto-table-wrap">
       <table class="mauto-table">
-        <thead><tr><th>날짜</th><th>내용</th><th>분류</th><th>실결제일</th><th class="mauto-num">결제금액</th><th class="mauto-num">금액</th></tr></thead>
-        <tbody><tr><td colspan="6" class="mauto-empty">데이터 없음</td></tr></tbody>
+        <thead><tr><th>날짜</th><th>내용</th><th>분류</th><th class="mauto-num">금액</th></tr></thead>
+        <tbody><tr><td colspan="4" class="mauto-empty">데이터 없음</td></tr></tbody>
       </table>
     </div>`;
   }
@@ -6294,16 +6286,12 @@ function renderMautoFixedTable(rows) {
         <td></td>
         <td>${escapeHtml(r.title || "")}</td>
         <td>${escapeHtml(r.category || "")}</td>
-        <td style="text-align:center;font-size:12px;color:#64748b;">${escapeHtml(r.actualPayDate || "")}</td>
-        <td class="mauto-num" style="color:${r.paidAmount ? '#16a34a' : ''}">${r.paidAmount ? formatNumber(r.paidAmount) : ""}</td>
         ${bankHeaders.map(b => `<td class="mauto-num">${b === (r.bank || "미지정") ? formatNumber(r.amount) : ""}</td>`).join("")}
         <td class="mauto-num mauto-balance-cell">${formatNumber(r.amount)}</td>
       </tr>`).join("");
     return `<tr class="mauto-date-row mauto-toggle-fxdate" data-mauto-fxdate="${escapeHtml(dateKey)}" style="cursor:pointer;">
         <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(dateLabel)}</td>
         <td>${items.length}건</td>
-        <td></td>
-        <td></td>
         <td></td>
         ${bankHeaders.map(b => `<td class="mauto-num">${bankTotals[b] ? formatNumber(bankTotals[b]) : ""}</td>`).join("")}
         <td class="mauto-num mauto-balance-cell">${formatNumber(groupTotal)}</td>
@@ -6320,7 +6308,7 @@ function renderMautoFixedTable(rows) {
     <table class="mauto-table" data-kind="fixed">
       <thead>
         <tr>
-          <th>날짜</th><th>내용</th><th>분류</th><th>실결제일</th><th class="mauto-num">결제금액</th>
+          <th>날짜</th><th>내용</th><th>분류</th>
           ${bankHeaders.map(b => `<th class="mauto-num">${escapeHtml(b)}</th>`).join("")}
           <th class="mauto-num">총합계</th>
         </tr>
@@ -6329,8 +6317,6 @@ function renderMautoFixedTable(rows) {
       <tfoot>
         <tr>
           <td colspan="3">총합계</td>
-          <td></td>
-          <td class="mauto-num" style="color:#16a34a;">${sorted.some(r => r.paidAmount) ? formatNumber(sorted.reduce((s, r) => s + (r.paidAmount || 0), 0)) : ""}</td>
           ${bankHeaders.map(b => `<td class="mauto-num">${grandBankTotals[b] ? formatNumber(grandBankTotals[b]) : ""}</td>`).join("")}
           <td class="mauto-num mauto-balance-cell">${formatNumber(grandTotal)}</td>
         </tr>
@@ -6397,7 +6383,7 @@ function renderMautoTab() {
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true)}
     ${mautoPasteSection("fixed", "고정지출",
       renderMautoFixedTable(mautoData.fixed),
-      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류 / 실결제일 / 결제금액", true)}
+      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true)}
   </div>`;
 
   sec.querySelectorAll(".mauto-paste-btn").forEach(btn => {
