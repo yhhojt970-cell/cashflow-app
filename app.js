@@ -3943,6 +3943,27 @@ function setupGroupChipEvents(container, allLabels, getFilter, setFilter, setOrd
   });
 }
 
+function fixStickyHeaderOffsets() {
+  requestAnimationFrame(() => {
+    const payTable = document.querySelector(".payables-table-wrap table");
+    if (payTable) {
+      const r1 = payTable.querySelector("thead tr:first-child");
+      if (r1) {
+        const h = r1.getBoundingClientRect().height;
+        payTable.querySelectorAll("thead tr:nth-child(2) th").forEach(th => { th.style.top = h + "px"; });
+      }
+    }
+    const rcvTable = document.querySelector(".rcv-pivot-table");
+    if (rcvTable) {
+      const r1 = rcvTable.querySelector("thead tr:first-child");
+      if (r1) {
+        const h = r1.getBoundingClientRect().height;
+        rcvTable.querySelectorAll("thead tr:nth-child(2) th").forEach(th => { th.style.top = h + "px"; });
+      }
+    }
+  });
+}
+
 function renderReceivables() {
   // 칩용: 전체 receivables에서 조건 목록 수집 (필터 전)
   const allCondLabels = (() => {
@@ -4151,6 +4172,7 @@ function renderReceivables() {
       renderReceivables();
     });
   });
+  fixStickyHeaderOffsets();
 }
 
 // ── 미수금 이메일 발송 ───────────────────────────────────────
@@ -5073,6 +5095,7 @@ function renderPayables() {
       wrap.style.maxHeight = Math.max(200, remaining) + "px";
     }
   });
+  fixStickyHeaderOffsets();
 }
 
 function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
@@ -6866,6 +6889,8 @@ const daesaState = {
 
 // 대사 탭 정렬 상태
 const daesaSortState = { key: "name", dir: "asc" };
+// 대사 탭 분류별 접힘 상태
+const daesaCategoryCollapsed = {};
 
 // 사업부문 마스터
 const bizDivisionState = {
@@ -6977,6 +7002,7 @@ function extractBizDivision(memoText) {
 // 차이 표시 셀 생성 (세금계산서 기준)
 // 형식: "발급여부 | 세금-원장 차이 | 세금-영업 차이"
 function buildDiffCell(tax, ledger, biz) {
+  if (tax === 0 && ledger === 0 && biz === 0) return "";
   const hasOther = ledger > 0 || biz > 0;
   // 세금계산서가 0인데 원장이나 영업에 금액이 있으면 X (미발급)
   const s0 = (tax === 0 && hasOther)
@@ -7343,18 +7369,38 @@ function renderDaesaTab() {
     `<option value="${m}" ${m == daesaState.filterMonth ? "selected" : ""}>${m}월</option>`
   ).join("");
 
-  const rows = vendorEntries.map(([code, vendor]) => {
+  const hasNetOff = vendorEntries.some(([code]) => netOffSet.has(code));
+  const colCount = 1 + 4 + 4 + (hasNetOff ? 1 : 0);
+
+  // 업체마스터에서 분류(거래처구분) 조회
+  const codeToCategory = {};
+  vendorMasterState.rows.forEach(v => {
+    const c = String(v["거래처코드_norm"] || "").trim();
+    if (c) codeToCategory[c] = String(v["거래처구분"] || "").trim();
+  });
+
+  // 분류별 그룹핑
+  const categoryMap = new Map();
+  vendorEntries.forEach(([code, vendor]) => {
+    const cat = codeToCategory[code] || "기타";
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat).push([code, vendor]);
+  });
+  const sortedCats = [...categoryMap.keys()].sort((a, b) => {
+    if (a === "기타") return 1;
+    if (b === "기타") return -1;
+    return a.localeCompare(b, "ko");
+  });
+
+  function makeVendorRow(code, vendor) {
     const d = vendor.months[ym];
     const isNetOff = netOffSet.has(code);
     const ledgerBuyTotal = d.ledgerBuy + d.ledgerPayable;
     const netoffAmt = isNetOff ? Math.min(d.taxSales, d.taxPurchase) : 0;
-
     const diffS = buildDiffCell(d.taxSales, d.ledgerSales, d.bizSales);
     const diffP = buildDiffCell(d.taxPurchase, ledgerBuyTotal, d.bizPurchase);
-
     const matchS = d.taxSales === d.ledgerSales && d.taxSales === d.bizSales;
     const matchP = d.taxPurchase === ledgerBuyTotal && d.taxPurchase === d.bizPurchase;
-
     return `<tr class="${(!matchS || !matchP) ? "daesa-row-mismatch" : ""}">
       <td class="daesa-vendor-cell">
         <button class="daesa-vendor-btn" data-code="${escapeHtml(code)}" data-name="${escapeHtml(vendor.name)}">${escapeHtml(vendor.name)}</button>
@@ -7368,11 +7414,23 @@ function renderDaesaTab() {
       <td class="num col-purchase ${ledgerBuyTotal !== d.taxPurchase ? "daesa-mismatch-val" : ""}">${formatNumber(ledgerBuyTotal)}</td>
       <td class="num col-purchase ${d.bizPurchase !== d.taxPurchase ? "daesa-mismatch-val" : ""}">${formatNumber(d.bizPurchase)}</td>
       <td class="col-diff col-purchase">${diffP}</td>
-      ${vendorEntries.some(([c]) => netOffSet.has(c)) ? `<td class="num col-netoff">${formatNumber(netoffAmt)}</td>` : ""}
+      ${hasNetOff ? `<td class="num col-netoff">${formatNumber(netoffAmt)}</td>` : ""}
     </tr>`;
-  }).join("");
+  }
 
-  const hasNetOff = vendorEntries.some(([code]) => netOffSet.has(code));
+  const rows = sortedCats.map(cat => {
+    const entries = categoryMap.get(cat) || [];
+    const collapsed = !!daesaCategoryCollapsed[cat];
+    const catRow = `<tr class="daesa-cat-header">
+      <td colspan="${colCount}">
+        <button class="daesa-cat-toggle" data-cat="${escapeHtml(cat)}">${collapsed ? "▶" : "▼"}</button>
+        <strong>${escapeHtml(cat)}</strong>
+        <span class="daesa-cat-count">${entries.length}개 업체</span>
+      </td>
+    </tr>`;
+    if (collapsed) return catRow;
+    return catRow + entries.map(([code, vendor]) => makeVendorRow(code, vendor)).join("");
+  }).join("");
 
   function sortIcon(key) {
     if (daesaSortState.key !== key) return '<span class="sort-arrow">↕</span>';
@@ -7437,6 +7495,13 @@ function renderDaesaTab() {
         daesaSortState.key = key;
         daesaSortState.dir = "asc";
       }
+      renderDaesaTab();
+    });
+  });
+  section.querySelectorAll(".daesa-cat-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cat = btn.dataset.cat;
+      daesaCategoryCollapsed[cat] = !daesaCategoryCollapsed[cat];
       renderDaesaTab();
     });
   });

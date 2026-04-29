@@ -1190,7 +1190,10 @@ body {
 }
 
 .table-responsive thead .month-column-cell {
-  box-shadow: inset 1px 0 0 #dbeafe;
+  border-left: 2px solid #93c5fd;
+}
+.rcv-pivot-table thead .month-column-cell {
+  border-left: 2px solid #4ade80;
 }
 
 .summary-panel {
@@ -2164,25 +2167,32 @@ td {
   position: sticky;
   top: 0;
   z-index: 10;
+  border-color: #86efac;
 }
 
 /* tbody에 인접한 셀만 하단 선을 box-shadow로 처리 (border-collapse와 충돌 방지) */
 .rcv-pivot-table thead tr:last-child th,
 .rcv-pivot-table thead th[rowspan="2"] {
   border-bottom: none !important;
-  box-shadow: 0 2px 0 #86efac;
+  box-shadow: 0 2px 0 #22c55e;
 }
 
-/* 이중 헤더 고정: 두 번째 줄(월)은 첫 번째 줄 아래에 고정 */
+/* 이중 헤더 고정: 두 번째 줄(월)은 첫 번째 줄 아래에 고정 - JS로 top 보정 */
 .rcv-pivot-table thead tr:nth-child(2) th {
-  top: 34px;
+  top: 36px;
   z-index: 9;
+  border-top: 2px solid #4ade80;
 }
 
 /* rowspan="2"인 셀은 전체를 덮으므로 top 0 고정 유지 */
 .rcv-pivot-table thead th[rowspan="2"] {
   top: 0;
   z-index: 11;
+}
+
+/* 업체명 고정 컬럼 헤더: 본문 고정보다 높게 */
+.rcv-pivot-table thead .sticky-col-rcv-name {
+  z-index: 15;
 }
 
 
@@ -2820,6 +2830,30 @@ td {
 /* 불일치 셀 빨간색 */
 .daesa-mismatch-val { color: #dc2626 !important; font-weight: 700; }
 
+/* 분류별 카테고리 헤더 */
+.daesa-cat-header td {
+  background: #e2e8f0;
+  font-size: 0.82rem;
+  padding: 5px 10px;
+  border-top: 2px solid #94a3b8;
+  border-bottom: 1px solid #cbd5e1;
+}
+.daesa-cat-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-right: 6px;
+  font-size: 0.85rem;
+  color: #475569;
+  vertical-align: middle;
+}
+.daesa-cat-count {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin-left: 8px;
+  font-weight: 400;
+}
+
 /* 정렬 가능한 헤더 */
 .daesa-sort-th { cursor: pointer; user-select: none; }
 .daesa-sort-th:hover { filter: brightness(0.93); }
@@ -3436,23 +3470,26 @@ td {
 .payables-table-wrap table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 10;
   background: #dbeafe;
+  border-color: #93c5fd;
 }
-/* 두 번째 헤더 행(월)은 첫 번째 행 아래에 고정 */
+/* 두 번째 헤더 행(월)은 첫 번째 행 아래에 고정 - JS로 top 보정 */
 .payables-table-wrap table thead tr:nth-child(2) th {
   top: 36px;
-  z-index: 2;
+  z-index: 10;
+  border-top: 2px solid #60a5fa;
 }
 /* tbody에 인접한 셀만 box-shadow로 구분선 처리 */
 .payables-table-wrap table thead tr:last-child th,
 .payables-table-wrap table thead th[rowspan] {
   border-bottom: none !important;
-  box-shadow: 0 2px 0 #93c5fd;
+  box-shadow: 0 2px 0 #3b82f6;
 }
+/* 고정 컬럼 헤더는 본문 고정 컬럼(z-index:4)보다 높아야 함 */
 .payables-table-wrap table thead th.sticky-col-1,
 .payables-table-wrap table thead th.sticky-col-2 {
-  z-index: 4;
+  z-index: 20;
   background: #dbeafe;
 }
 
