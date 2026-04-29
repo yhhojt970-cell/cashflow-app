@@ -53,6 +53,7 @@ const RECEIVABLE_CEO = { name: "장운기", email: "jug@mauto.co.kr" };
 
 let fixedExpenses = [];
 const AVAILABLE_FUNDS_LOCAL_KEY = "cashflow-app.available-funds-v2";
+const FIXED_LOCAL_KEY = "cashflow-app.fixed-v1";
 const B2B_TOTAL_LIMIT = 500000000; // 총대출액 5억 고정
 const MAUTO_LOCAL_KEY = "cashflow-app.mauto-v1";
 const MAUTO_FIXED_ACCOUNTS = [
@@ -787,7 +788,34 @@ async function loadSheetReceivables() {
   }
 }
 
+function saveFixedLocal() {
+  try { localStorage.setItem(FIXED_LOCAL_KEY, JSON.stringify(fixedExpenses)); }
+  catch (e) { console.warn("[고정지출] 저장 실패:", e); }
+}
+
+function loadFixedLocal() {
+  try {
+    const raw = localStorage.getItem(FIXED_LOCAL_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function applyFixedPaste(text) {
+  const parsed = parseMautoFixedPaste(text);
+  if (!parsed.length) { alert("데이터를 읽지 못했습니다.\n헤더를 확인하세요."); return; }
+  fixedExpenses = parsed;
+  saveFixedLocal();
+  renderFixedExpenses();
+}
+
 async function loadSheetFixedExpenses() {
+  // localStorage 데이터 우선 사용
+  const local = loadFixedLocal();
+  if (local && local.length) {
+    fixedExpenses = local;
+    renderFixedExpenses();
+    return;
+  }
   try {
     let rows = [];
     if (SHEET_APP_SCRIPT_URL) {
@@ -5778,16 +5806,27 @@ function renderFixedExpenses() {
           <p class="fx-panel-subtitle" style="margin:6px 0 0;font-size:13.5px;color:#64748b;">날짜별 결제 내역 · ${dateOrder.length}일 · ${sortedFixed.length}건</p>
         </div>
         <div class="fx-panel-controls" style="display:flex;align-items:center;gap:16px;">
-          <div class="fx-btn-group" style="display:flex;gap:8px;">
-            <button id="fixedSelectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">☑️ 전체선택</button>
-            <button id="fixedDeselectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔲 전체해제</button>
-            <button id="fixedExpandAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔽 전체 펼치기</button>
-            <button id="fixedCollapseAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;box-shadow:0 1px 2px rgba(0,0,0,0.05);transition:all 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor='#fff'">🔼 전체 접기</button>
+          <div class="fx-btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="fixedPasteToggle" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;color:#1d4ed8;">📋 붙여넣기</button>
+            <button id="fixedClearBtn" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#ef4444;">🗑 초기화</button>
+            <button id="fixedSelectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">☑️ 전체선택</button>
+            <button id="fixedDeselectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔲 전체해제</button>
+            <button id="fixedExpandAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔽 전체 펼치기</button>
+            <button id="fixedCollapseAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔼 전체 접기</button>
           </div>
           <div class="fx-total-chip" style="background:#eff6ff;padding:8px 16px;border-radius:10px;border:1px solid #bfdbfe;display:flex;align-items:center;">
             <span class="fx-total-label" style="font-size:13px;color:#1e40af;margin-right:8px;font-weight:700;">선택 합계</span>
             <strong id="fixedCheckedTotal" class="fx-total-value" style="font-size:17px;color:#1d4ed8;letter-spacing:-0.01em;">${formatNumber(grandTotal)}</strong>
           </div>
+        </div>
+      </div>
+      <!-- 붙여넣기 영역 -->
+      <div id="fixedPasteArea" style="display:none;padding:12px 24px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류</div>
+        <textarea id="fixedPasteTextarea" style="width:100%;height:80px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;padding:6px;box-sizing:border-box;resize:vertical;" placeholder="엑셀에서 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V)"></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button id="fixedPasteApply" style="padding:5px 14px;font-size:13px;font-weight:600;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">✔ 적용</button>
+          <button id="fixedPasteCancel" style="padding:5px 14px;font-size:13px;font-weight:600;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;">취소</button>
         </div>
       </div>
       <div class="fx-table-wrap" style="overflow-x:auto;">
@@ -5844,6 +5883,41 @@ function renderFixedExpenses() {
 
   document.getElementById("fixedExpandAll")?.addEventListener("click", () => setAllCollapsed(false));
   document.getElementById("fixedCollapseAll")?.addEventListener("click", () => setAllCollapsed(true));
+
+  // 붙여넣기 토글
+  document.getElementById("fixedPasteToggle")?.addEventListener("click", () => {
+    const area = document.getElementById("fixedPasteArea");
+    if (!area) return;
+    const hidden = area.style.display === "none";
+    area.style.display = hidden ? "" : "none";
+    if (hidden) document.getElementById("fixedPasteTextarea")?.focus();
+  });
+  document.getElementById("fixedPasteCancel")?.addEventListener("click", () => {
+    const area = document.getElementById("fixedPasteArea");
+    if (area) area.style.display = "none";
+  });
+  document.getElementById("fixedPasteApply")?.addEventListener("click", () => {
+    const ta = document.getElementById("fixedPasteTextarea");
+    if (ta) applyFixedPaste(ta.value.trim());
+  });
+  // 붙여넣기 후 자동 적용
+  document.getElementById("fixedPasteTextarea")?.addEventListener("paste", e => {
+    setTimeout(() => {
+      const ta = document.getElementById("fixedPasteTextarea");
+      if (ta) applyFixedPaste(ta.value.trim());
+    }, 50);
+  });
+
+  // 초기화
+  document.getElementById("fixedClearBtn")?.addEventListener("click", () => {
+    if (!confirm("고정지출 데이터를 초기화하시겠습니까?")) return;
+    fixedExpenses = [];
+    saveFixedLocal();
+    renderFixedExpenses();
+  });
+
+  // 기본 전체 접기
+  setAllCollapsed(true);
 
   elements.fixed.querySelectorAll(".fx-date-header").forEach(hdr => {
     hdr.addEventListener("click", e => {
@@ -7876,7 +7950,7 @@ function renderDataImportPanel() {
               ${unmatchedCount > 0 ? `· <span class="di-match-fail">${unmatchedCount}건 미매칭</span>` : ""}
             </span>
             <button type="button" class="di-save-btn" data-key="${key}" ${sec.saving ? "disabled" : ""}>
-              ${sec.saving ? "저장 중…" : "구글시트 저장"}
+              ${sec.saving ? "저장 중…" : `미매칭 저장${unmatchedCount > 0 ? ` (${unmatchedCount}건)` : ""}`}
             </button>
           ` : ""}
         </div>
@@ -7888,7 +7962,7 @@ function renderDataImportPanel() {
   panel.innerHTML = `
     <div class="di-header">
       <h3>자료 업로드</h3>
-      <p class="di-desc muted">파일을 선택하면 파싱 결과를 미리 보여줍니다. '구글시트 저장'을 눌러야 반영됩니다.<br>전체 기간을 항상 올려도 괜찮습니다 — 중복 행은 자동으로 덮어씁니다.</p>
+      <p class="di-desc muted">파일을 선택하면 파싱 결과를 미리 보여줍니다. '미매칭 저장'을 눌러야 반영됩니다.<br>업체마스터에 없는 미매칭건만 구글시트에 저장합니다 — 속도가 훨씬 빠릅니다.</p>
       <button type="button" class="di-close-btn" id="dataImportCloseBtn">✕ 닫기</button>
     </div>
     <div class="di-sections">${sections}</div>
@@ -7925,13 +7999,20 @@ function renderDataImportPanel() {
       const key = btn.dataset.key;
       const sec = dataImportState[key];
       if (!sec.parsed?.length) return;
+      // 미매칭건(업체마스터 미연결)만 저장
+      const rowsToSave = sec.parsed.filter(r => !r._matched_code);
+      if (!rowsToSave.length) {
+        sec.status = `✓ 미매칭건 없음 — 저장 생략 (전체 ${sec.parsed.length}건 모두 매칭됨)`;
+        renderDataImportPanel();
+        return;
+      }
       sec.saving = true;
       sec.status = "저장 중…";
       renderDataImportPanel();
       try {
         const { action, ...extra } = DATA_IMPORT_ACTIONS[key];
-        await postSheetWebApp(action, { rows: sec.parsed, ...extra });
-        sec.status = `✓ ${sec.parsed.length}건 저장 완료`;
+        await postSheetWebApp(action, { rows: rowsToSave, ...extra });
+        sec.status = `✓ 미매칭 ${rowsToSave.length}건 저장 완료 (전체 ${sec.parsed.length}건 중)`;
       } catch (err) {
         sec.status = `저장 실패: ${err.message}`;
       } finally {
