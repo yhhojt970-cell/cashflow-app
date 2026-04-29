@@ -1370,9 +1370,9 @@ body {
 
 .payment-plan-summary-card {
   flex: 0 0 auto;
-  min-width: 108px;
-  padding: 8px 10px 8px;
-  border-radius: 10px;
+  min-width: 72px;
+  padding: 4px 7px 5px;
+  border-radius: 8px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   text-align: left;
@@ -1384,7 +1384,7 @@ body {
 .payment-plan-summary-check {
   display: flex;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   cursor: pointer;
 }
 
@@ -1441,15 +1441,15 @@ body {
 }
 
 .payment-plan-summary-card h4 {
-  margin: 0 0 4px;
-  font-size: 0.74rem;
+  margin: 0 0 2px;
+  font-size: 0.66rem;
   color: #475569;
   white-space: nowrap;
 }
 
 .payment-plan-summary-card p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   font-weight: 800;
   color: #0f172a;
   white-space: nowrap;
@@ -1457,8 +1457,8 @@ body {
 
 .payment-plan-summary-card span {
   display: block;
-  margin-top: 2px;
-  font-size: 0.7rem;
+  margin-top: 1px;
+  font-size: 0.62rem;
   color: #64748b;
 }
 
@@ -2086,6 +2086,9 @@ td {
   align-items: center;
   gap: 5px;
   padding: 6px 0 10px;
+}
+.payable-controls-left .rcv-group-chips {
+  padding: 0;
 }
 .group-chip-item {
   display: inline-flex;
@@ -3319,8 +3322,19 @@ td {
 }
 
 .year-group-header.collapsed {
-  width: 60px;
   min-width: 60px;
+  max-width: 80px;
+  background: #e2e8f0 !important;
+}
+.year-collapsed-header {
+  background: #e2e8f0 !important;
+  color: #475569;
+  font-size: 0.72rem;
+}
+.year-collapsed-cell {
+  background: #f1f5f9 !important;
+  font-style: italic;
+  color: #64748b;
 }
 
 .year-group-header.collapsed .year-toggle-btn {
@@ -3355,11 +3369,48 @@ td {
   color: #fff;
 }
 
+/* ── 미지급 컨트롤 행 (제목 + 칩 한 줄) ───────────────────── */
+.payable-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  margin-bottom: 4px;
+  min-width: 0;
+}
+.payable-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.payable-controls-left h3 { font-size: 0.95rem; }
+
+/* ── 미지급 Sticky 헤더 ─────────────────────────────────── */
+.payables-table-wrap {
+  max-height: calc(100vh - 330px);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.payables-table-wrap table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+}
+.payables-table-wrap table thead th.sticky-col-1,
+.payables-table-wrap table thead th.sticky-col-2 {
+  z-index: 4;
+}
+
 /* ── Header Polish ────────────────────────────────────────── */
 .payable-header-cell, .rcv-sort-th {
-  padding-top: 12px !important;
-  padding-bottom: 12px !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
   vertical-align: middle !important;
+  font-size: 0.8rem !important;
 }
 
 .year-header-inner {

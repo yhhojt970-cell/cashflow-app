@@ -108,6 +108,8 @@ const paymentPlanUiState = {
   selectedPlanKeys: [],
 };
 
+const payablesYearCollapsed = {};
+
 const receivableManagerState = {
   rows: [],
   map: new Map(), // codeNorm → { manager, email }
@@ -2155,8 +2157,17 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
         const tableResponsive = elements.payables.querySelector(".table-responsive");
         if (tableResponsive) {
           const cellEl = targetBtn.closest("td");
-          if (cellEl) tableResponsive.scrollLeft = Math.max(0, cellEl.offsetLeft - tableResponsive.clientWidth / 3);
-          tableResponsive.scrollTop = Math.max(0, row.offsetTop - tableResponsive.clientHeight / 3);
+          const containerRect = tableResponsive.getBoundingClientRect();
+          if (cellEl) {
+            const cellRect = cellEl.getBoundingClientRect();
+            tableResponsive.scrollLeft = Math.max(0,
+              tableResponsive.scrollLeft + (cellRect.left - containerRect.left) - tableResponsive.clientWidth / 3
+            );
+          }
+          const rowRect = row.getBoundingClientRect();
+          tableResponsive.scrollTop = Math.max(0,
+            tableResponsive.scrollTop + (rowRect.top - containerRect.top) - tableResponsive.clientHeight / 3
+          );
         }
         row.classList.add("report-nav-highlight");
         setTimeout(() => row.classList.remove("report-nav-highlight"), 1500);
@@ -4069,6 +4080,10 @@ function renderReceivables() {
           ${filtered.length ? `<span class="rcv-summary-text">${filtered.length}건 · ${formatNumber(totalBalance)}원</span>` : ""}
           <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">📧 메일 발송</button>
         </div>
+        <div class="payable-table-actions">
+          <button type="button" class="table-action-button subtle rcv-expand-all">전체 펼치기</button>
+          <button type="button" class="table-action-button subtle rcv-collapse-all">전체 접기</button>
+        </div>
       </div>
       <div class="rcv-group-chips chips-orderable" id="rcvGroupChips">
         <button type="button" class="group-manage-link chip-select-all">전체 선택</button>
@@ -4685,6 +4700,16 @@ function renderPayables() {
   });
   const years = [...yearsMap.keys()].sort();
 
+  // displayKeys: 접힌 연도는 __year__YYYY 단일 키, 펼쳐진 연도는 개별 월 키
+  const displayKeys = [];
+  years.forEach(y => {
+    if (payablesYearCollapsed[y]) {
+      displayKeys.push(`__year__${y}`);
+    } else {
+      yearsMap.get(y).forEach(mk => displayKeys.push(mk));
+    }
+  });
+
   const groups = groupPayablesByDue(filteredPayables);
   const paymentPlanSummary = calcPaymentPlanSummary(filteredPayables);
   const availablePlanKeys = paymentPlanSummary.map(item => item.key);
@@ -4711,8 +4736,15 @@ function renderPayables() {
       .map(key => `${key === "보류" ? key : /^\d{4}-\d{2}-\d{2}$/.test(key) ? key.slice(5).replace("-", "/") : key} ${planCounts[key]}건`)
       .join(" · ");
 
-    const groupSummaryCells = monthKeys.map((mk, idx) => {
-      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(groupTotals.monthTotals[mk] || 0)}</td>`;
+    const groupSummaryCells = displayKeys.map((dk, idx) => {
+      let val = 0;
+      if (dk.startsWith("__year__")) {
+        const y = dk.replace("__year__", "");
+        (yearsMap.get(y) || []).forEach(mk => { val += groupTotals.monthTotals[mk] || 0; });
+      } else {
+        val = groupTotals.monthTotals[dk] || 0;
+      }
+      return `<td class="group-summary-cell month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatPayableCellNumber(val)}</td>`;
     }).join("");
     const header = `
       <tr class="group-header" data-group="${groupKey}">
@@ -4738,7 +4770,15 @@ function renderPayables() {
       const checked = entry.selected ? "checked" : "";
       const partnerKey = encodeURIComponent(getPartnerGroupKey(entry.items[0]));
 
-      const monthCells = monthKeys.map((monthKey, idx) => {
+      const monthCells = displayKeys.map((dk, idx) => {
+        // 연도 접힘: 해당 연도 전체 합계 표시
+        if (dk.startsWith("__year__")) {
+          const y = dk.replace("__year__", "");
+          const yearMks = yearsMap.get(y) || [];
+          const yearVal = yearMks.reduce((s, mk) => s + (entry.monthTotals[mk] || 0), 0);
+          return `<td class="editable-amount-cell numeric-cell month-column-cell year-collapsed-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${yearVal ? formatPayableCellNumber(yearVal) : ""}</td>`;
+        }
+        const monthKey = dk;
         const decisionValue = entry.monthTotals[monthKey] || 0;
         const monthItems = entry.items.filter(item => getMonthKey(item) === monthKey);
         const originalValue = monthItems.reduce((sum, item) => sum + getPayableOutstanding(item), 0);
@@ -4770,7 +4810,6 @@ function renderPayables() {
               >
                 ${formatPayableCellNumber(decisionValue)}
               </button>
-              <button class="history-payable-button" type="button" title="과거 이력 및 롤백" data-partner-key="${partnerKey}" data-month-key="${monthKey}" style="border:none;background:transparent;cursor:pointer;font-size:12px;opacity:0.6;padding:0 2px;">🕒</button>
             </div>
             ${showRawBreakdown ? `<span class="amount-raw-breakdown" title="합계 ${formatNumber(totalPurchase)} / 지급 ${formatNumber(totalRawPaid)}">합계 ${formatNumber(totalPurchase)} · 지급 ${formatNumber(totalRawPaid)}</span>` : ""}
             ${showOriginalValue && !showRawBreakdown ? `<button type="button" class="amount-original-button" data-partner-key="${partnerKey}" data-month-key="${monthKey}" title="원래 금액으로 되돌리기">원래 ${formatNumber(originalValue)}</button>` : ""}
@@ -4804,36 +4843,39 @@ function renderPayables() {
   }).join("");
 
   const yearHeaders = years.map(y => {
-    const count = yearsMap.get(y).length;
-    return `
-      <th class="year-group-header" colspan="${count}">
+    const collapsed = !!payablesYearCollapsed[y];
+    const colspan = collapsed ? 1 : yearsMap.get(y).length;
+    return `<th class="year-group-header${collapsed ? " collapsed" : ""}" colspan="${colspan}">
         <div class="year-header-inner">
+          <button type="button" class="year-toggle-btn" data-year="${y}">${collapsed ? "▶" : "▼"}</button>
           <span>${y}년</span>
         </div>
-      </th>
-    `;
+      </th>`;
   }).join("");
 
-  const monthHeaders = monthKeys.map((key, index) => {
-    return `<th class="numeric-header month-column-cell ${index % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(key)}</th>`;
+  const monthHeaders = displayKeys.map((dk, idx) => {
+    if (dk.startsWith("__year__")) {
+      return `<th class="numeric-header year-collapsed-header">합계</th>`;
+    }
+    return `<th class="numeric-header month-column-cell ${idx % 2 === 0 ? "month-column-even" : "month-column-odd"}">${formatMonthKey(dk)}</th>`;
   }).join("");
 
   elements.payables.innerHTML = `
     <div class="panel">
-      <div class="panel-title-row">
-        <div class="panel-title-inline">
-          <h3>미지급 목록</h3>
+      <div class="payable-controls-row">
+        <div class="payable-controls-left">
+          <h3 style="margin:0;white-space:nowrap;">미지급 목록</h3>
           ${showBatchButton ? `<button type="button" class="batch-selected-button payment-plan-batch-button">일괄 계획 변경</button>` : ""}
+          <div class="rcv-group-chips payable-group-chips" id="payGroupChips" style="margin:0;padding:0;border:none;background:none;">
+            <button type="button" class="group-manage-link chip-select-all">전체 선택</button>
+            <button type="button" class="group-manage-link chip-clear-all">전체 해제</button>
+            ${buildGroupChipsHtml(getOrderedDueGroups(payables), filterState.groups, "pay-chip")}
+          </div>
         </div>
-        <div class="payable-table-actions">
+        <div class="payable-table-actions" style="flex-shrink:0;">
           <button type="button" class="table-action-button subtle" data-action="expand-all">전체 펼치기</button>
           <button type="button" class="table-action-button subtle" data-action="collapse-all">전체 접기</button>
         </div>
-      </div>
-      <div class="rcv-group-chips payable-group-chips" id="payGroupChips">
-        <button type="button" class="group-manage-link chip-select-all">전체 선택</button>
-        <button type="button" class="group-manage-link chip-clear-all">전체 해제</button>
-        ${buildGroupChipsHtml(getOrderedDueGroups(payables), filterState.groups, "pay-chip")}
       </div>
       <div class="payment-plan-summary-grid">
         ${paymentPlanSummary.map(item => {
@@ -4854,7 +4896,7 @@ function renderPayables() {
       </div>
       <p class="muted" style="margin:2px 0 6px;font-size:0.76rem;">업체마스터 연결: ${matchedVendorCount}개 업체${unmatchedVendorCount > 0 ? ` · 확인 필요: ${unmatchedVendorCount}개` : ""}</p>
       <div class="table-scrollbar-top" id="payablesTopScrollbar"><div class="table-scrollbar-inner" id="payablesTopScrollbarInner"></div></div>
-      <div class="table-responsive">
+      <div class="table-responsive payables-table-wrap">
         <table>
           <thead>
             <tr>
@@ -4868,7 +4910,7 @@ function renderPayables() {
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="${monthKeys.length + 3}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
+            ${rows || `<tr><td colspan="${displayKeys.length + 3}" class="empty-state">선택한 거래처에 대한 미지급이 없습니다.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4948,17 +4990,13 @@ function renderPayables() {
     });
   });
 
-  document.querySelectorAll(".history-payable-button").forEach(button => {
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      const partnerKey = decodeURIComponent(event.currentTarget.dataset.partnerKey || "");
-      const monthKey = event.currentTarget.dataset.monthKey;
-
-      const targetItems = payables.filter(item => getPartnerGroupKey(item) === partnerKey && getMonthKey(item) === monthKey);
-      if (!targetItems.length) return;
-
-      showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey);
+  // 연도 열 토글
+  elements.payables.querySelectorAll(".year-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const y = btn.dataset.year;
+      payablesYearCollapsed[y] = !payablesYearCollapsed[y];
+      rerenderAll();
     });
   });
 
