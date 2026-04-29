@@ -3744,40 +3744,7 @@ function calculateSummary() {
 }
 
 function renderSummary() {
-  const summary = calculateSummary();
-  elements.summaryPanel.innerHTML = `
-    <!-- 그룹 1: 매출 현황 (미수금) -->
-    <div class="summary-group green">
-      <div class="summary-card">
-        <h2>매출</h2>
-        <p>${formatNumber(summary.totalReceivable)}</p>
-      </div>
-      <div class="summary-card highlight">
-        <h2>미수금 잔액</h2>
-        <p>${formatNumber(summary.totalOutstanding)}</p>
-      </div>
-    </div>
-
-    <!-- 그룹 2: 매입 현황 (미지급) -->
-    <div class="summary-group blue">
-      <div class="summary-card">
-        <h2>매입</h2>
-        <p>${formatNumber(summary.totalPayable)}</p>
-      </div>
-      <div class="summary-card highlight">
-        <h2>미지급 잔액</h2>
-        <p>${formatNumber(summary.totalUnpaid)}</p>
-      </div>
-    </div>
-
-    <!-- 그룹 3: 기타 현황 -->
-    <div class="summary-group slate">
-      <div class="summary-card">
-        <h2>고정지출 합계</h2>
-        <p>${formatNumber(summary.totalFixed)}</p>
-      </div>
-    </div>
-  `;
+  if (elements.summaryPanel) elements.summaryPanel.innerHTML = "";
 }
 
 function renderPartnerFilter() {
@@ -4108,9 +4075,12 @@ function renderReceivables() {
           ${filtered.length ? `<span class="rcv-summary-text">${filtered.length}건 · ${formatNumber(totalBalance)}원</span>` : ""}
           <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">📧 메일 발송</button>
         </div>
-        <div class="payable-table-actions">
-          <button type="button" class="table-action-button subtle rcv-expand-all">전체 펼치기</button>
-          <button type="button" class="table-action-button subtle rcv-collapse-all">전체 접기</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${(() => { const s = calculateSummary(); return `<div class="tab-mini-stats"><span class="tms-item"><span class="tms-lbl">매출</span><span class="tms-val">${formatNumber(s.totalReceivable)}</span></span><span class="tms-sep">|</span><span class="tms-item tms-green"><span class="tms-lbl">미수금 잔액</span><span class="tms-val">${formatNumber(s.totalOutstanding)}</span></span></div>`; })()}
+          <div class="payable-table-actions">
+            <button type="button" class="table-action-button subtle rcv-expand-all">전체 펼치기</button>
+            <button type="button" class="table-action-button subtle rcv-collapse-all">전체 접기</button>
+          </div>
         </div>
       </div>
       <div class="rcv-group-chips chips-orderable" id="rcvGroupChips">
@@ -4900,9 +4870,12 @@ function renderPayables() {
             ${buildGroupChipsHtml(getOrderedDueGroups(payables), filterState.groups, "pay-chip")}
           </div>
         </div>
-        <div class="payable-table-actions" style="flex-shrink:0;">
-          <button type="button" class="table-action-button subtle" data-action="expand-all">전체 펼치기</button>
-          <button type="button" class="table-action-button subtle" data-action="collapse-all">전체 접기</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          ${(() => { const s = calculateSummary(); return `<div class="tab-mini-stats"><span class="tms-item"><span class="tms-lbl">매입</span><span class="tms-val">${formatNumber(s.totalPayable)}</span></span><span class="tms-sep">|</span><span class="tms-item tms-blue"><span class="tms-lbl">미지급 잔액</span><span class="tms-val">${formatNumber(s.totalUnpaid)}</span></span></div>`; })()}
+          <div class="payable-table-actions">
+            <button type="button" class="table-action-button subtle" data-action="expand-all">전체 펼치기</button>
+            <button type="button" class="table-action-button subtle" data-action="collapse-all">전체 접기</button>
+          </div>
         </div>
       </div>
       <div class="payment-plan-summary-grid">
@@ -5090,6 +5063,16 @@ function renderPayables() {
       syncing = false;
     });
   }
+
+  // 동적 높이: 남은 뷰포트 높이를 table-wrap에 적용 (sticky 헤더 활성화)
+  window.requestAnimationFrame(() => {
+    const wrap = elements.payables.querySelector(".payables-table-wrap");
+    if (wrap) {
+      const rect = wrap.getBoundingClientRect();
+      const remaining = window.innerHeight - rect.top - 8;
+      wrap.style.maxHeight = Math.max(200, remaining) + "px";
+    }
+  });
 }
 
 function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
