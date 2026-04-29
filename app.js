@@ -2969,6 +2969,20 @@ async function fetchSheetWebApp() {
   throw new Error("Apps Script 응답 형식이 올바르지 않습니다.");
 }
 
+async function fetchAvailableFundsJson() {
+  if (!SHEET_APP_SCRIPT_URL) return null;
+  const url = new URL(SHEET_APP_SCRIPT_URL);
+  url.searchParams.set("action", "getAvailableFundsJson");
+  const token = getApiToken();
+  if (token) url.searchParams.set("token", token);
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`가용자금JSON 조회 실패: ${response.status}`);
+  const body = await response.json();
+  // { updatedAt, data } 형태
+  if (body && "updatedAt" in body) return body;
+  return null;
+}
+
 async function fetchAvailableFundsFromApi() {
   // 1. 구글 시트 직접 조회 (gviz) - 더 정확함
   try {
@@ -3061,28 +3075,62 @@ function parseAvailableFunds(rows) {
 }
 
 async function loadAvailableFunds() {
-  // localStorage에 저장된 데이터가 있으면 우선 사용
+  // 1단계: localStorage 즉시 표시
   const local = loadAvailableFundsLocal();
   if (local) {
     availableFunds = local;
     recalcAvailableFundsSummary();
-    return;
   }
-  // 없으면 구글시트 fallback
+
+  // 2단계: 구글시트에서 원격 데이터 로드 (백그라운드)
   try {
-    const rows = await fetchAvailableFundsFromApi();
-    availableFunds = parseAvailableFunds(rows);
-    console.log("[가용자금] 구글시트 로드 완료. 합계:", formatNumber(availableFunds.summary.availableTotal));
+    const remote = await fetchAvailableFundsJson();
+    if (remote && remote.updatedAt && remote.data) {
+      const remoteTs = new Date(remote.updatedAt).getTime();
+      const localTs = local && local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+      if (remoteTs > localTs) {
+        // 원격이 더 최신 → 로컬 덮어쓰기 (API 재저장은 하지 않음)
+        availableFunds = {
+          accounts: remote.data.accounts || [],
+          b2bLoans: remote.data.b2bLoans || [],
+          purchaseVendors: remote.data.purchaseVendors || [],
+          eBonds: remote.data.eBonds || [],
+          eNotes: remote.data.eNotes || [],
+          summary: { totalAccountBalance: 0, b2bUsed: 0, b2bAvailable: 0, totalPurchaseLoanBalance: 0, totalEBonds: 0, totalENotes: 0, grandTotal: 0 },
+        };
+        recalcAvailableFundsSummary();
+        // 로컬에도 저장 (updatedAt 포함)
+        try {
+          localStorage.setItem(AVAILABLE_FUNDS_LOCAL_KEY, JSON.stringify({
+            updatedAt: remote.updatedAt,
+            accounts: availableFunds.accounts,
+            b2bLoans: availableFunds.b2bLoans,
+            purchaseVendors: availableFunds.purchaseVendors,
+            eBonds: availableFunds.eBonds,
+            eNotes: availableFunds.eNotes,
+          }));
+        } catch (e) { /* 무시 */ }
+        renderAvailableFunds();
+        renderDashboard();
+        console.log("[가용자금] 원격 데이터 적용 (더 최신):", remote.updatedAt);
+      } else {
+        console.log("[가용자금] 로컬 데이터가 최신 또는 동일:", local?.updatedAt);
+      }
+    }
   } catch (err) {
-    console.error("[가용자금] 로드 중 오류 발생:", err);
+    console.warn("[가용자금] 원격 로드 실패 (로컬 유지):", err);
   }
+
+  if (!local) recalcAvailableFundsSummary();
 }
 
 // ── 가용자금 localStorage 저장/로드 ─────────────────────────────
 
 function saveAvailableFundsLocal() {
+  const updatedAt = new Date().toISOString();
   try {
     localStorage.setItem(AVAILABLE_FUNDS_LOCAL_KEY, JSON.stringify({
+      updatedAt,
       accounts: availableFunds.accounts || [],
       b2bLoans: availableFunds.b2bLoans || [],
       purchaseVendors: availableFunds.purchaseVendors || [],
@@ -3092,6 +3140,25 @@ function saveAvailableFundsLocal() {
   } catch (e) {
     console.warn("[가용자금] localStorage 저장 실패:", e);
   }
+  saveAvailableFundsToApi(updatedAt);
+}
+
+async function saveAvailableFundsToApi(updatedAt) {
+  try {
+    await postSheetWebApp("upsertAvailableFunds", {
+      updatedAt,
+      data: {
+        accounts: availableFunds.accounts || [],
+        b2bLoans: availableFunds.b2bLoans || [],
+        purchaseVendors: availableFunds.purchaseVendors || [],
+        eBonds: availableFunds.eBonds || [],
+        eNotes: availableFunds.eNotes || [],
+      },
+    });
+    console.log("[가용자금] 구글시트 저장 완료:", updatedAt);
+  } catch (e) {
+    console.warn("[가용자금] 구글시트 저장 실패:", e);
+  }
 }
 
 function loadAvailableFundsLocal() {
@@ -3100,12 +3167,13 @@ function loadAvailableFundsLocal() {
     if (!raw) return null;
     const d = JSON.parse(raw);
     return {
+      updatedAt: d.updatedAt || null,
       accounts: d.accounts || [],
       b2bLoans: d.b2bLoans || [],
       purchaseVendors: d.purchaseVendors || [],
       eBonds: d.eBonds || [],
       eNotes: d.eNotes || [],
-      summary: { totalAccountBalance: 0, totalPurchaseLoanBalance: 0, totalEBonds: 0, availableTotal: 0 },
+      summary: { totalAccountBalance: 0, b2bUsed: 0, b2bAvailable: 0, totalPurchaseLoanBalance: 0, totalEBonds: 0, totalENotes: 0, grandTotal: 0 },
     };
   } catch (e) {
     return null;
