@@ -1143,16 +1143,16 @@ body {
 }
 
 .group-summary-cell {
-  background: #1e3a8a;
-  color: #dbeafe;
+  background: #dbeafe;
+  color: #1e40af;
   text-align: right;
   font-weight: 700;
 }
 
 .group-total-cell {
-  background: #172554;
-  color: #bfdbfe;
-  border-left: 1px solid #1d4ed8;
+  background: #bfdbfe;
+  color: #1e3a8a;
+  border-left: 1px solid #93c5fd;
   font-size: 1rem;
 }
 
@@ -1931,14 +1931,14 @@ td {
 }
 
 .rcv-group-header .group-summary-cell {
-  background: #064e3b !important;
-  color: #a7f3d0 !important;
+  background: #dcfce7 !important;
+  color: #14532d !important;
 }
 
 .rcv-group-header .group-total-cell {
-  background: #022c22 !important;
-  color: #6ee7b7 !important;
-  border-left: 1px solid #047857 !important;
+  background: #bbf7d0 !important;
+  color: #065f46 !important;
+  border-left: 1px solid #6ee7b7 !important;
 }
 
 .badge.green {
@@ -3449,8 +3449,8 @@ td {
 }
 
 .group-summary-cell.year-summary-column {
-  background: rgba(255, 255, 255, 0.1) !important;
-  color: #fff;
+  background: #bfdbfe !important;
+  color: #1e3a8a !important;
 }
 
 /* ── 미지급 컨트롤 행 (제목 + 칩 한 줄) ───────────────────── */
