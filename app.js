@@ -4816,7 +4816,10 @@ function renderPayables() {
         const autoPlanValue = monthItems[0] ? getItemAutoPayDate(monthItems[0]) : "";
         const isMijeong = monthItems.some(item => item.completionStatus === "미정");
         const planClass = cellPlanValue === "보류" || cellPlanValue === "제외" ? "hold" : cellPlanValue ? "set" : "pending";
-        const planLabel = isMijeong ? "미정" : cellPlanValue === "제외" ? "제외" : formatPlanShortLabel(cellPlanValue || autoPlanValue || "");
+        const planLabel = cellPlanValue === "제외" ? "제외" :
+                          cellPlanValue ? formatPlanShortLabel(cellPlanValue) :
+                          isMijeong ? "미정" :
+                          formatPlanShortLabel(autoPlanValue || "");
         const showOriginalValue = originalValue > 0 && decisionValue !== originalValue;
         const showRawBreakdown = totalRawPaid > 0 && totalPurchase > originalValue;
         const isLastEdited = payablesUiState.lastEdited
@@ -5372,8 +5375,8 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
       monthItems[0].decisionAmount += remainder;
       monthItems[0].selected = monthItems[0].decisionAmount > 0;
     }
-    const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : "미정";
     const nextPlanValue = excludePlan ? "제외" : holdPlan ? "보류" : (planDateInput?.value || "");
+    const nextStatus = excludePlan ? "제외" : holdPlan ? "보류" : (nextPlanValue ? "예정" : "미정");
 
     monthItems.forEach(item => {
       item.paymentPlan = nextPlanValue;
