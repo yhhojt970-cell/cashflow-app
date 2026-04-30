@@ -8021,7 +8021,7 @@ function renderDataImportPanel() {
               ${unmatchedCount > 0 ? `· <span class="di-match-fail">${unmatchedCount}건 미매칭</span>` : ""}
             </span>
             <button type="button" class="di-save-btn" data-key="${key}" ${sec.saving ? "disabled" : ""}>
-              ${sec.saving ? "저장 중…" : `미매칭 저장${unmatchedCount > 0 ? ` (${unmatchedCount}건)` : ""}`}
+              ${sec.saving ? sec.status || "저장 중…" : `구글시트 저장 (${parsed.length}건)`}
             </button>
           ` : ""}
         </div>
@@ -8033,7 +8033,7 @@ function renderDataImportPanel() {
   panel.innerHTML = `
     <div class="di-header">
       <h3>자료 업로드</h3>
-      <p class="di-desc muted">파일을 선택하면 파싱 결과를 미리 보여줍니다. '미매칭 저장'을 눌러야 반영됩니다.<br>업체마스터에 없는 미매칭건만 구글시트에 저장합니다 — 속도가 훨씬 빠릅니다.</p>
+      <p class="di-desc muted">파일을 선택하면 파싱 결과를 미리 보여줍니다. '구글시트 저장'을 눌러야 반영됩니다.<br>전체 행을 구글시트에 저장합니다 (중복 행은 자동 덮어쓰기).</p>
       <button type="button" class="di-close-btn" id="dataImportCloseBtn">✕ 닫기</button>
     </div>
     <div class="di-sections">${sections}</div>
@@ -8070,20 +8070,22 @@ function renderDataImportPanel() {
       const key = btn.dataset.key;
       const sec = dataImportState[key];
       if (!sec.parsed?.length) return;
-      // 미매칭건(업체마스터 미연결)만 저장
-      const rowsToSave = sec.parsed.filter(r => !r._matched_code);
-      if (!rowsToSave.length) {
-        sec.status = `✓ 미매칭건 없음 — 저장 생략 (전체 ${sec.parsed.length}건 모두 매칭됨)`;
-        renderDataImportPanel();
-        return;
-      }
+      const rowsToSave = sec.parsed;
+      if (!rowsToSave.length) return;
       sec.saving = true;
-      sec.status = "저장 중…";
       renderDataImportPanel();
       try {
         const { action, ...extra } = DATA_IMPORT_ACTIONS[key];
-        await postSheetWebApp(action, { rows: rowsToSave, ...extra });
-        sec.status = `✓ 미매칭 ${rowsToSave.length}건 저장 완료 (전체 ${sec.parsed.length}건 중)`;
+        const BATCH = 200;
+        const total = rowsToSave.length;
+        for (let i = 0; i < total; i += BATCH) {
+          const batch = rowsToSave.slice(i, i + BATCH);
+          sec.status = `저장 중… ${Math.min(i + BATCH, total)} / ${total}건`;
+          renderDataImportPanel();
+          await postSheetWebApp(action, { rows: batch, ...extra });
+        }
+        const matchedCount = rowsToSave.filter(r => r._matched_code).length;
+        sec.status = `✓ ${total}건 저장 완료 (매칭 ${matchedCount}건 / 미매칭 ${total - matchedCount}건)`;
       } catch (err) {
         sec.status = `저장 실패: ${err.message}`;
       } finally {
