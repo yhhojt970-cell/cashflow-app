@@ -5518,6 +5518,7 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
     planResetButton.addEventListener("click", event => {
       event.preventDefault();
       holdPlan = false;
+      excludePlan = false;
       if (planDateInput) planDateInput.value = "";
       syncPlanControls();
     });
@@ -5527,20 +5528,14 @@ function openAmountEditor(partnerKey, monthKey, triggerElement) {
     planDefaultButton.addEventListener("click", event => {
       event.preventDefault();
       holdPlan = false;
+      excludePlan = false;
       if (planDateInput) {
         planDateInput.value = autoPlanValue || "";
       }
       syncPlanControls();
     });
   }
-
-  if (planHoldButton) {
-    planHoldButton.addEventListener("click", event => {
-      event.preventDefault();
-      holdPlan = !holdPlan;
-      syncPlanControls();
-    });
-  }
+  // planHoldButton 리스너는 위(5397)에서 이미 등록됨 — 중복 등록 제거
 
   overlay.querySelector(".cancel-button").addEventListener("click", closeCalculator);
   overlay.querySelector(".confirm-button").addEventListener("click", confirmEdit);
