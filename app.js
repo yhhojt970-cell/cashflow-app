@@ -1667,12 +1667,13 @@ function buildCompletedApprovalHtml() {
 </div>`.trim();
 }
 
-function buildCompletedApprovalHtmlForRows(reportRows) {
+function buildCompletedApprovalHtmlForRows(reportRows, titleOverride) {
   const totalAmount = reportRows.reduce((sum, row) => sum + Number(row.지급금액 || 0), 0);
   const generatedAt = new Date().toLocaleString("ko-KR");
+  const title = titleOverride || "최종 결재 보고서";
   return `
 <div style="font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;color:#1f2937;line-height:1.5;">
-  <h2 style="margin:0 0 12px;font-size:22px;color:#0f172a;">최종 결재 보고서</h2>
+  <h2 style="margin:0 0 12px;font-size:22px;color:#0f172a;">${escapeHtml(title)}</h2>
   <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
     <tr>
       <td style="padding:8px 10px;border:1px solid #dbe3f0;background:#f8fafc;width:160px;font-weight:700;">생성일시</td>
@@ -1892,7 +1893,7 @@ function getCompletedBatches() {
       const time = key.length >= 16 ? key.slice(11, 16) : "";
       return { key, rows, date, time, total };
     });
-  // 같은 날 여러 배치면 회차 표시
+  // 날짜별 회차 수 집계
   const dateCounts = {};
   batches.forEach(b => { dateCounts[b.date] = (dateCounts[b.date] || 0) + 1; });
   const dateSeq = {};
@@ -1904,7 +1905,26 @@ function getCompletedBatches() {
       b.label = `${b.date}${b.time ? " " + b.time : ""} (${b.rows.length}건 · ${formatNumber(b.total)}원)`;
     }
   });
-  return batches;
+  // 같은 날 여러 회차가 있으면 날짜 전체 합산 항목을 맨 앞에 삽입
+  const enriched = [];
+  const seenDates = new Set();
+  batches.forEach(b => {
+    if (!seenDates.has(b.date)) {
+      seenDates.add(b.date);
+      if (dateCounts[b.date] > 1) {
+        const dayBatches = batches.filter(x => x.date === b.date);
+        const allRows = dayBatches.flatMap(x => x.rows);
+        const total = allRows.reduce((s, r) => s + Number(r.지급금액 || 0), 0);
+        enriched.push({
+          key: `__date__${b.date}`,
+          rows: allRows, date: b.date, time: "", total,
+          label: `📋 ${b.date} 전체 합산 (${dateCounts[b.date]}회차 · ${allRows.length}건 · ${formatNumber(total)}원)`,
+        });
+      }
+    }
+    enriched.push(b);
+  });
+  return enriched;
 }
 
 function buildCompletedTableHtml(rows) {
@@ -1986,7 +2006,11 @@ function openCompletedReportModal() {
       const button = overlay.querySelector(".completed-html-button");
       try {
         const rows = selectedBatch ? selectedBatch.rows : [];
-        const html = buildCompletedApprovalHtmlForRows(rows);
+        const isDateBatch = selectedBatch?.key?.startsWith("__date__");
+        const title = isDateBatch
+          ? `최종 결재 보고서 (${selectedBatch.date} 전체 합산)`
+          : `최종 결재 보고서${selectedBatch?.date ? " (" + selectedBatch.date + (selectedBatch.time ? " " + selectedBatch.time : "") + ")" : ""}`;
+        const html = buildCompletedApprovalHtmlForRows(rows, title);
         await navigator.clipboard.writeText(html);
         button.textContent = "HTML 복사 완료";
         window.setTimeout(() => {
