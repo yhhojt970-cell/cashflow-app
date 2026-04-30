@@ -7612,18 +7612,27 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
 
       let breakdownTable = "";
       if (hasBreakdown) {
+        const hasBuyBD = Object.values(bd).some(info => info.purchase || info.pay);
         const bdRows = Object.entries(bd).map(([div, info]) => `
           <tr>
             <td>${escapeHtml(div)}</td>
             <td class="num">${formatNumber(info.sales)}</td>
             <td class="num">${formatNumber(info.collect)}</td>
             <td class="num">${formatNumber(info.sales - info.collect)}</td>
+            ${hasBuyBD ? `
+            <td class="num">${formatNumber(info.purchase)}</td>
+            <td class="num">${formatNumber(info.pay)}</td>
+            <td class="num">${formatNumber(info.purchase - info.pay)}</td>` : ""}
           </tr>`).join("");
         breakdownTable = `
           <div class="daesa-detail-section">
             <strong>사업부문/현장별 실적</strong>
             <table class="daesa-subtable">
-              <thead><tr><th>사업부문명</th><th>매출</th><th>수금</th><th>잔액</th></tr></thead>
+              <thead><tr>
+                <th>사업부문명</th>
+                <th>매출</th><th>수금</th><th>잔액(매출)</th>
+                ${hasBuyBD ? `<th>매입</th><th>지급</th><th>잔액(매입)</th>` : ""}
+              </tr></thead>
               <tbody>${bdRows}</tbody>
             </table>
           </div>`;
