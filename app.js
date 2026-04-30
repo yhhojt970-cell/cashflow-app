@@ -1097,7 +1097,7 @@ function appendUpdateHistory(section, diffItems) {
 
 // ── API 토큰 관리 ─────────────────────────────────────────────
 function getApiToken() {
-  return localStorage.getItem(API_TOKEN_STORAGE_KEY) || "";
+  return localStorage.getItem(API_TOKEN_STORAGE_KEY) || "miraeautomation2026";
 }
 
 function setApiToken(token) {
