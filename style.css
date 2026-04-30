@@ -382,7 +382,7 @@ body {
   width: 220px;
   min-width: 220px;
   max-width: 220px;
-  box-shadow: 2px 0 5px rgba(148, 163, 184, 0.18);
+  border-right: 2px solid #d1d5db;
 }
 
 /* 미수금 전용: 거래처명 좌측 고정 */
@@ -394,8 +394,7 @@ body {
   max-width: 200px;
   z-index: 4;
   background: #fff;
-  box-shadow: 2px 0 5px rgba(148, 163, 184, 0.18);
-  border-right: 1px solid #e2e8f0;
+  border-right: 2px solid #d1d5db;
 }
 
 .group-filter-label {
@@ -415,7 +414,7 @@ body {
 .payable-header-cell {
   background: #dbeafe !important;
   color: #1e3a8a;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .group-filter-toolbar {
@@ -1174,35 +1173,32 @@ body {
   height: 1px;
 }
 
-/* 월 컬럼 body: border-left로 컬럼 간 구분선 */
+/* 월 컬럼 */
 .month-column-cell {
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid #e5e7eb;
   min-width: 86px;
 }
 
-.month-column-even { background: #eef4ff; }
-.month-column-odd  { background: #fafafa; }
+/* 컬럼 배경색 제거 — 행 줄무늬만 사용 */
+.month-column-even { }
+.month-column-odd  { }
 
-/* 연도 경계: body는 border-left 3px, header는 inset box-shadow */
+/* 연도 경계: 부드러운 회색 구분선 */
 .month-column-year-start {
-  border-left: 3px solid #64748b !important;
+  border-left: 2px solid #9ca3af !important;
 }
-.rcv-pivot-table thead th.month-column-year-start,
+.rcv-pivot-table thead th.month-column-year-start {
+  border-left: none !important;
+  box-shadow: inset 2px 0 0 #9ca3af, 0 3px 0 #6ee7b7;
+}
 .payables-table-wrap table thead th.month-column-year-start {
   border-left: none !important;
-  box-shadow: inset 3px 0 0 #475569, 0 3px 0 #16a34a;
-}
-.payables-table-wrap table thead th.month-column-year-start {
-  box-shadow: inset 3px 0 0 #475569, 0 3px 0 #1d4ed8;
+  box-shadow: inset 2px 0 0 #9ca3af, 0 3px 0 #93c5fd;
 }
 
-/* 헤더 월 셀: border-right만 사용(border-left 없애 double-border 방지) */
-.rcv-pivot-table thead th.month-column-cell {
-  border-left: none;
-}
-.payables-table-wrap table thead th.month-column-cell {
-  border-left: none;
-}
+/* 헤더 월 셀: double-border 방지 */
+.rcv-pivot-table thead th.month-column-cell { border-left: none; }
+.payables-table-wrap table thead th.month-column-cell { border-left: none; }
 
 .summary-panel {
   display: none; /* 탭 내부 미니 스탯으로 대체됨 */
@@ -1845,81 +1841,89 @@ td {
   color: white;
 }
 
+/* 미지급 그룹 헤더 — 라이트 블루 */
 .group-header td,
 .subgroup-header td {
-  background: #1e40af;
-  color: #ffffff;
+  background: #eff6ff;
+  color: #1e40af;
   font-weight: 700;
-  border-top: 2px solid #1d4ed8;
-  border-bottom: 1px solid #1e3a8a;
-  padding: 9px 10px;
+  border-top: 1px solid #bfdbfe;
+  border-bottom: 1px solid #bfdbfe;
+  border-left: 3px solid #3b82f6;
+  padding: 7px 10px;
+  font-size: 0.83rem;
 }
 
 .group-header span {
   margin-left: 8px;
-  font-size: 0.82rem;
-  color: #bfdbfe;
+  font-size: 0.79rem;
+  color: #64748b;
   font-weight: 400;
 }
 
 .group-header .group-plan-summary {
-  color: #93c5fd;
+  color: #2563eb;
+  font-size: 0.79rem;
 }
 
 .group-header .group-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.18);
-  color: #ffffff;
-  font-size: 0.8rem;
-  margin-right: 8px;
+  background: rgba(59,130,246,0.12);
+  color: #1e40af;
+  font-size: 0.75rem;
+  margin-right: 6px;
   vertical-align: middle;
+  border: 1px solid #bfdbfe;
 }
 
 .group-header .group-toggle:hover {
-  background: rgba(255,255,255,0.32);
+  background: rgba(59,130,246,0.22);
 }
 
 .subgroup-header td {
-  background: #f0f4ff;
+  background: #f0f7ff;
   color: #1e3a8a;
   font-weight: 600;
-  border-left: 4px solid #93c5fd;
-  border-top: 1px solid #e0e7ff;
-  border-bottom: 1px solid #e0e7ff;
+  border-left: 3px solid #60a5fa;
+  border-top: 1px solid #bfdbfe;
+  border-bottom: 1px solid #bfdbfe;
 }
 
-/* 미수금 그룹 헤더 - 녹색 계열 */
+/* 미수금 그룹 헤더 — 라이트 그린 */
 .rcv-group-header td {
-  background: #065f46 !important;
-  color: #ffffff !important;
+  background: #f0fdf4 !important;
+  color: #14532d !important;
   font-weight: 700 !important;
-  border-top: 2px solid #047857 !important;
-  border-bottom: 1px solid #064e3b !important;
-  padding: 9px 10px !important;
+  border-top: 1px solid #bbf7d0 !important;
+  border-bottom: 1px solid #bbf7d0 !important;
+  border-left: 3px solid #22c55e !important;
+  padding: 7px 10px !important;
+  font-size: 0.83rem !important;
   box-shadow: none !important;
 }
 
 .rcv-group-header span {
-  color: #a7f3d0 !important;
+  color: #64748b !important;
 }
 
 .rcv-group-header .rcv-group-toggle {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50% !important;
-  background: rgba(255,255,255,0.18) !important;
-  color: #ffffff !important;
-  font-size: 0.8rem !important;
-  margin-right: 8px;
+  background: rgba(34,197,94,0.12) !important;
+  color: #14532d !important;
+  font-size: 0.75rem !important;
+  margin-right: 6px;
   vertical-align: middle;
+  border: 1px solid #bbf7d0 !important;
 }
 
 .rcv-group-header .rcv-group-toggle:hover {
@@ -2176,37 +2180,41 @@ td {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #dcfce7;
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 600;
   padding: 0 10px;
   line-height: 34px;
   height: 34px;
-  font-size: 0.82rem;
+  font-size: 0.79rem;
   white-space: nowrap;
-  border-right: 1px solid #86efac;
-  border-bottom: 2px solid #4ade80;
+  border-right: 1px solid #a7f3d0;
+  border-bottom: 1px solid #6ee7b7;
   vertical-align: middle;
 }
 
 /* 월 행 (tr:last-child): 연도행 34px 바로 아래 고정 */
 .rcv-pivot-table thead tr:last-child th {
   top: 34px;
+  background: #ecfdf5;
+  color: #065f46;
   line-height: 30px;
   height: 30px;
   border-bottom: none;
-  box-shadow: 0 3px 0 #16a34a;
+  box-shadow: 0 2px 0 #6ee7b7;
 }
 
 /* 코너 셀 (거래처명): 수직 + 수평 동시 고정 */
 .rcv-pivot-table thead .sticky-col-rcv-name {
   z-index: 20;
-  background: #dcfce7;
-  border-right: 1px solid #86efac;
+  background: #d1fae5;
+  border-right: 2px solid #d1d5db;
 }
 
 /* body 좌측 고정 셀: 행 색상별 배경 */
 .rcv-pivot-table .rcv-row-even td.sticky-col-rcv-name { background: #ffffff; }
 .rcv-pivot-table .rcv-row-odd  td.sticky-col-rcv-name { background: #f9fafb; }
-.rcv-pivot-table .rcv-group-header td.sticky-col-rcv-name { background: #065f46; }
+.rcv-pivot-table .rcv-group-header td.sticky-col-rcv-name { background: #f0fdf4; }
 
 
 
@@ -2214,25 +2222,15 @@ td {
 
 
 
-.rcv-group-header td {
-  background: #f8fafc;
-  border-top: 2px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-}
 .rcv-group-header strong { font-weight: 700; margin-right: 6px; }
-.rcv-group-header .group-count { font-size: 0.78rem; color: #64748b; }
+.rcv-group-header .group-count { font-size: 0.77rem; color: #6b7280; }
 .rcv-row-even td { background: #ffffff; }
 .rcv-row-odd  td { background: #f9fafb; }
-.rcv-pivot-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; font-size: 0.83rem; }
-.rcv-pivot-table tr:not(.rcv-group-header):hover td { background: #f0f9ff !important; }
+.rcv-pivot-table td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; font-size: 0.83rem; vertical-align: middle; }
+.rcv-pivot-table tr:not(.rcv-group-header):hover td { background: #f0fdf4 !important; }
 
-.rcv-sort-th {
-  cursor: pointer;
-  user-select: none;
-}
-.rcv-sort-th:hover { background: #e2e8f0; }
+.rcv-sort-th { cursor: pointer; user-select: none; }
+.rcv-sort-th:hover { background: #bbf7d0 !important; }
 
 .rcv-manager-cell {
   font-size: 0.82rem;
@@ -3242,8 +3240,8 @@ td {
 
 
 .rcv-pivot-table tr.rcv-group-header:hover td {
-  background: #047857 !important;
-  color: #ffffff !important;
+  background: #dcfce7 !important;
+  color: #14532d !important;
 }
 /* ── Dashboard (Home) ────────────────────────────────────────── */
 .dashboard-container {
@@ -3492,26 +3490,30 @@ td {
   top: 0;
   z-index: 10;
   background: #dbeafe;
+  color: #1e3a8a;
+  font-weight: 600;
   padding: 0 10px;
   line-height: 34px;
   height: 34px;
-  font-size: 0.82rem;
+  font-size: 0.79rem;
   white-space: nowrap;
-  border-right: 1px solid #93c5fd;
-  border-bottom: 2px solid #60a5fa;
+  border-right: 1px solid #bfdbfe;
+  border-bottom: 1px solid #93c5fd;
   vertical-align: middle;
 }
 
 /* 월 행 (tr:last-child): 연도행 34px 바로 아래 고정 */
 .payables-table-wrap table thead tr:last-child th {
   top: 34px;
+  background: #eff6ff;
+  color: #1e3a8a;
   line-height: 30px;
   height: 30px;
   border-bottom: none;
-  box-shadow: 0 3px 0 #1d4ed8;
+  box-shadow: 0 2px 0 #93c5fd;
 }
 
-/* 코너 셀 (선택/업체명): z-index 20은 .table-responsive thead .sticky-col 에서 처리 */
+/* 코너 셀 (선택/업체명) */
 .payables-table-wrap table thead th.sticky-col-1,
 .payables-table-wrap table thead th.sticky-col-2 {
   background: #dbeafe;
@@ -3524,7 +3526,18 @@ td {
 }
 .payables-table-wrap table tbody .group-header td.sticky-col-1,
 .payables-table-wrap table tbody .group-header td.sticky-col-2 {
-  background: #1e40af;
+  background: #eff6ff;
+}
+
+/* body td 기본 스타일 */
+.payables-table-wrap table tbody td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.83rem;
+  vertical-align: middle;
+}
+.payables-table-wrap table tbody tr:not(.group-header):hover td {
+  background: #eff6ff !important;
 }
 
 /* group-header colspan=2 셀: 수평 고정 */
