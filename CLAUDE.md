@@ -240,6 +240,43 @@ availableFunds = {
 
 ## 버그 수정 이력
 
+### 2026-04-30 (2): 미수금/미지급 그룹 행 금액 셀 짙은 색 제거
+
+**증상:** 미수금 그룹 집계 행(말일, 60일 등) 금액 셀이 짙은 녹색/파란색 배경 → 숫자 안 보임
+
+**원인:** `style.css`에 남아있던 구 스타일:
+- `.group-summary-cell { background: #1e3a8a }` (진한 파랑 — 미지급)
+- `.group-total-cell { background: #172554 }` (거의 검정 — 미지급)
+- `.rcv-group-header .group-summary-cell { background: #064e3b }` (짙은 녹색 — 미수금)
+- `.rcv-group-header .group-total-cell { background: #022c22 }` (거의 검정 — 미수금)
+
+**수정 (`style.css`):**
+- 미지급: `#dbeafe` / `#bfdbfe` (연한 파랑) + `#1e40af` / `#1e3a8a` 텍스트
+- 미수금: `#dcfce7` / `#bbf7d0` (연한 녹색) + `#14532d` / `#065f46` 텍스트
+- `.group-summary-cell.year-summary-column`: `#bfdbfe` / `#1e3a8a`
+- commit: `0269783`
+
+---
+
+### 2026-04-30 (1): 미수금/미지급 표 비주얼 전면 개편 + 버그 수정
+
+**변경 내용:**
+1. **sticky 헤더 전면 재작성** — `border-collapse: collapse` → `separate; border-spacing:0`
+   - 연도 행: `top:0; height:34px` (CSS 고정, JS 측정 제거)
+   - 월 행: `top:34px; height:30px` (CSS 고정)
+   - 코너 셀: `z-index:20`, 고정 양방향
+   - `fixStickyHeaderOffsets()` 함수 삭제 (JS 측정 방식 제거)
+2. **연도 기준 컬럼 음영** — index 기반 → year-index 기반으로 변경
+   - `mkcls(mk)` (미수금), `dkcls(dk)` (미지급): 같은 연도 = 같은 색
+3. **결제일 배지 미정 버그 수정** — 날짜 설정해도 "미정"으로 표시되던 문제
+   - `nextStatus = nextPlanValue ? "예정" : "미정"` (기존: 항상 "미정")
+   - `planLabel`: `cellPlanValue` 먼저 체크 후 `isMijeong` 체크 순서로 변경
+4. **그룹 헤더 색상 경량화** — 진한 색 → 파스텔 그린/블루 + 좌측 3px 액센트 선
+5. **컬럼 줄무늬 제거** → 행 단위 zebra striping으로 통일
+- commit: `188c9de`
+
+---
+
 ### 2026-04-27 (4): 가용자금 탭 요약 카드 추가 + 구매자금 B2B 참고로 이동
 
 - 가용자금 탭 상단에 요약 카드 그리드 추가 (①계좌 / ②B2B사용가능 / ③전자채권 / ④전자어음 / 합계)
@@ -308,6 +345,13 @@ availableFunds = {
 ---
 
 ## ⚠️ 미해결 이슈
+
+### 거래처코드 앞자리 0 소실 문제
+- Excel 파싱 시 `00101` → `101`로 저장됨
+- **원인**: XLSX.js가 숫자처럼 보이는 셀을 number 타입으로 파싱 → 앞자리 0 소실
+- **영향 범위**: `matchVendorEntry()` 코드 매칭, 미수금/미지급/대사 탭 거래처 연결 전반
+- **수정 방향**: 파서에서 코드 컬럼은 `String(val).padStart(원본길이)` 또는 `{t:'s'}` 강제 적용
+- **다음 작업**: `parseLedgerFile`, `parseTaxInvoiceFile`, `parseVendorMasterFile` 내 코드 컬럼 파싱 수정
 
 ### 업체마스터 중복 문제
 - Google Sheets `업체마스터` 시트에 동일 업체가 중복으로 쌓이고 있음
