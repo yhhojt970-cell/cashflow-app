@@ -4619,10 +4619,10 @@ function ensureAutoPaymentPlans() {
   payables.forEach(item => {
     const auto = getItemAutoPayDate(item);
     if (!auto) return; // 계산 불가한 항목은 건드리지 않음
-    // 사용자가 날짜를 직접 변경한 경우만 보호 (보류=특정날짜지정, 완료=결제완료)
-    // "예정"은 자동계산 날짜 위에 눌린 것이므로 재계산 적용
     const status = (item.completionStatus || "").trim();
-    const isManuallySet = status === "보류" || status === "완료" || status === "미정";
+    // 보류/완료/미정 은 항상 보호. 예정이라도 사용자가 자동값과 다른 날짜를 직접 지정했으면 보호.
+    const isManuallySet = status === "보류" || status === "완료" || status === "미정" ||
+      (item.paymentPlan && item.paymentPlan !== auto);
     if (!isManuallySet) {
       item.paymentPlan = auto;
     }
