@@ -1398,7 +1398,7 @@ function parseVendorMasterSheetRows(rows) {
         거래처코드_norm: normalizeVendorCode(vendorCodeRaw || row["거래처코드_norm"] || ""),
         거래처명: String(row["거래처명"] || ""),
         거래처분류: String(row["거래처분류"] || ""),
-        거래처구분: String(row["거래처구분"] || ""),
+        거래처구분: String(row["거래처구분"] || row["거래처구분코드"] || ""),
         대표자명: String(row["대표자명"] || ""),
         사업자번호: normalizeBusinessNumber(businessNumber),
         전화번호: String(row["전화번호"] || ""),
@@ -2472,19 +2472,25 @@ async function saveVendorMasterRows() {
   }
 
   vendorMasterState.saving = true;
-  vendorMasterState.lastMessage = "업체마스터 저장 중...";
   renderVendorMasterPanel();
   try {
-    await postSheetWebApp("upsertVendorMaster", {
-      sheetName: MASTER_SHEET_NAME,
-      rows: targetRows,
-    });
+    const BATCH = 200;
+    const total = targetRows.length;
+    for (let i = 0; i < total; i += BATCH) {
+      const batch = targetRows.slice(i, i + BATCH);
+      vendorMasterState.lastMessage = `저장 중… ${Math.min(i + BATCH, total)} / ${total}건`;
+      renderVendorMasterPanel();
+      await postSheetWebApp("upsertVendorMaster", {
+        sheetName: MASTER_SHEET_NAME,
+        rows: batch,
+      });
+    }
     setVendorMasterRows([
       ...vendorMasterState.rows.filter(existing => !targetRows.some(next => getVendorMatchKey(next) === getVendorMatchKey(existing))),
       ...targetRows,
     ]);
     enrichPayablesWithVendorMaster();
-    vendorMasterState.lastMessage = `${targetRows.length}건을 업체마스터에 반영했습니다.`;
+    vendorMasterState.lastMessage = `${total}건을 업체마스터에 반영했습니다.`;
   } catch (error) {
     vendorMasterState.lastMessage = `저장 실패: ${error.message}`;
   } finally {
@@ -2508,19 +2514,17 @@ async function handleVendorMasterFile(file) {
   // ── 업체마스터 (미지급) ─────────────────────────────────
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   const allImportedRows = parseVendorMasterSheetRows(rawRows);
   const existingRows = parseVendorMasterSheetRows(await fetchVendorMasterRowsFromApi());
-  const existingCodes = new Set(existingRows.map(r => r.거래처코드_norm).filter(Boolean));
-  // 이미 마스터에 등록된 코드만 업데이트 대상으로
-  const importedRows = allImportedRows.filter(r => existingCodes.has(r.거래처코드_norm));
-  const { comparedRows, stats } = diffVendorMasterRows(existingRows, importedRows);
+  // 신규 + 기존 모두 upsert 대상 (전체 마스터 갱신)
+  const { comparedRows, stats } = diffVendorMasterRows(existingRows, allImportedRows);
 
-  vendorMasterState.importedRows = importedRows;
+  vendorMasterState.importedRows = allImportedRows;
   vendorMasterState.comparedRows = comparedRows;
   vendorMasterState.stats = stats;
   vendorMasterState.lastFileName = file.name;
-  vendorMasterState.lastMessage = `파일 ${allImportedRows.length}건 중 마스터 등록 ${importedRows.length}건 비교 완료.`;
+  vendorMasterState.lastMessage = `파일 ${allImportedRows.length}건 비교 완료 (신규 ${stats.added}건 / 변경 ${stats.updated}건 / 동일 ${stats.same}건).`;
   renderVendorMasterPanel();
 
   // ── 담당자 마스터 (미수금) ───────────────────────────────
