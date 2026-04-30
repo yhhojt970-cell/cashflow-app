@@ -2453,11 +2453,10 @@ async function saveVendorMasterRows() {
       const r = item.row;
       return {
         ...r,
-        // 중요 식별자 및 숫자 필드에 ' 접두사 추가하여 시트에서 텍스트로 보존 (0 누락 방지)
-        vendor_id: r.vendor_id ? (r.vendor_id.startsWith("'") ? r.vendor_id : "'" + r.vendor_id) : "",
-        거래처코드_norm: r.거래처코드_norm ? (r.거래처코드_norm.startsWith("'") ? r.거래처코드_norm : "'" + r.거래처코드_norm) : "",
-        사업자번호: r.사업자번호 ? (r.사업자번호.startsWith("'") ? r.사업자번호 : "'" + r.사업자번호) : "",
-        계좌번호: r.계좌번호 ? (r.계좌번호.startsWith("'") ? r.계좌번호 : "'" + r.계좌번호) : "",
+        vendor_id: r.vendor_id || "",
+        거래처코드_norm: r.거래처코드_norm || "",
+        사업자번호: r.사업자번호 || "",
+        계좌번호: r.계좌번호 || "",
         active_yn: "Y",
         last_imported_at: new Date().toISOString(),
         last_changed_at: item.kind === "updated" ? new Date().toISOString() : "",
