@@ -1840,6 +1840,9 @@ async function markPlanAsCompleted(planKey = "__total__") {
     throw new Error(`결제이력 저장 실패: ${error.message}`);
   }
 
+  // 로컬 결제이력에도 즉시 반영 (새로고침 없이 완료 보고서에서 볼 수 있도록)
+  paymentHistoryState.rows = [...paymentHistoryState.rows, ...historyRows];
+
   targetItems.forEach(item => {
     item.paidOverride = getPayableEffectivePaid(item) + Number(item.decisionAmount || 0);
     item.decisionAmount = 0;
@@ -4911,6 +4914,7 @@ function renderPayables() {
           <div class="payable-table-actions">
             <button type="button" class="table-action-button subtle" data-action="expand-all">전체 펼치기</button>
             <button type="button" class="table-action-button subtle" data-action="collapse-all">전체 접기</button>
+            <button type="button" class="table-action-button subtle" id="completedReportBtn">✅ 완료 보고서</button>
           </div>
         </div>
       </div>
@@ -5008,6 +5012,10 @@ function renderPayables() {
       });
       rerenderAll();
     });
+  });
+
+  document.getElementById("completedReportBtn")?.addEventListener("click", () => {
+    openCompletedReportModal();
   });
 
   document.querySelectorAll(".amount-original-button").forEach(button => {
