@@ -2500,16 +2500,18 @@ async function saveVendorMasterRows() {
   vendorMasterState.saving = true;
   renderVendorMasterPanel();
   try {
-    const BATCH = 200;
+    const BATCH = 1000;
+    const PARALLEL = 3;
     const total = targetRows.length;
-    for (let i = 0; i < total; i += BATCH) {
-      const batch = targetRows.slice(i, i + BATCH);
-      vendorMasterState.lastMessage = `저장 중… ${Math.min(i + BATCH, total)} / ${total}건`;
+    const batches = [];
+    for (let i = 0; i < total; i += BATCH) batches.push(targetRows.slice(i, i + BATCH));
+    let saved = 0;
+    for (let i = 0; i < batches.length; i += PARALLEL) {
+      const group = batches.slice(i, i + PARALLEL);
+      vendorMasterState.lastMessage = `저장 중… ${saved} / ${total}건`;
       renderVendorMasterPanel();
-      await postSheetWebApp("upsertVendorMaster", {
-        sheetName: MASTER_SHEET_NAME,
-        rows: batch,
-      });
+      await Promise.all(group.map(b => postSheetWebApp("upsertVendorMaster", { sheetName: MASTER_SHEET_NAME, rows: b })));
+      saved += group.reduce((s, b) => s + b.length, 0);
     }
     setVendorMasterRows([
       ...vendorMasterState.rows.filter(existing => !targetRows.some(next => getVendorMatchKey(next) === getVendorMatchKey(existing))),
@@ -2624,19 +2626,24 @@ async function importVendorsFromLedger() {
       return;
     }
 
-    // 200건씩 배치 저장
-    const BATCH = 200;
+    const BATCH = 1000;
+    const PARALLEL = 3;
     const total = newRows.length;
-    for (let i = 0; i < total; i += BATCH) {
-      setLabel(`저장 중… ${Math.min(i + BATCH, total)}/${total}`);
-      const batch = newRows.slice(i, i + BATCH).map(r => ({
-        ...r,
-        vendor_id: r.거래처코드_norm,
-        사업자번호: "",
-        active_yn: "Y",
-        last_imported_at: new Date().toISOString(),
-      }));
-      await postSheetWebApp("upsertVendorMaster", { sheetName: MASTER_SHEET_NAME, rows: batch });
+    const mappedRows = newRows.map(r => ({
+      ...r,
+      vendor_id: r.거래처코드_norm,
+      사업자번호: "",
+      active_yn: "Y",
+      last_imported_at: new Date().toISOString(),
+    }));
+    const batches = [];
+    for (let i = 0; i < total; i += BATCH) batches.push(mappedRows.slice(i, i + BATCH));
+    let saved = 0;
+    for (let i = 0; i < batches.length; i += PARALLEL) {
+      const group = batches.slice(i, i + PARALLEL);
+      setLabel(`저장 중… ${saved}/${total}`);
+      await Promise.all(group.map(b => postSheetWebApp("upsertVendorMaster", { sheetName: MASTER_SHEET_NAME, rows: b })));
+      saved += group.reduce((s, b) => s + b.length, 0);
     }
 
     // 메모리 갱신
