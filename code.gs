@@ -80,7 +80,7 @@ function doPost(e) {
     return jsonOutput({ ok: true, count: (body.rows||[]).length });
   }
   if (action === "upsertVendorMaster") {
-    upsertRowsByKey(MASTER_SHEET, "거래처코드_norm", Array.isArray(body.rows) ? body.rows : []);
+    upsertVendorMasterRows(MASTER_SHEET, Array.isArray(body.rows) ? body.rows : []);
     return jsonOutput({ ok: true, count: (body.rows||[]).length });
   }
   if (action === "appendPaymentHistory") {
@@ -593,6 +593,71 @@ function upsertRowsByKey(sheetName, keyField, rows) {
   if (newRows.length > 0) {
     sheet.getRange(lastRow + 1, 1, newRows.length, headers.length).setValues(newRows);
   }
+}
+
+// 업체마스터 전용 upsert: 거래처코드_norm → 사업자번호 → 거래처명 복합키
+function upsertVendorMasterRows(sheetName, newRows) {
+  if (!newRows.length) return;
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+  const lastRow = sheet.getLastRow();
+
+  function normCode(v) { return String(v ?? "").trim().replace(/^0+(\d)/, "$1"); }
+  function normBiz(v)  { return String(v ?? "").trim().replace(/[^0-9]/g, ""); }
+  function getKey(row) {
+    const code = normCode(row["거래처코드_norm"] || "");
+    const biz  = normBiz(row["사업자번호"] || "");
+    const name = String(row["거래처명"] || "").trim();
+    return code || biz || name || "";
+  }
+
+  if (lastRow === 0) {
+    const headers = Object.keys(newRows[0]);
+    const body = newRows.map(row => headers.map(h => row[h] ?? ""));
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(2, 1, body.length, headers.length).setValues(body);
+    return;
+  }
+
+  const lastCol = sheet.getLastColumn();
+  const currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v).trim());
+  const incomingHeaders = Object.keys(newRows[0]);
+  const headers = [...currentHeaders];
+  incomingHeaders.forEach(h => { if (!headers.includes(h)) headers.push(h); });
+  if (headers.length !== currentHeaders.length)
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const existingRaw = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, currentHeaders.length).getValues()
+    : [];
+  const existingData = existingRaw.map(r => headers.map((_, i) => r[i] !== undefined ? r[i] : ""));
+
+  // 기존 행을 복합키로 인덱싱
+  const existingKeyMap = new Map();
+  existingData.forEach((row, idx) => {
+    const rowObj = {};
+    headers.forEach((h, i) => { rowObj[h] = row[i]; });
+    const key = getKey(rowObj);
+    if (key && !existingKeyMap.has(key)) existingKeyMap.set(key, idx);
+  });
+
+  const toAppend = [];
+  newRows.forEach(row => {
+    const key = getKey(row);
+    if (!key) return;
+    const values = headers.map(h => row[h] ?? "");
+    if (existingKeyMap.has(key)) {
+      existingData[existingKeyMap.get(key)] = values;
+    } else {
+      existingKeyMap.set(key, -1);
+      toAppend.push(values);
+    }
+  });
+
+  if (existingData.length > 0)
+    sheet.getRange(2, 1, existingData.length, headers.length).setValues(existingData);
+  if (toAppend.length > 0)
+    sheet.getRange(lastRow + 1, 1, toAppend.length, headers.length).setValues(toAppend);
 }
 
 function appendRows(sheetName, rows) {

@@ -7450,6 +7450,12 @@ function renderDaesaTab() {
       return v.name.toLowerCase().includes(q) || code.toLowerCase().includes(q);
     });
 
+  // 마스터 미등록 업체 감지
+  const unmappedInPeriod = [...daesaMap.entries()]
+    .filter(([, v]) => v.name.startsWith("[마스터없음]") && v.months[ym]);
+  const unmappedNames = [...new Set(unmappedInPeriod.map(([, v]) => v.name.replace("[마스터없음] ", "")))];
+
+
   // 정렬 수행
   vendorEntries.sort((a, b) => {
     const v1 = a[1], v2 = b[1];
@@ -7552,7 +7558,16 @@ function renderDaesaTab() {
     return daesaSortState.dir === "asc" ? '<span class="sort-arrow">↑</span>' : '<span class="sort-arrow">↓</span>';
   }
 
+  const unmappedBanner = unmappedNames.length
+    ? `<div class="daesa-unmapped-banner">
+        <span class="daesa-unmapped-icon">⚠️</span>
+        <span><strong>업체마스터 미등록 ${unmappedNames.length}개</strong>: ${unmappedNames.map(n => `<em>${escapeHtml(n)}</em>`).join(", ")}</span>
+        <span class="daesa-unmapped-hint">→ <strong>🛠 마스터 관리</strong>에서 업체마스터를 등록하면 같은 업체가 한 줄로 합쳐집니다.</span>
+      </div>`
+    : "";
+
   section.innerHTML = `
+    ${unmappedBanner}
     <div class="daesa-toolbar">
       <select id="daesaYearFilter">${yearOpts}</select>
       <select id="daesaMonthFilter">${monthOpts}</select>
