@@ -3704,7 +3704,21 @@ function switchTab(tabId) {
     content.classList.toggle("active", content.id === tabId);
   });
 
-  if (tabId === "mauto") renderMautoTab();
+  if (tabId === "mauto") {
+    renderMautoTab();
+    if (SHEET_APP_SCRIPT_URL) {
+      loadMautoDataRemote().then(remote => {
+        if (!remote) {
+          // 구글시트에 데이터 없음 → 현재 로컬 데이터를 업로드
+          _scheduleMautoRemoteSave();
+          return;
+        }
+        mautoData = normalizeMautoData(remote);
+        try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
+        renderMautoTab();
+      }).catch(e => console.warn("[엠오토] 원격 로드 실패:", e));
+    }
+  }
 
   // 탭 이동 시 스크롤 상단으로
   window.scrollTo(0, 0);
@@ -6050,6 +6064,7 @@ function normalizeMautoData(data) {
 function saveMautoDataLocal() {
   try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); }
   catch (e) { console.warn("[엠오토] 저장 실패:", e); }
+  _scheduleMautoRemoteSave();
 }
 
 function loadMautoDataLocal() {
@@ -6059,6 +6074,33 @@ function loadMautoDataLocal() {
   } catch (e) {
     mautoData = createDefaultMautoData();
   }
+}
+
+// ── 엠오토 Google Sheets 원격 저장/로드 ──────────────────────
+let _mautoSaveTimer = null;
+function _scheduleMautoRemoteSave() {
+  if (!SHEET_APP_SCRIPT_URL) return;
+  clearTimeout(_mautoSaveTimer);
+  _mautoSaveTimer = setTimeout(async () => {
+    try {
+      await postSheetWebApp("saveMautoData", { data: mautoData });
+    } catch (e) {
+      console.warn("[엠오토] 구글시트 저장 실패:", e);
+    }
+  }, 1500);
+}
+
+async function loadMautoDataRemote() {
+  if (!SHEET_APP_SCRIPT_URL) return null;
+  const url = new URL(SHEET_APP_SCRIPT_URL);
+  const token = getApiToken();
+  if (token) url.searchParams.set("token", token);
+  url.searchParams.set("action", "getMautoData");
+  const resp = await fetch(url.toString());
+  if (!resp.ok) throw new Error(`엠오토 원격 로드 실패: ${resp.status}`);
+  const body = await resp.json();
+  if (body && body.data) return body.data;
+  return null;
 }
 
 function splitMautoPasteRows(text) {
