@@ -50,6 +50,13 @@ function doGet(e) {
   if (action === "getDailySales")     return jsonOutput({ rows: getSheetRows(DAILY_SALES_SHEET) });
   if (action === "getBizDivision")    return jsonOutput({ rows: getSheetRows(BIZ_DIVISION_SHEET) });
   if (action === "getFixed")          return jsonOutput({ rows: getSheetRows(FIXED_SHEET) });
+  if (action === "getMautoData") {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sh = ss.getSheetByName("엠오토_json");
+    if (!sh || !sh.getRange("A1").getValue())
+      return jsonOutput({ data: null });
+    return jsonOutput({ data: JSON.parse(sh.getRange("A1").getValue()) });
+  }
   if (action === "getAvailableFundsJson") {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sh = ss.getSheetByName("가용자금_json");
@@ -115,6 +122,13 @@ function doPost(e) {
   if (action === "upsertBizDivision") {
     upsertRowsByKey(BIZ_DIVISION_SHEET, "_row_key", Array.isArray(body.rows) ? body.rows : []);
     return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "saveMautoData") {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    let sh = ss.getSheetByName("엠오토_json");
+    if (!sh) sh = ss.insertSheet("엠오토_json");
+    sh.getRange("A1").setValue(JSON.stringify(body.data));
+    return jsonOutput({ ok: true });
   }
   if (action === "upsertAvailableFunds") {
     const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -520,10 +534,11 @@ function upsertRowsByKey(sheetName, keyField, rows) {
     return String(k ?? "").trim().replace(/^'+/, "").replace(/^0+(\d)/, "$1");
   }
 
+  // 시트가 비어있으면 헤더+전체 데이터 한 번에 쓰기
   if (lastRow === 0) {
     const headers = Object.keys(rows[0]);
+    const body = rows.map(row => headers.map(h => row[h] ?? ""));
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    const body = rows.map(row => headers.map(header => row[header] ?? ""));
     sheet.getRange(2, 1, body.length, headers.length).setValues(body);
     return;
   }
@@ -533,39 +548,51 @@ function upsertRowsByKey(sheetName, keyField, rows) {
   const incomingHeaders = Object.keys(rows[0]);
   const headers = [...currentHeaders];
 
-  incomingHeaders.forEach(header => {
-    if (!headers.includes(header)) headers.push(header);
-  });
+  incomingHeaders.forEach(h => { if (!headers.includes(h)) headers.push(h); });
 
   if (headers.length !== currentHeaders.length) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
-
-  const keyIndex = headers.indexOf(keyField);
-  if (keyIndex === -1) {
+  if (headers.indexOf(keyField) === -1) {
     headers.push(keyField);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
 
-  const existingData = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, currentHeaders.length).getValues() : [];
+  // 기존 데이터를 메모리에 한 번에 로드
+  const curKeyIdx = currentHeaders.indexOf(keyField);
+  const existingRaw = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, currentHeaders.length).getValues()
+    : [];
+
+  // headers 길이로 패딩하면서 Map 구성
+  const existingData = existingRaw.map(r => headers.map((_, i) => (r[i] !== undefined ? r[i] : "")));
   const existingMap = {};
-  existingData.forEach((row, index) => {
-    const rowObject = {};
-    currentHeaders.forEach((header, i) => { rowObject[header] = row[i]; });
-    const key = normKey(rowObject[keyField]);
-    if (key) existingMap[key] = index + 2;
+  existingData.forEach((row, idx) => {
+    const key = normKey(row[curKeyIdx !== -1 ? curKeyIdx : headers.indexOf(keyField)]);
+    if (key) existingMap[key] = idx;
   });
 
+  // 메모리에서 upsert: API 호출 없이 배열만 수정
+  const newRows = [];
   rows.forEach(row => {
     const key = normKey(row[keyField]);
     if (!key) return;
-    const values = headers.map(header => row[header] ?? "");
-    if (existingMap[key]) {
-      sheet.getRange(existingMap[key], 1, 1, headers.length).setValues([values]);
+    const values = headers.map(h => row[h] ?? "");
+    if (existingMap[key] !== undefined) {
+      existingData[existingMap[key]] = values;  // 기존 행 메모리 업데이트
     } else {
-      sheet.appendRow(values);
+      newRows.push(values);
     }
   });
+
+  // 일괄 쓰기: 기존 행 전체를 setValues 한 번으로 처리
+  if (existingData.length > 0) {
+    sheet.getRange(2, 1, existingData.length, headers.length).setValues(existingData);
+  }
+  // 일괄 쓰기: 새 행 추가도 setValues 한 번으로 처리
+  if (newRows.length > 0) {
+    sheet.getRange(lastRow + 1, 1, newRows.length, headers.length).setValues(newRows);
+  }
 }
 
 function appendRows(sheetName, rows) {
