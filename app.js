@@ -3709,8 +3709,10 @@ function switchTab(tabId) {
     if (SHEET_APP_SCRIPT_URL) {
       loadMautoDataRemote().then(remote => {
         if (!remote) {
-          // 구글시트에 데이터 없음 → 현재 로컬 데이터를 업로드
-          _scheduleMautoRemoteSave();
+          // 구글시트에 데이터 없음 → 로컬에 실제 데이터가 있을 때만 업로드 (빈 값으로 덮어쓰기 방지)
+          const hasLocalData = mautoData.funds.some(f => (f.amount || 0) > 0) ||
+            mautoData.receivables.length > 0 || mautoData.payables.length > 0 || mautoData.fixed.length > 0;
+          if (hasLocalData) _scheduleMautoRemoteSave();
           return;
         }
         mautoData = normalizeMautoData(remote);
@@ -6099,7 +6101,14 @@ async function loadMautoDataRemote() {
   const resp = await fetch(url.toString());
   if (!resp.ok) throw new Error(`엠오토 원격 로드 실패: ${resp.status}`);
   const body = await resp.json();
-  if (body && body.data) return body.data;
+  if (!body) return null;
+  // { data: {...} } 형식
+  if (body.data && typeof body.data === "object" && !Array.isArray(body.data)) return body.data;
+  // { rows: {...} } 형식
+  if (body.rows && typeof body.rows === "object" && !Array.isArray(body.rows)) return body.rows;
+  // 직접 객체 형식 (funds 키가 있으면 유효한 mauto 데이터)
+  if (body.funds !== undefined) return body;
+  console.warn("[엠오토] 원격 응답 형식 미인식:", JSON.stringify(body).slice(0, 200));
   return null;
 }
 
