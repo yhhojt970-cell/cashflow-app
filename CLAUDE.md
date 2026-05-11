@@ -21,6 +21,7 @@ Google Sheets 연동 + 로컬 Excel 붙여넣기 방식.
 | `payables` | 미지급 | Google Sheets `미지급_raw` 시트에서 로드 |
 | `fixed` | 고정지출 | Google Sheets `고정지출` 시트에서 로드 |
 | `daesa` | 대사 | 입출금 매칭 |
+| `mauto` | 엠오토 | 엠오토 전용 현금흐름 (가용자금·미수금·미지급·고정지출 붙여넣기, 구글시트 원격 저장/로드) |
 
 ---
 
@@ -239,6 +240,32 @@ availableFunds = {
 ---
 
 ## 버그 수정 이력
+
+### 2026-05-11: 엠오토 탭 — 다른 컴퓨터에서 구글시트 데이터 불러오기 실패
+
+**증상:** 데이터 입력 컴퓨터에서는 정상 저장, 다른 컴퓨터에서는 엠오토 탭이 항상 0/비어있음
+
+**원인 1 — 브라우저 캐시:**  
+`index.html`이 `app.js?v=20260430j`를 참조 중이어서 신규 코드가 배포돼도 다른 컴퓨터가 구버전을 캐시에서 로드.  
+→ 버전 쿼리를 `?v=20260511a`로 올려 강제 재다운로드.
+
+**원인 2 — `setupTabs()` 누락:**  
+탭 버튼 클릭은 `setupTabs()` 함수가 처리하는데, 여기서 `renderMautoTab()`만 호출하고 `loadMautoDataRemote()`가 없었음.  
+`switchTab()` (원격 로드 코드 위치)는 대시보드 카드 클릭·초기화에서만 호출되므로 탭 버튼 클릭과 무관.  
+→ `setupTabs()` 내 mauto 분기에 `loadMautoDataRemote()` 호출 추가.
+
+**원인 3 — 응답 형식 미인식:**  
+`loadMautoDataRemote()`가 `body.data` 형식만 허용. Apps Script가 다른 형식(`body.rows`, 직접 객체 등)으로 반환 시 항상 `null` 반환.  
+→ `body.data` → `body.rows` → `body.funds` 직접 순서로 다중 형식 처리.
+
+**원인 4 — 빈 데이터 덮어쓰기:**  
+원격 로드가 `null`이면 로컬(빈값) 데이터를 구글시트에 업로드하여 기존 데이터를 지웠음.  
+→ 로컬에 실제 데이터가 있을 때만 업로드하도록 수정.
+
+**수정 파일:** `app.js` (setupTabs, loadMautoDataRemote, switchTab), `index.html` (버전 쿼리)  
+**커밋:** `d8dbf47`, `d6cf99c`, `57d9857`, `7d153e7`
+
+---
 
 ### 2026-04-30 (2): 미수금/미지급 그룹 행 금액 셀 짙은 색 제거
 
