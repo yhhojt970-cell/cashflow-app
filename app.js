@@ -270,7 +270,7 @@ function isFuzzySame(v1, v2, field) {
   if (field === "사업자번호" || field === "계좌번호" || field === "거래처코드_norm" || field === "전화번호") {
     const n1 = s1.replace(/\D/g, "").replace(/^0+/, "");
     const n2 = s2.replace(/\D/g, "").replace(/^0+/, "");
-    if (n1 === n2 && n1 !== "") return true;
+    if (n1 === n2) return true;  // 둘 다 all-zero("0" vs "0000000000" 등)도 동일로 처리
   }
 
   // 대표자명/주소 등 일반 텍스트: '-', '0' 인 경우 공백과 동일하게 취급

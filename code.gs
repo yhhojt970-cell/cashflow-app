@@ -626,7 +626,7 @@ function upsertVendorMasterRows(sheetName, newRows) {
     const headers = Object.keys(newRows[0]);
     const body = newRows.map(row => headers.map(h => row[h] ?? ""));
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    ["거래처코드_norm", "거래처코드_raw", "vendor_id"].forEach(col => {
+    ["거래처코드_norm", "거래처코드_raw", "vendor_id", "사업자번호", "계좌번호"].forEach(col => {
       const ci = headers.indexOf(col);
       if (ci >= 0) sheet.getRange(2, ci + 1, body.length, 1).setNumberFormat("@");
     });
@@ -669,7 +669,7 @@ function upsertVendorMasterRows(sheetName, newRows) {
     }
   });
 
-  ["거래처코드_norm", "거래처코드_raw", "vendor_id"].forEach(col => {
+  ["거래처코드_norm", "거래처코드_raw", "vendor_id", "사업자번호", "계좌번호"].forEach(col => {
     const ci = headers.indexOf(col);
     if (ci >= 0) {
       if (existingData.length > 0) sheet.getRange(2, ci + 1, existingData.length, 1).setNumberFormat("@");
