@@ -6694,7 +6694,25 @@ function setupTabs() {
       });
       if (target === "daesa") renderDaesaTab();
       if (target === "fixed") renderFixedExpenses();
-      if (target === "mauto") renderMautoTab();
+      if (target === "mauto") {
+        renderMautoTab();
+        console.log("[엠오토] 탭 진입 — 원격 로드 시작 (setupTabs)");
+        if (SHEET_APP_SCRIPT_URL) {
+          loadMautoDataRemote().then(remote => {
+            console.log("[엠오토] 원격 응답:", remote === null ? "null" : JSON.stringify(remote).slice(0, 300));
+            if (!remote) {
+              const hasLocalData = mautoData.funds.some(f => (f.amount || 0) > 0) ||
+                mautoData.receivables.length > 0 || mautoData.payables.length > 0 || mautoData.fixed.length > 0;
+              if (hasLocalData) _scheduleMautoRemoteSave();
+              return;
+            }
+            mautoData = normalizeMautoData(remote);
+            console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
+            try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
+            renderMautoTab();
+          }).catch(e => console.warn("[엠오토] 원격 로드 실패:", e));
+        }
+      }
     });
   });
 }
