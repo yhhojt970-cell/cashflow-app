@@ -7035,25 +7035,39 @@ async function fetchApiRows(action) {
   return Array.isArray(body.rows) ? body.rows : (Array.isArray(body) ? body : []);
 }
 
+async function fetchDaesaAll() {
+  if (!SHEET_APP_SCRIPT_URL) throw new Error("Apps Script URL 없음");
+  const url = new URL(SHEET_APP_SCRIPT_URL);
+  url.searchParams.set("action", "getDaesaAll");
+  const token = getApiToken();
+  if (token) url.searchParams.set("token", token);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`대사 데이터 조회 실패: ${res.status}`);
+  const body = await res.json();
+  const arr = k => Array.isArray(body[k]) ? body[k] : [];
+  return {
+    taxInvoices:    arr("taxInvoices"),
+    ledgerSales:    arr("ledgerSales"),
+    ledgerPurchase: arr("ledgerPurchase"),
+    ledgerPayable:  arr("ledgerPayable"),
+    dailySales:     arr("dailySales"),
+    bizDivision:    arr("bizDivision"),
+  };
+}
+
 async function loadDaesaData() {
   if (daesaState.loading) return;
   daesaState.loading = true;
   daesaState.error = null;
   renderDaesaTab();
   try {
-    const [tax, lSales, lPurchase, lPayable, daily, bizDiv] = await Promise.all([
-      fetchApiRows("getTaxInvoices"),
-      fetchApiRows("getLedgerSales"),
-      fetchApiRows("getLedgerPurchase"),
-      fetchApiRows("getLedgerPayable"),
-      fetchApiRows("getDailySales"),
-      fetchApiRows("getBizDivision").catch(() => []),  // 없으면 빈 배열
-    ]);
-    daesaState.taxInvoices = tax;
-    daesaState.ledgerSales = lSales;
-    daesaState.ledgerPurchase = lPurchase;
-    daesaState.ledgerPayable = lPayable;
-    daesaState.dailySales = daily;
+    const all = await fetchDaesaAll();
+    daesaState.taxInvoices = all.taxInvoices;
+    daesaState.ledgerSales = all.ledgerSales;
+    daesaState.ledgerPurchase = all.ledgerPurchase;
+    daesaState.ledgerPayable = all.ledgerPayable;
+    daesaState.dailySales = all.dailySales;
+    const bizDiv = all.bizDivision;
     // 사업부문 마스터 로드 (시트에 저장된 경우)
     if (Array.isArray(bizDiv) && bizDiv.length) {
       const allHeaders = Object.keys(bizDiv[0] || {});

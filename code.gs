@@ -50,6 +50,17 @@ function doGet(e) {
   if (action === "getDailySales")     return jsonOutput({ rows: getSheetRows(DAILY_SALES_SHEET) });
   if (action === "getBizDivision")    return jsonOutput({ rows: getSheetRows(BIZ_DIVISION_SHEET) });
   if (action === "getFixed")          return jsonOutput({ rows: getSheetRows(FIXED_SHEET) });
+  if (action === "getDaesaAll") {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    return jsonOutput({
+      taxInvoices:    getSheetRows(TAX_INVOICE_SHEET,  ss),
+      ledgerSales:    getSheetRows(LEDGER_SALES_SHEET, ss),
+      ledgerPurchase: getSheetRows(LEDGER_BUY_SHEET,   ss),
+      ledgerPayable:  getSheetRows(LEDGER_PAY_SHEET,   ss),
+      dailySales:     getSheetRows(DAILY_SALES_SHEET,  ss),
+      bizDivision:    getSheetRows(BIZ_DIVISION_SHEET, ss),
+    });
+  }
   if (action === "getMautoData") {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sh = ss.getSheetByName("엠오토_json");
@@ -495,8 +506,8 @@ function handleSendRawDiffEmail(params) {
   return { ok: true, sentCount };
 }
 
-function getSheetRows(sheetName) {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+function getSheetRows(sheetName, ss) {
+  ss = ss || SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet) return [];
   const values = sheet.getDataRange().getValues();
