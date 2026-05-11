@@ -8183,13 +8183,18 @@ function renderDataImportPanel() {
       renderDataImportPanel();
       try {
         const { action, ...extra } = DATA_IMPORT_ACTIONS[key];
-        const BATCH = 200;
+        const BATCH = 1000;
+        const PARALLEL = 3;
         const total = rowsToSave.length;
-        for (let i = 0; i < total; i += BATCH) {
-          const batch = rowsToSave.slice(i, i + BATCH);
-          sec.status = `저장 중… ${Math.min(i + BATCH, total)} / ${total}건`;
+        const batches = [];
+        for (let i = 0; i < total; i += BATCH) batches.push(rowsToSave.slice(i, i + BATCH));
+        let saved = 0;
+        for (let i = 0; i < batches.length; i += PARALLEL) {
+          const group = batches.slice(i, i + PARALLEL);
+          sec.status = `저장 중… ${saved} / ${total}건`;
           renderDataImportPanel();
-          await postSheetWebApp(action, { rows: batch, ...extra });
+          await Promise.all(group.map(b => postSheetWebApp(action, { rows: b, ...extra })));
+          saved += group.reduce((sum, b) => sum + b.length, 0);
         }
         const matchedCount = rowsToSave.filter(r => r._matched_code).length;
         sec.status = `✓ ${total}건 저장 완료 (매칭 ${matchedCount}건 / 미매칭 ${total - matchedCount}건)`;
