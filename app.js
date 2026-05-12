@@ -8518,8 +8518,26 @@ function renderPnlTab() {
 
 // ── Excel 일괄입력 파서 ────────────────────────────────────────
 
+// 셀 하나에서 월(1~12) 추출. "1월"/"01월"/Date 객체/숫자 1~12 모두 처리
+function _cellToMonth(c) {
+  if (c instanceof Date && !isNaN(c)) return c.getMonth() + 1;
+  const s = String(c).trim();
+  const m = s.match(/^0?(\d{1,2})\s*월$/);
+  if (m) { const n = parseInt(m[1]); if (n >= 1 && n <= 12) return n; }
+  return null;
+}
+
+// ERP 행 레이블 정규화: 공백·점·중간점 제거, 전각 → 반각 변환, 숫자 접미사 제거
+function _normLabel(s) {
+  return String(s ?? "").trim()
+    .replace(/[Ⅰ]/g, "I").replace(/[Ⅱ]/g, "II").replace(/[Ⅲ]/g, "III")
+    .replace(/[Ⅳ]/g, "IV").replace(/[Ⅴ]/g, "V").replace(/[Ⅵ]/g, "VI")
+    .replace(/[Ⅶ]/g, "VII").replace(/[Ⅷ]/g, "VIII").replace(/[Ⅸ]/g, "IX")
+    .replace(/[·\s.]/g, "")  // 공백·점 제거
+    .replace(/\d+$/, "");     // 후행 숫자(ERP 코드) 제거
+}
+
 function _parsePnlMonthSheet(wb, rowFinders) {
-  // 우선 시트명 탐색, 없으면 첫 번째 시트
   const sheetName = wb.SheetNames.find(n =>
     n.includes("손익") || n.includes("원가") || n.includes("계산서") || n.includes("명세서")
   ) || wb.SheetNames[0];
@@ -8530,21 +8548,22 @@ function _parsePnlMonthSheet(wb, rowFinders) {
   let monthCols = {};
   let labelCol  = 0;
 
-  for (let ri = 0; ri < Math.min(20, raw.length); ri++) {
+  for (let ri = 0; ri < Math.min(30, raw.length); ri++) {
     const row = raw[ri];
     const rowText = row.map(c => String(c)).join(" ");
-    // 연도 탐지
     const ym = rowText.match(/(\d{4})년/);
     if (ym && !detectedYear) detectedYear = parseInt(ym[1]);
-    // 헤더 행: 3개 이상 "X월" 패턴 포함
-    const mCount = row.filter(c => /^\d+월$/.test(String(c).trim())).length;
-    if (mCount >= 3) {
+
+    // 헤더 행: 3개 이상의 월 셀 포함 (텍스트·Date 객체 모두 처리)
+    const tmpMonthCols = {};
+    row.forEach((c, ci) => {
+      const m = _cellToMonth(c);
+      if (m) tmpMonthCols[m] = ci;
+    });
+    if (Object.keys(tmpMonthCols).length >= 3) {
       headerRowIdx = ri;
-      row.forEach((c, ci) => {
-        const m = String(c).trim().match(/^(\d+)월$/);
-        if (m) monthCols[parseInt(m[1])] = ci;
-        if (String(c).trim() === "과목") labelCol = ci;
-      });
+      monthCols = tmpMonthCols;
+      row.forEach((c, ci) => { if (String(c).trim() === "과목") labelCol = ci; });
       break;
     }
   }
@@ -8558,16 +8577,19 @@ function _parsePnlMonthSheet(wb, rowFinders) {
 
   for (let ri = headerRowIdx + 1; ri < raw.length; ri++) {
     const row = raw[ri];
-    const label = String(row[labelCol] ?? "").trim().replace(/\s+/g, " ");
-    if (!label) continue;
+    const rawLabel = String(row[labelCol] ?? "").trim().replace(/\s+/g, " ");
+    if (!rawLabel) continue;
+    const normLabel = _normLabel(rawLabel);
     for (const [field, matcher] of finderEntries) {
       if (found.has(field)) continue;
-      if (matcher(label)) {
+      if (matcher(rawLabel, normLabel)) {
         found.add(field);
         for (let m = 1; m <= 12; m++) {
           const ci = monthCols[m];
           if (ci == null) continue;
-          result[m][field] = parseFloat(String(row[ci] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+          const val = row[ci];
+          result[m][field] = (typeof val === "number") ? val
+            : parseFloat(String(val ?? "").replace(/[^0-9.-]/g, "")) || 0;
         }
         break;
       }
@@ -8577,18 +8599,29 @@ function _parsePnlMonthSheet(wb, rowFinders) {
   return { data: result, year: detectedYear };
 }
 
+// matcher(rawLabel, normLabel) 형태로 호출됨
 function parsePnlIncomeStatement(wb) {
   return _parsePnlMonthSheet(wb, {
-    revenue:  s => /^I\s*[\s.]+매출액/.test(s) || s === "매출액",
-    cogs:     s => /^II\s*[\s.]+매출원가/.test(s) || s === "매출원가",
-    sga:      s => (/^IV\s*[\s.]/.test(s) || s.startsWith("Ⅳ")) && (s.includes("판매비") || s.includes("판관비")),
-    interest: s => s.replace(/\d+$/, "").trim() === "이자비용" || s === "이자비용",
+    // "I.매출액" / "Ⅰ.매출액" / "매출액" 모두 허용, "상품매출" 등 하위 행 제외
+    revenue: (raw, norm) =>
+      (norm.startsWith("I매출액") || norm === "매출액") && !raw.includes("상품") && !raw.includes("제품"),
+    // "II.매출원가" / "Ⅱ.매출원가" / "매출원가"
+    cogs: (raw, norm) =>
+      norm.startsWith("II매출원가") || norm === "매출원가",
+    // "IV.판매비와관리비" 등
+    sga: (raw, norm) =>
+      norm.startsWith("IV") && (norm.includes("판매비") || norm.includes("판관비")),
+    // "이자비용" (ERP 접미 숫자 제거 후 일치)
+    interest: (raw, norm) =>
+      norm === "이자비용" && !raw.includes("수익"),
   });
 }
 
 function parsePnlCostStatement(wb) {
   return _parsePnlMonthSheet(wb, {
-    mfg: s => /^11\s*[\s.]+당기제품제조원가/.test(s) || s === "당기제품제조원가",
+    // "11.당기제품제조원가"
+    mfg: (raw, norm) =>
+      norm.startsWith("11당기제품제조원가") || norm === "당기제품제조원가",
   });
 }
 
