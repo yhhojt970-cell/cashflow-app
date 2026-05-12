@@ -922,13 +922,14 @@ function normalizeDueGroupLabel(label) {
   return s;
 }
 
-// raw 교체 시에도 살아남는 안정적 식별자 (금액/메모 제외)
+// raw 교체 시에도 살아남는 안정적 식별자 (금액/메모 제외, 납기그룹 포함)
 function buildPayableStableKey(item) {
   const code = normalizeVendorCode(item.codeNormalized || item.code || item.codeRaw || "");
   return [
     code,
     String(item.year || ""),
     String(item.month || "").padStart(2, "0"),
+    normalizeDueGroupLabel(item.dueCategory || ""),
   ].join("||");
 }
 
@@ -2803,13 +2804,23 @@ function applySavedPayablesState(items) {
   const savedMap = loadPayablesStateFromLocal();
   // stable_key 역인덱스: raw 교체 후 source_key가 달라져도 계획 복원
   const savedByStableKey = {};
+  // 구버전 3파트 stableKey 호환: null = 충돌(동일 거래처+연월 복수 그룹)이므로 무시
+  const savedByLegacyKey = {};
   Object.values(savedMap).forEach(v => {
-    if (v.stableKey && !savedByStableKey[v.stableKey]) savedByStableKey[v.stableKey] = v;
+    if (!v.stableKey) return;
+    if (!savedByStableKey[v.stableKey]) savedByStableKey[v.stableKey] = v;
+    const legacyKey = v.stableKey.split("||").slice(0, 3).join("||");
+    if (!(legacyKey in savedByLegacyKey)) savedByLegacyKey[legacyKey] = v;
+    else savedByLegacyKey[legacyKey] = null; // 충돌 → 사용 불가
   });
   return items.map(item => {
     const sourceKey = item.sourceKey || buildPayableSourceKey(item);
     const stableKey = buildPayableStableKey(item);
-    const saved = savedMap[sourceKey] || savedByStableKey[stableKey] || null;
+    const legacyKey = stableKey.split("||").slice(0, 3).join("||");
+    const saved = savedMap[sourceKey]
+      || savedByStableKey[stableKey]
+      || savedByLegacyKey[legacyKey]   // 구버전 저장 데이터 마이그레이션 폴백
+      || null;
     if (!saved) {
       return { ...item, sourceKey, stableKey };
     }
