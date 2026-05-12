@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>미래오토메이션(주) — 경영손익</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:    #0F1F3D;
+  --navy-md: #1B2E52;
+  --navy-lt: #2D4A7A;
+  --gold:    #C9A84C;
+  --gold-lt: #E8C97A;
+  --cream:   #F8F4EE;
+  --bg:      #F5F0E8;
+  --border:  #D4C5A9;
+  --green:   #196F3D;
+  --red:     #C0392B;
+  --muted:   #6B7280;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2E; min-height:100vh; }
+
+/* 툴바 */
+.toolbar {
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  background:var(--navy);
+  display:flex; align-items:center; gap:10px; padding:10px 20px;
+  box-shadow:0 2px 12px rgba(0,0,0,.4); flex-wrap:wrap;
+}
+.toolbar-title { color:var(--gold-lt); font-weight:700; font-size:14px; margin-right:6px; }
+.toolbar label { color:var(--gold-lt); font-size:12px; }
+.toolbar select, .toolbar input[type=number] {
+  background:var(--navy-md); border:1px solid var(--navy-lt);
+  color:#fff; padding:5px 9px; border-radius:6px; font-size:12px;
+}
+.toolbar .tab-btns { display:flex; gap:4px; margin-left:auto; }
+.toolbar .tab-btn {
+  padding:6px 14px; border-radius:6px; border:1px solid rgba(255,255,255,.2);
+  background:transparent; color:rgba(255,255,255,.7); font-size:12px; cursor:pointer;
+  transition:all .15s;
+}
+.toolbar .tab-btn.active { background:var(--gold); color:var(--navy); border-color:var(--gold); font-weight:700; }
+.toolbar .print-btn {
+  background:var(--gold); color:var(--navy); border:none;
+  padding:6px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;
+}
+
+/* 페이지 */
+.page { max-width:900px; margin:72px auto 40px; padding:0 16px; }
+
+/* 보고서 */
+.doc-header {
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy-md) 60%,var(--navy-lt) 100%);
+  border-radius:12px 12px 0 0; padding:40px 48px 32px; position:relative; overflow:hidden;
+}
+.doc-header::before {
+  content:''; position:absolute; top:-50px; right:-50px;
+  width:200px; height:200px; border:36px solid rgba(201,168,76,.1); border-radius:50%;
+}
+.company-badge {
+  display:inline-block; border:1px solid rgba(201,168,76,.5);
+  color:var(--gold-lt); font-size:10px; letter-spacing:3px; padding:3px 10px;
+  border-radius:20px; margin-bottom:14px;
+}
+.doc-title { font-family:'Noto Serif KR',serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:4px; }
+.doc-sub { font-size:12px; color:rgba(255,255,255,.5); letter-spacing:1px; }
+.meta-row { display:flex; gap:28px; margin-top:22px; flex-wrap:wrap; }
+.meta-item { display:flex; flex-direction:column; gap:2px; }
+.meta-lbl { font-size:9px; letter-spacing:2px; color:rgba(255,255,255,.4); text-transform:uppercase; }
+.meta-val { font-size:12px; color:var(--gold-lt); font-weight:500; }
+
+.doc-body { background:#fff; padding:40px 48px; border-radius:0 0 12px 12px; box-shadow:0 6px 32px rgba(0,0,0,.10); }
+.doc-footer { text-align:center; padding:12px; font-size:11px; color:var(--muted); letter-spacing:1px; border-top:1px solid #f1f5f9; background:#fff; }
+
+/* KPI */
+.kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:28px; }
+.kpi-card { border:1px solid var(--border); border-radius:10px; padding:18px 20px; background:var(--cream); }
+.kpi-card.hl { background:var(--navy); border-color:var(--navy); }
+.kpi-lbl { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+.hl .kpi-lbl { color:rgba(255,255,255,.5); }
+.kpi-val { font-family:'DM Mono',monospace; font-size:18px; font-weight:500; }
+.hl .kpi-val { color:#fff; }
+.kpi-unit { font-size:11px; color:var(--muted); margin-top:3px; }
+.hl .kpi-unit { color:rgba(255,255,255,.4); }
+.kpi-achieve { font-size:12px; font-weight:700; margin-top:4px; }
+.pos { color:var(--green)!important; }
+.neg { color:var(--red)!important; }
+.fr-total .pos { color:#A5D6A7!important; }
+.fr-total .neg { color:#FF8A80!important; }
+
+/* 섹션 */
+.section { margin-bottom:28px; }
+.sec-title {
+  display:flex; align-items:center; gap:10px;
+  font-family:'Noto Serif KR',serif; font-size:15px; font-weight:700; color:var(--navy);
+  margin-bottom:14px; padding-bottom:8px; border-bottom:2px solid var(--navy);
+}
+.sec-title small { font-size:11px; font-weight:400; color:var(--muted); margin-left:6px; font-family:inherit; }
+.sec-num {
+  width:24px; height:24px; border-radius:50%; background:var(--navy); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:700; flex-shrink:0;
+}
+
+/* 계산 플로우 */
+.flow { border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.fr { display:flex; justify-content:space-between; align-items:center; padding:11px 18px; border-bottom:1px solid var(--border); font-size:13px; }
+.fr:last-child { border-bottom:none; }
+.fr:hover { background:#fafafa; }
+.fr-lbl { display:flex; align-items:center; gap:6px; }
+.fr-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; }
+.fr-sub { background:#eef3ff; }
+.fr-sub .fr-lbl { font-weight:700; color:var(--navy); }
+.fr-total { background:var(--navy); }
+.fr-total .fr-lbl { color:#fff; font-weight:700; }
+.fr-total .fr-val { font-size:15px; }
+.fr-div { padding:4px 18px; background:var(--navy); font-size:10px; letter-spacing:2px; color:rgba(255,255,255,.5); }
+.indent .fr-lbl { padding-left:14px; color:var(--muted); font-size:12px; }
+.tag { font-size:10px; background:rgba(0,0,0,.05); padding:1px 5px; border-radius:10px; color:var(--muted); }
+.minus-s { color:var(--red); }
+.remark {
+  background:var(--cream); border-left:4px solid var(--gold);
+  border-radius:0 8px 8px 0; padding:12px 16px; margin-top:14px;
+  font-size:12px; line-height:1.7; color:#334155;
+}
+
+/* 비교 테이블 */
+.cmp-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+.cmp-tbl th { background:var(--navy); color:#fff; padding:9px 12px; text-align:center; font-size:12px; }
+.cmp-tbl th:first-child { text-align:left; border-radius:8px 0 0 0; }
+.cmp-tbl th:last-child { border-radius:0 8px 0 0; }
+.cmp-tbl td { padding:9px 12px; border-bottom:1px solid var(--border); text-align:right; font-family:'DM Mono',monospace; }
+.cmp-tbl td:first-child { text-align:left; font-family:inherit; font-weight:500; }
+.tr-sub td { background:#eef3ff; font-weight:700; }
+.tr-total td { background:var(--navy); color:#fff; font-weight:700; }
+
+/* 결재란 */
+.ap-grid { display:flex; border:1.5px solid var(--navy); border-radius:8px; overflow:hidden; }
+.ap-box { flex:1; padding:12px 10px; border-right:1px solid var(--navy); text-align:center; }
+.ap-box:last-child { border-right:none; }
+.ap-role { font-size:10px; letter-spacing:1px; color:var(--muted); margin-bottom:4px; }
+.ap-name { font-size:12px; font-weight:700; color:var(--navy); }
+.ap-date { font-size:10px; color:var(--muted); margin:4px 0; min-height:14px; }
+.stamp {
+  width:40px; height:40px; border-radius:50%; margin:6px auto 0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:700;
+}
+.stamp-empty    { border:2px dashed #cbd5e1; color:#cbd5e1; }
+.stamp-signed   { border:2px solid var(--navy); color:var(--navy); background:rgba(15,31,61,.05); }
+.stamp-approved { border:2px solid var(--red); color:var(--red); background:rgba(192,57,43,.05); }
+
+/* 대시보드 */
+#dashView { display:none; padding:0; }
+.dash-kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
+.dash-kpi { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px; }
+.dash-kpi-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
+.dash-kpi-val { font-family:'DM Mono',monospace; font-size:16px; font-weight:600; word-break:break-all; }
+.dash-kpi-sub { font-size:10px; color:var(--muted); margin-top:3px; }
+.charts-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+.chart-wide { grid-column:1/-1; }
+.chart-box { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px; }
+.chart-title { font-size:12px; font-weight:700; color:#334155; margin-bottom:8px; }
+.period-tabs { display:flex; gap:4px; margin-bottom:14px; }
+.pt-btn {
+  padding:5px 12px; border:1.5px solid #e2e8f0; border-radius:16px;
+  background:#fff; font-size:11px; font-weight:600; color:#334155; cursor:pointer;
+}
+.pt-btn.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+.dash-table-wrap { overflow-x:auto; }
+.dash-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.dash-tbl th { background:var(--navy); color:#fff; padding:8px 10px; text-align:right; white-space:nowrap; }
+.dash-tbl th:first-child { text-align:left; }
+.dash-tbl td { padding:7px 10px; border-bottom:1px solid #f1f5f9; text-align:right; font-family:'DM Mono',monospace; }
+.dash-tbl td:first-child { text-align:left; font-family:inherit; font-weight:600; }
+.dash-tbl .tr-sub td { background:#eef3ff; }
+
+/* 상태 배지 */
+.status-badge {
+  display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700; margin-left:8px;
+}
+.status-draft    { background:#f1f5f9; color:#6b7280; }
+.status-기안     { background:#dbeafe; color:#1d4ed8; }
+.status-합의1    { background:#ede9fe; color:#7c3aed; }
+.status-합의2    { background:#fef3c7; color:#d97706; }
+.status-결재완료 { background:#dcfce7; color:#16a34a; }
+
+/* 노데이터 */
+.no-data { text-align:center; padding:48px 0; color:var(--muted); font-size:14px; }
+
+/* 로딩 */
+.loading { text-align:center; padding:60px; color:var(--muted); font-size:14px; }
+
+@media print {
+  .toolbar { display:none!important; }
+  .page { margin-top:0; }
+  body { background:#fff; }
+  #dashView { display:none!important; }
+}
+@media (max-width:600px) {
+  .kpi-grid,.dash-kpis { grid-template-columns:1fr 1fr; }
+  .charts-grid { grid-template-columns:1fr; }
+  .chart-wide { grid-column:auto; }
+  .doc-header,.doc-body { padding:24px 18px; }
+  .ap-grid { flex-wrap:wrap; }
+  .ap-box { min-width:40%; }
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">📊 경영손익 보고</span>
+  <label>연도</label>
+  <input type="number" id="selYear" value="2026" min="2020" max="2035" style="width:72px" />
+  <label>월</label>
+  <select id="selMonth">
+    <option value="0">전체</option>
+    ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}
+  </select>
+  <div class="tab-btns">
+    <button class="tab-btn active" id="btnReport">📄 보고서</button>
+    <button class="tab-btn" id="btnDash">📈 대시보드</button>
+  </div>
+  <button class="print-btn no-print" onclick="window.print()">🖨️ 인쇄</button>
+</div>
+
+<div class="page">
+  <div id="reportView"><div class="loading">데이터를 불러오는 중...</div></div>
+  <div id="dashView"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+// ── 설정 (현금흐름관리 앱과 동일한 Apps Script URL 및 Token) ──
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9T3kGOQ5xPZ2wwy0Np0LSt-mHoudhvN39Zv2KNimE5ORKKEd_mghZXHua1D_i6LVF/exec";
+const TOKEN_KEY  = "receivable-payable-webapp.api-token.v1";
+
+const PNL_META = {
+  companyName:"미래오토메이션(주)", department:"관리부",
+  author:    { name:"여희정", title:"차장" },
+  approvers: [
+    { name:"김도연", title:"부장", dept:"영업부" },
+    { name:"오성철", title:"부장", dept:"시스템사업부" },
+  ],
+  ceo: { name:"장운기", title:"대표이사" },
+};
+const APPROVAL_STEPS = [
+  { dateKey:"draftDate",  role:"기안",    name:"여희정", title:"차장",    stampCls:"stamp-signed"   },
+  { dateKey:"agree1Date", role:"합의",    name:"김도연", title:"부장",    stampCls:"stamp-signed"   },
+  { dateKey:"agree2Date", role:"합의",    name:"오성철", title:"부장",    stampCls:"stamp-signed"   },
+  { dateKey:"ceoDate",    role:"최종결재", name:"장운기", title:"대표이사", stampCls:"stamp-approved" },
+];
+const STATUS_ORDER = ["draft","기안","합의1","합의2","결재완료"];
+const STATUS_LABELS = { draft:"작성중", 기안:"기안완료", 합의1:"합의①완료", 합의2:"합의②완료", 결재완료:"결재완료" };
+const STATUS_CLS    = { draft:"status-draft", 기안:"status-기안", 합의1:"status-합의1", 합의2:"status-합의2", 결재완료:"status-결재완료" };
+
+let pnlData  = [];
+let viewMode = "report"; // "report" | "dashboard"
+let dashPeriod = "monthly";
+let dashCharts = {};
+
+// ── 유틸 ──
+const fmt    = n => Math.abs(n).toLocaleString("ko-KR");
+const fmtS   = n => n >= 0 ? fmt(n) : `△${fmt(n)}`;
+const clsPN  = n => n >= 0 ? "pos" : "neg";
+function calc(d) {
+  const gross = d.revenue - (d.cogs + d.mfg);
+  const op    = gross - d.sga;
+  const mgmt  = op - d.interest;
+  const gmR   = d.revenue > 0 ? gross/d.revenue*100 : 0;
+  const opR   = d.revenue > 0 ? op/d.revenue*100 : 0;
+  const tgtA  = d.targetRevenue > 0 ? d.revenue/d.targetRevenue*100 : null;
+  return { gross, op, mgmt, gmR, opR, tgtA };
+}
+function getEntry(y, m) { return pnlData.find(d=>d.year===y&&d.month===m)??null; }
+
+// ── 데이터 로드 ──
+async function loadData() {
+  const token = localStorage.getItem(TOKEN_KEY) || "";
+  try {
+    const url = new URL(SCRIPT_URL);
+    if (token) url.searchParams.set("token", token);
+    url.searchParams.set("action", "getPnlData");
+    const resp = await fetch(url.toString());
+    if (!resp.ok) throw new Error(resp.status);
+    const body = await resp.json();
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    pnlData = rows.map(r => ({
+      year: Number(r.year), month: Number(r.month),
+      revenue: Number(r.revenue||0), targetRevenue: Number(r.targetRevenue||0),
+      cogs: Number(r.cogs||0), mfg: Number(r.mfg||0),
+      sga: Number(r.sga||0), interest: Number(r.interest||0),
+      approvalStatus: r.approvalStatus||"draft",
+      draftDate:  r.draftDate||"",  agree1Date: r.agree1Date||"",
+      agree2Date: r.agree2Date||"", ceoDate:    r.ceoDate||"",
+      docNo: r.docNo||"", ceoComment: r.ceoComment||"",
+    })).filter(r=>r.year&&r.month);
+    pnlData.sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
+  } catch (e) {
+    console.warn("[pnl] 로드 실패:", e);
+    document.getElementById("reportView").innerHTML =
+      `<div class="loading">데이터를 불러오지 못했습니다.<br><small>${e}</small></div>`;
+    return;
+  }
+  render();
+}
+
+// ── 렌더 분기 ──
+function render() {
+  if (viewMode === "report") renderReport();
+  else renderDashboard();
+}
+
+// ── 보고서 렌더 ──
+function renderReport() {
+  const yr = +document.getElementById("selYear").value;
+  const mo = +document.getElementById("selMonth").value;
+  const view = document.getElementById("reportView");
+  view.style.display = "";
+  document.getElementById("dashView").style.display = "none";
+
+  if (mo === 0) {
+    // 전체 — 월 목록 표시
+    const months = pnlData.filter(d=>d.year===yr);
+    if (!months.length) { view.innerHTML='<div class="no-data">해당 연도 데이터가 없습니다.</div>'; return; }
+    view.innerHTML = months.map(d=>buildReportHtml(d, yr)).join("<hr style='margin:32px 0;border:none;border-top:2px dashed #e2e8f0'>");
+    return;
+  }
+  const entry = getEntry(yr, mo);
+  view.innerHTML = entry ? buildReportHtml(entry, yr) : '<div class="no-data">해당 월 데이터가 없습니다.</div>';
+}
+
+function buildReportHtml(entry, yr) {
+  const c = calc(entry);
+  const prevM = entry.month > 1 ? entry.month-1 : 12;
+  const prevY = entry.month > 1 ? yr : yr-1;
+  const prev  = getEntry(prevY, prevM);
+  const pc    = prev ? calc(prev) : null;
+  const si    = STATUS_ORDER.indexOf(entry.approvalStatus||"draft");
+
+  function apBox(idx) {
+    const step = APPROVAL_STEPS[idx];
+    const done = si > idx;
+    const date = entry[step.dateKey]||"";
+    return `<div class="ap-box">
+      <div class="ap-role">${step.role}</div>
+      <div class="ap-name">${step.name} ${step.title}</div>
+      <div class="ap-date">${done&&date?date:"&nbsp;"}</div>
+      <div class="stamp ${done?step.stampCls:"stamp-empty"}">${done?"서명":""}</div>
+    </div>`;
+  }
+
+  function cmpRow(label, pv, cv, isSub) {
+    if (!pc||!c) return "";
+    const diff = cv-pv;
+    const dc = diff>0?"pos":diff<0?"neg":"";
+    const tc = label==="경영이익(손실)"?"tr-total":isSub?"tr-sub":"";
+    return `<tr class="${tc}"><td>${label}</td><td>${fmtS(pv)}</td><td>${fmtS(cv)}</td>
+      <td class="${dc}">${diff>=0?"▲ ":"▼ "}${fmt(diff)}</td></tr>`;
+  }
+
+  return `
+  <div style="margin-bottom:32px">
+    <div class="doc-header">
+      <div class="company-badge">MIRAE AUTOMATION CO., LTD</div>
+      <div class="doc-title">${entry.year}년 ${entry.month}월 &mdash; 월간 경영손익 보고서
+        <span class="status-badge ${STATUS_CLS[entry.approvalStatus]||"status-draft"}">${STATUS_LABELS[entry.approvalStatus]||entry.approvalStatus}</span>
+      </div>
+      <div class="doc-sub">관리기준 손익 및 경영이익 산출내역</div>
+      <div class="meta-row">
+        <div class="meta-item"><span class="meta-lbl">기안부서</span><span class="meta-val">${PNL_META.department}</span></div>
+        <div class="meta-item"><span class="meta-lbl">기안자</span><span class="meta-val">${PNL_META.author.name} ${PNL_META.author.title}</span></div>
+        <div class="meta-item"><span class="meta-lbl">기안일</span><span class="meta-val">${entry.draftDate||"—"}</span></div>
+        <div class="meta-item"><span class="meta-lbl">문서번호</span><span class="meta-val">${entry.docNo||"—"}</span></div>
+      </div>
+    </div>
+    <div class="doc-body">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출액</div>
+          <div class="kpi-val">${fmt(entry.revenue)}</div>
+          <div class="kpi-unit">원${entry.targetRevenue>0?" / 목표 "+fmt(entry.targetRevenue)+"원":""}</div>
+          ${c.tgtA!==null?`<div class="kpi-achieve ${c.tgtA>=100?"pos":"neg"}">달성률 ${c.tgtA.toFixed(1)}%</div>`:""}
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출총이익</div>
+          <div class="kpi-val ${clsPN(c.gross)}">${fmtS(c.gross)}</div>
+          <div class="kpi-unit">원 / 총이익률 ${c.gmR.toFixed(1)}%</div>
+        </div>
+        <div class="kpi-card hl">
+          <div class="kpi-lbl">경영이익(손실)</div>
+          <div class="kpi-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)}</div>
+          <div class="kpi-unit">금융비용 반영 기준</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>실질 기준</small></div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl"><span class="tag">ㄱ</span> 매출액</span><span class="fr-val">${fmt(entry.revenue)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄴ</span> 상품매출원가</span><span class="fr-val neg">(${fmt(entry.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄷ</span> 당기총제조비용</span><span class="fr-val neg">(${fmt(entry.mfg)}) 원</span></div>
+          <div class="fr fr-sub"><span class="fr-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비</span><span class="fr-val neg">(${fmt(entry.sga)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">② 관리기준 영업이익 <small>[①−판관비]</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>금융비용 반영 기준</small></div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 이자비용</span><span class="fr-val neg">(${fmt(entry.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실) <small>[②−이자비용]</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
+        </div>
+        <div class="remark">※ 비고: 이자비용 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+      </div>
+
+      ${prev&&pc?`
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">3</span>전월 대비 손익 비교</div>
+        <table class="cmp-tbl">
+          <thead><tr><th>항목</th><th>${prevY}년 ${prevM}월</th><th>${entry.year}년 ${entry.month}월</th><th>증감액</th></tr></thead>
+          <tbody>
+            ${cmpRow("매출액",           prev.revenue,  entry.revenue,  false)}
+            ${cmpRow("상품매출원가",     prev.cogs,     entry.cogs,     false)}
+            ${cmpRow("당기총제조비용",   prev.mfg,      entry.mfg,      false)}
+            ${cmpRow("매출총이익",       pc.gross,      c.gross,        true)}
+            ${cmpRow("판관비",           prev.sga,      entry.sga,      false)}
+            ${cmpRow("관리기준 영업이익",pc.op,         c.op,           true)}
+            ${cmpRow("이자비용",         prev.interest, entry.interest, false)}
+            ${cmpRow("경영이익(손실)",   pc.mgmt,       c.mgmt,         true)}
+          </tbody>
+        </table>
+        ${entry.ceoComment?`<div class="remark">대표이사 의견: "<em>${entry.ceoComment}</em>"</div>`:""}
+      </div>`:""}
+
+      <div class="section">
+        <div class="sec-title"><span class="sec-num" style="font-size:11px">✓</span>결재</div>
+        <div class="ap-grid">${APPROVAL_STEPS.map((_,i)=>apBox(i)).join("")}</div>
+      </div>
+    </div>
+    <div class="doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
+  </div>`;
+}
+
+// ── 대시보드 렌더 ──
+function aggregate(year, period) {
+  const rows = pnlData.filter(d=>d.year===year);
+  if (period==="monthly") return rows.map(d=>({ label:`${d.month}월`, ...d, ...calc(d) }));
+  const groups = period==="quarterly"?[[1,2,3],[4,5,6],[7,8,9],[10,11,12]]
+    :period==="halfyear"?[[1,2,3,4,5,6],[7,8,9,10,11,12]]:[[1,2,3,4,5,6,7,8,9,10,11,12]];
+  const labels = period==="quarterly"?["Q1","Q2","Q3","Q4"]
+    :period==="halfyear"?["상반기","하반기"]:[`${year}년`];
+  return groups.map((ms,gi)=>{
+    const gr = rows.filter(d=>ms.includes(d.month));
+    if (!gr.length) return null;
+    const s = gr.reduce((a,d)=>{
+      a.revenue+=d.revenue; a.targetRevenue+=d.targetRevenue;
+      a.cogs+=d.cogs; a.mfg+=d.mfg; a.sga+=d.sga; a.interest+=d.interest; return a;
+    },{revenue:0,targetRevenue:0,cogs:0,mfg:0,sga:0,interest:0});
+    return { label:labels[gi], ...s, ...calc(s) };
+  }).filter(Boolean);
+}
+
+function renderDashboard() {
+  const yr  = +document.getElementById("selYear").value;
+  const dv  = document.getElementById("dashView");
+  document.getElementById("reportView").style.display = "none";
+  dv.style.display = "";
+
+  const agg = aggregate(yr, dashPeriod);
+  const tot = agg.reduce((a,d)=>{
+    a.revenue+=d.revenue; a.targetRevenue+=d.targetRevenue;
+    a.cogs+=d.cogs; a.mfg+=d.mfg; a.sga+=d.sga; a.interest+=d.interest; return a;
+  },{revenue:0,targetRevenue:0,cogs:0,mfg:0,sga:0,interest:0});
+  const tc = calc(tot);
+
+  dv.innerHTML = `
+    <div class="period-tabs">
+      ${["monthly","quarterly","halfyear","annual"].map((p,i)=>
+        `<button class="pt-btn${dashPeriod===p?" active":""}" data-p="${p}">${["월별","분기","반기","연간"][i]}</button>`
+      ).join("")}
+    </div>
+    <div class="dash-kpis">
+      ${[
+        {l:"매출액",val:tot.revenue,sub:tc.tgtA!==null?`달성률 ${tc.tgtA.toFixed(1)}%`:"",cls:""},
+        {l:"매출총이익",val:tc.gross,sub:`총이익률 ${tc.gmR.toFixed(1)}%`,cls:clsPN(tc.gross)},
+        {l:"영업이익",val:tc.op,sub:`영업이익률 ${tc.opR.toFixed(1)}%`,cls:clsPN(tc.op)},
+        {l:"경영이익",val:tc.mgmt,sub:"이자비용 반영",cls:clsPN(tc.mgmt)},
+        {l:"판관비 합계",val:tot.sga,sub:"",cls:""},
+        {l:"이자비용 합계",val:tot.interest,sub:"",cls:""},
+      ].map(k=>`<div class="dash-kpi">
+        <div class="dash-kpi-lbl">${k.l}</div>
+        <div class="dash-kpi-val ${k.cls}">${fmtS(k.val)}</div>
+        ${k.sub?`<div class="dash-kpi-sub">${k.sub}</div>`:""}
+      </div>`).join("")}
+    </div>
+    <div class="charts-grid">
+      <div class="chart-box chart-wide"><div class="chart-title">매출액 · 원가 구성</div><canvas id="dc1"></canvas></div>
+      <div class="chart-box"><div class="chart-title">손익 추이</div><canvas id="dc2"></canvas></div>
+      <div class="chart-box"><div class="chart-title">비용 구조</div><canvas id="dc3"></canvas></div>
+    </div>
+    <div class="dash-table-wrap">
+      <table class="dash-tbl">
+        <thead><tr><th>기간</th><th>매출액</th><th>목표</th><th>달성률</th><th>매출총이익</th><th>영업이익</th><th>경영이익</th></tr></thead>
+        <tbody>${agg.map(d=>`<tr class="${d.label.includes("Q")||d.label.includes("반기")||d.label.includes("년")?"tr-sub":""}">
+          <td>${d.label}</td><td>${fmt(d.revenue)}</td>
+          <td>${d.targetRevenue>0?fmt(d.targetRevenue):"—"}</td>
+          <td class="${d.tgtA!==null?(d.tgtA>=100?"pos":"neg"):""}">${d.tgtA!==null?d.tgtA.toFixed(1)+"%":"—"}</td>
+          <td class="${clsPN(d.gross)}">${fmtS(d.gross)}</td>
+          <td class="${clsPN(d.op)}">${fmtS(d.op)}</td>
+          <td class="${clsPN(d.mgmt)}">${fmtS(d.mgmt)}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+
+  dv.querySelectorAll(".pt-btn").forEach(b=>b.addEventListener("click",()=>{dashPeriod=b.dataset.p;renderDashboard();}));
+
+  if (!agg.length) return;
+  const labels = agg.map(d=>d.label);
+  ["dc1","dc2","dc3"].forEach(id=>{ if(dashCharts[id]){dashCharts[id].destroy();delete dashCharts[id];} });
+
+  dashCharts.dc1 = new Chart(document.getElementById("dc1"),{type:"bar",data:{labels,datasets:[
+    {label:"매출액",data:agg.map(d=>d.revenue),backgroundColor:"#3b82f620",borderColor:"#3b82f6",borderWidth:2},
+    {label:"상품매출원가",data:agg.map(d=>d.cogs),backgroundColor:"#94a3b8"},
+    {label:"당기총제조비용",data:agg.map(d=>d.mfg),backgroundColor:"#cbd5e1"},
+  ]},options:{responsive:true,plugins:{legend:{position:"top"}},scales:{y:{ticks:{callback:v=>fmt(v)+"원"}}}}});
+
+  dashCharts.dc2 = new Chart(document.getElementById("dc2"),{type:"line",data:{labels,datasets:[
+    {label:"매출총이익",data:agg.map(d=>d.gross),borderColor:"#16a34a",tension:.3,fill:false},
+    {label:"영업이익",  data:agg.map(d=>d.op),   borderColor:"#2563eb",borderDash:[4,3],tension:.3,fill:false},
+    {label:"경영이익",  data:agg.map(d=>d.mgmt),  borderColor:"#dc2626",borderDash:[2,2],tension:.3,fill:false},
+  ]},options:{responsive:true,plugins:{legend:{position:"top"}},scales:{y:{ticks:{callback:v=>fmt(v)+"원"}}}}});
+
+  dashCharts.dc3 = new Chart(document.getElementById("dc3"),{type:"bar",data:{labels,datasets:[
+    {label:"원가+제조비",data:agg.map(d=>d.cogs+d.mfg),backgroundColor:"#3b82f6",stack:"c"},
+    {label:"판관비",     data:agg.map(d=>d.sga),         backgroundColor:"#f97316",stack:"c"},
+    {label:"이자비용",   data:agg.map(d=>d.interest),    backgroundColor:"#ef4444",stack:"c"},
+  ]},options:{responsive:true,plugins:{legend:{position:"top"}},scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>fmt(v)+"원"}}}}});
+}
+
+// ── 이벤트 ──
+document.getElementById("selYear").addEventListener("change",  render);
+document.getElementById("selMonth").addEventListener("change", render);
+document.getElementById("btnReport").addEventListener("click", () => {
+  viewMode = "report";
+  document.getElementById("btnReport").classList.add("active");
+  document.getElementById("btnDash").classList.remove("active");
+  render();
+});
+document.getElementById("btnDash").addEventListener("click", () => {
+  viewMode = "dashboard";
+  document.getElementById("btnDash").classList.add("active");
+  document.getElementById("btnReport").classList.remove("active");
+  render();
+});
+
+// ── 초기 월 선택 (현재월) ──
+document.getElementById("selMonth").value = new Date().getMonth() + 1;
+
+loadData();
+</script>
+</body>
+</html>

@@ -50,6 +50,9 @@ const SHEET_APP_SCRIPT_URL = "https://script.google.com/macros/s/..."; // Apps S
 | `getLedgerPayable` | 읽기 | 계정별원장 — 미지급금 (대사용) |
 | `getDailySales` | 읽기 | 영업현황 일별 (대사용) |
 | `getBizDivision` | 읽기 | 사업부문 마스터 (대사용) |
+| `getDaesaAll` | 읽기 | 대사 데이터 6종 일괄 반환 (스프레드시트 1회 오픈, 속도 최적화) |
+| `getMautoData` | 읽기 | 엠오토 데이터 (`엠오토_json` 시트 A1 셀 JSON) |
+| `getAvailableFundsJson` | 읽기 | 가용자금 JSON (`가용자금_json` 시트, `{updatedAt, data}`) |
 | `upsertVendorMaster` | 쓰기 | 업체마스터 저장 (중복 시 덮어쓰기) |
 | `upsertBizDivision` | 쓰기 | 사업부문 마스터 저장 |
 | `upsertTaxInvoices` | 쓰기 | 세금계산서 저장 |
@@ -61,6 +64,8 @@ const SHEET_APP_SCRIPT_URL = "https://script.google.com/macros/s/..."; // Apps S
 | `sendReceivableEmails` | 쓰기 | 미수금 이메일 발송 |
 | `sendRawDiffEmail` | 쓰기 | 미지급 변경 감지 이메일 |
 | `sendPaymentWarningEmail` | 쓰기 | 결제 경고 이메일 |
+| `saveMautoData` | 쓰기 | 엠오토 데이터 저장 (`엠오토_json` 시트 A1 셀) |
+| `upsertAvailableFunds` | 쓰기 | 가용자금 JSON 저장 (`가용자금_json` 시트, A1=updatedAt, B1=data) |
 
 **읽기**: gviz(공개 URL) 우선, 실패 시 Apps Script fallback  
 **쓰기**: 항상 Apps Script (`postSheetWebApp` 함수)
@@ -130,6 +135,11 @@ rows → parseReceivableRow() → enrichReceivablesWithManager() → renderRecei
 1. 파일 선택 → 로컬에서 즉시 파싱 (XLSX.js)
 2. 업체마스터와 매칭 (`matchVendorEntry` — 사업자번호 or 거래처코드 기준)
 3. "구글시트 저장" 클릭 → `postSheetWebApp(action, rows)` → 중복 행은 자동 덮어쓰기
+
+> ⚠️ **자료업로드는 대사 탭 전용 시트만 채웁니다** (세금계산서_raw, 계정별원장_*_raw, 영업현황_raw).  
+> 미지급(`미지급_raw`) / 미수금(`raw`) 시트는 ERP에서 별도 내려받아야 합니다.  
+> 고정지출은 localStorage(`cashflow-app.fixed-v1`) 우선 → 구글시트 순서이므로,  
+> localStorage에 이전 데이터가 남아있으면 구글시트 신규 데이터가 무시됩니다.
 
 **중복 방지 키 (`_row_key`):**
 - 세금계산서: 승인번호 (없으면 작성일자+사업자번호+합계)
@@ -240,6 +250,49 @@ availableFunds = {
 ---
 
 ## 버그 수정 이력
+
+### 2026-05-12 (2): 대사 탭 데이터 로드 속도 개선
+
+**증상:** 대사 탭 "데이터 불러오기" 클릭 시 응답이 느림
+
+**원인:** 6개 시트(세금계산서·원장3종·영업현황·사업부문마스터)를 개별 API 요청으로 각각 호출  
+→ HTTP 왕복 6회, Apps Script 기동 6회, `SpreadsheetApp.openById()` 6회 발생
+
+**수정 (`code.gs`):**
+- `getSheetRows(sheetName, ss?)` — `ss` 파라미터 추가로 스프레드시트 객체 재사용 가능
+- `getDaesaAll` 액션 추가 — 스프레드시트 1회 오픈 후 6개 시트 일괄 반환
+
+**수정 (`app.js`):**
+- `fetchDaesaAll()` 함수 추가 — `getDaesaAll` 단일 요청으로 교체
+- `loadDaesaData()` — `Promise.all` 6개 요청 → `fetchDaesaAll()` 1회 호출로 변경
+
+**효과:** HTTP 왕복 6회 → 1회 (체감 2~5배 빠름)
+
+**수정 파일:** `code.gs`, `app.js`, `index.html` (버전 쿼리 `?v=20260512c`)  
+**커밋:** `3e0b88d`  
+**⚠️ Apps Script 재배포 필요**
+
+---
+
+### 2026-05-12 (1): 업체마스터 거래처코드 앞자리 0 소실 버그 수정
+
+**증상:** 코드 `04159`를 업로드하면 구글시트에 `4159`로 저장됨
+
+**원인:** Google Sheets `setValues()`가 숫자처럼 생긴 문자열(`"04159"`)을 자동으로 숫자(`4159`)로 변환  
+→ 셀 포맷이 "일반(General)"일 때 발생. JavaScript 쪽 `normalizeVendorCode()`는 정상이었음
+
+**수정 (`code.gs`, `upsertVendorMasterRows`):**  
+`거래처코드_norm`, `거래처코드_raw`, `vendor_id` 컬럼에 `setValues()` 전 텍스트 포맷 강제 적용
+```javascript
+sheet.getRange(...).setNumberFormat("@");
+```
+빈 시트 분기(신규 등록)와 upsert 분기(기존 업데이트) 양쪽에 모두 추가
+
+**수정 파일:** `code.gs`  
+**커밋:** `9f63386`  
+**⚠️ Apps Script 재배포 필요**
+
+---
 
 ### 2026-05-11: 엠오토 탭 — 다른 컴퓨터에서 구글시트 데이터 불러오기 실패
 
@@ -379,6 +432,7 @@ availableFunds = {
 - **영향 범위**: `matchVendorEntry()` 코드 매칭, 미수금/미지급/대사 탭 거래처 연결 전반
 - **수정 방향**: 파서에서 코드 컬럼은 `String(val).padStart(원본길이)` 또는 `{t:'s'}` 강제 적용
 - **다음 작업**: `parseLedgerFile`, `parseTaxInvoiceFile`, `parseVendorMasterFile` 내 코드 컬럼 파싱 수정
+- **부분 수정 완료 (2026-05-12)**: code.gs `upsertVendorMasterRows` 서버측 — `setNumberFormat("@")` 적용 대상을 `거래처코드_norm`, `거래처코드_raw`, `vendor_id`, **`사업자번호`, `계좌번호`**까지 확장. 단, app.js 파서측(`parseLedgerFile` 등)은 미수정
 
 ### 업체마스터 중복 문제
 - Google Sheets `업체마스터` 시트에 동일 업체가 중복으로 쌓이고 있음

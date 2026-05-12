@@ -3734,6 +3734,11 @@ function switchTab(tabId) {
     }
   }
 
+  if (tabId === "pnl") {
+    renderPnlTab();
+    loadPnlRemote();
+  }
+
   // 탭 이동 시 스크롤 상단으로
   window.scrollTo(0, 0);
 }
@@ -6701,6 +6706,7 @@ function setupTabs() {
       });
       if (target === "daesa") renderDaesaTab();
       if (target === "fixed") renderFixedExpenses();
+      if (target === "pnl") { renderPnlTab(); loadPnlRemote(); }
       if (target === "mauto") {
         renderMautoTab();
         console.log("[엠오토] 탭 진입 — 원격 로드 시작 (setupTabs)");
@@ -8267,6 +8273,7 @@ async function init() {
   loadGroupOrder();
   loadVendorMemos();
   loadMautoDataLocal();
+  loadPnlLocal();
 
   renderPartnerFilter();
   renderFilterControls();
@@ -8303,6 +8310,762 @@ async function init() {
   ]);
 
   rerenderAll(); // 모든 데이터 로드 후 최종 갱신 보장
+}
+
+// ══════════════════════════════════════════════════════════════
+// 경영손익 (P&L) 탭
+// ══════════════════════════════════════════════════════════════
+
+const PNL_LOCAL_KEY   = "cashflow-app.pnl-v1";
+const PNL_SHEET_NAME  = "월간손익";
+const PNL_STATUS_ORDER = ["draft", "기안", "합의1", "합의2", "결재완료"];
+const PNL_META = {
+  companyName: "미래오토메이션(주)",
+  department:  "관리부",
+  author:    { name: "여희정", title: "차장" },
+  approvers: [
+    { name: "김도연", title: "부장", dept: "영업부" },
+    { name: "오성철", title: "부장", dept: "시스템사업부" },
+  ],
+  ceo: { name: "장운기", title: "대표이사" },
+};
+const PNL_APPROVAL_STEPS = [
+  { dateKey: "draftDate",  nextStatus: "기안",    role: "기안",    name: PNL_META.author.name,      title: PNL_META.author.title,    stampCls: "pnl-stamp-signed"   },
+  { dateKey: "agree1Date", nextStatus: "합의1",   role: "합의",    name: PNL_META.approvers[0].name, title: PNL_META.approvers[0].title, stampCls: "pnl-stamp-signed" },
+  { dateKey: "agree2Date", nextStatus: "합의2",   role: "합의",    name: PNL_META.approvers[1].name, title: PNL_META.approvers[1].title, stampCls: "pnl-stamp-signed" },
+  { dateKey: "ceoDate",    nextStatus: "결재완료", role: "최종결재", name: PNL_META.ceo.name,         title: PNL_META.ceo.title,       stampCls: "pnl-stamp-approved" },
+];
+const PNL_SEED = [
+  { year:2026, month:1,  revenue:502848410, targetRevenue:600000000, cogs:422295376, mfg:18154934, sga:66248997, interest:9192216,
+    approvalStatus:"결재완료", draftDate:"2026. 02. 24", agree1Date:"2026. 02. 25", agree2Date:"2026. 02. 26", ceoDate:"2026. 03. 03",
+    docNo:"2026-03-000092", ceoComment:"전체적 계획 후 정리 합시다." },
+  { year:2026, month:2,  revenue:283944347, targetRevenue:400000000, cogs:254640693, mfg:18471639, sga:97841624, interest:2215544,
+    approvalStatus:"결재완료", draftDate:"2026. 03. 17", agree1Date:"2026. 03. 20", agree2Date:"2026. 03. 18", ceoDate:"2026. 04. 07",
+    docNo:"2026-05-000231", ceoComment:"3월에는 흑자로 갑시다" },
+];
+
+let pnlData     = [];
+let pnlSubTab   = "input";
+let pnlInputYear  = new Date().getFullYear();
+let pnlInputMonth = new Date().getMonth() + 1;
+let pnlRptYear  = new Date().getFullYear();
+let pnlRptMonth = new Date().getMonth() + 1;
+let pnlDashYear = new Date().getFullYear();
+let pnlDashPeriod = "monthly";
+let _pnlCharts  = {};
+
+// ── 로컬 스토리지 ─────────────────────────────────────────────
+function loadPnlLocal() {
+  try {
+    const raw = localStorage.getItem(PNL_LOCAL_KEY);
+    pnlData = raw ? JSON.parse(raw) : [];
+  } catch (_) { pnlData = []; }
+  if (!pnlData.length) {
+    pnlData = PNL_SEED.map(d => ({ ...d }));
+    savePnlLocal();
+  }
+}
+
+function savePnlLocal() {
+  try { localStorage.setItem(PNL_LOCAL_KEY, JSON.stringify(pnlData)); } catch (_) {}
+}
+
+function getPnlEntry(year, month) {
+  return pnlData.find(d => d.year === year && d.month === month) ?? null;
+}
+
+function upsertPnlEntry(entry) {
+  const idx = pnlData.findIndex(d => d.year === entry.year && d.month === entry.month);
+  if (idx >= 0) pnlData[idx] = { ...pnlData[idx], ...entry };
+  else pnlData.push({ ...entry });
+  pnlData.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+  savePnlLocal();
+  _schedulePnlSave(entry);
+}
+
+function deletePnlEntry(year, month) {
+  pnlData = pnlData.filter(d => !(d.year === year && d.month === month));
+  savePnlLocal();
+}
+
+let _pnlSaveTimer = null;
+function _schedulePnlSave(entry) {
+  clearTimeout(_pnlSaveTimer);
+  _pnlSaveTimer = setTimeout(async () => {
+    if (!SHEET_APP_SCRIPT_URL) return;
+    try {
+      await postSheetWebApp("savePnlData", {
+        row: { ...entry, _key: `${entry.year}_${String(entry.month).padStart(2, "0")}` },
+      });
+    } catch (e) { console.warn("[손익] 구글시트 저장 실패:", e); }
+  }, 800);
+}
+
+async function loadPnlRemote() {
+  if (!SHEET_APP_SCRIPT_URL) return;
+  try {
+    const url = new URL(SHEET_APP_SCRIPT_URL);
+    const token = getApiToken();
+    if (token) url.searchParams.set("token", token);
+    url.searchParams.set("action", "getPnlData");
+    const resp = await fetch(url.toString());
+    if (!resp.ok) return;
+    const body = await resp.json();
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    if (!rows.length) return;
+    rows.forEach(r => {
+      const y = Number(r.year), m = Number(r.month);
+      if (!y || !m) return;
+      const entry = {
+        year: y, month: m,
+        revenue: Number(r.revenue || 0), targetRevenue: Number(r.targetRevenue || 0),
+        cogs: Number(r.cogs || 0), mfg: Number(r.mfg || 0),
+        sga: Number(r.sga || 0), interest: Number(r.interest || 0),
+        approvalStatus: r.approvalStatus || "draft",
+        draftDate: r.draftDate || "", agree1Date: r.agree1Date || "",
+        agree2Date: r.agree2Date || "", ceoDate: r.ceoDate || "",
+        docNo: r.docNo || "", ceoComment: r.ceoComment || "",
+      };
+      const idx = pnlData.findIndex(d => d.year === y && d.month === m);
+      if (idx >= 0) pnlData[idx] = entry; else pnlData.push(entry);
+    });
+    pnlData.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+    savePnlLocal();
+    renderPnlTab();
+  } catch (e) { console.warn("[손익] 원격 로드 실패:", e); }
+}
+
+// ── 계산 유틸 ─────────────────────────────────────────────────
+function calcPnl(d) {
+  const gross = d.revenue - (d.cogs + d.mfg);
+  const op    = gross - d.sga;
+  const mgmt  = op - d.interest;
+  const gmRate  = d.revenue > 0 ? gross / d.revenue * 100 : 0;
+  const opRate  = d.revenue > 0 ? op    / d.revenue * 100 : 0;
+  const targetAchieve = d.targetRevenue > 0 ? d.revenue / d.targetRevenue * 100 : null;
+  return { gross, op, mgmt, gmRate, opRate, targetAchieve };
+}
+const _pf  = n => Math.abs(n).toLocaleString("ko-KR");
+const _ps  = n => n >= 0 ? _pf(n) : `△${_pf(n)}`;
+const _pc  = n => n >= 0 ? "pnl-pos" : "pnl-neg";
+function _todayKor() {
+  const d = new Date();
+  return `${d.getFullYear()}. ${String(d.getMonth()+1).padStart(2,"0")}. ${String(d.getDate()).padStart(2,"0")}`;
+}
+function _pnlStatusIdx(status) { return PNL_STATUS_ORDER.indexOf(status || "draft"); }
+
+function pnlToast(msg) {
+  let el = document.getElementById("pnl-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "pnl-toast";
+    el.className = "pnl-toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("pnl-toast-show");
+  setTimeout(() => el.classList.remove("pnl-toast-show"), 2200);
+}
+
+// ── 메인 렌더러 ───────────────────────────────────────────────
+function renderPnlTab() {
+  const sec = document.getElementById("pnl");
+  if (!sec || !sec.classList.contains("active")) return;
+
+  if (!document.getElementById("pnl-fonts")) {
+    const lk = document.createElement("link");
+    lk.id   = "pnl-fonts"; lk.rel = "stylesheet";
+    lk.href = "https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap";
+    document.head.appendChild(lk);
+  }
+
+  sec.innerHTML = `
+    <div class="pnl-container">
+      <div class="pnl-sub-tabs">
+        <button class="pnl-sub-btn${pnlSubTab==="input"?" active":""}" data-pnl-tab="input">📊 입력</button>
+        <button class="pnl-sub-btn${pnlSubTab==="report"?" active":""}" data-pnl-tab="report">📄 보고서</button>
+        <button class="pnl-sub-btn${pnlSubTab==="dashboard"?" active":""}" data-pnl-tab="dashboard">📈 대시보드</button>
+      </div>
+      <div id="pnl-sub-content"></div>
+    </div>`;
+
+  sec.querySelectorAll(".pnl-sub-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      pnlSubTab = btn.dataset.pnlTab;
+      renderPnlTab();
+    });
+  });
+
+  const content = document.getElementById("pnl-sub-content");
+  if (pnlSubTab === "input")     renderPnlInput(content);
+  else if (pnlSubTab === "report") renderPnlReport(content);
+  else                             renderPnlDashboard(content);
+}
+
+// ── 입력 탭 ──────────────────────────────────────────────────
+function renderPnlInput(el) {
+  const entry = getPnlEntry(pnlInputYear, pnlInputMonth) || {
+    year: pnlInputYear, month: pnlInputMonth,
+    revenue:0, targetRevenue:0, cogs:0, mfg:0, sga:0, interest:0,
+    approvalStatus:"draft", draftDate:"", agree1Date:"", agree2Date:"",
+    ceoDate:"", docNo:"", ceoComment:"",
+  };
+  const c = calcPnl(entry);
+  const statusLabels = { draft:"작성중", 기안:"기안완료", 합의1:"합의①완료", 합의2:"합의②완료", 결재완료:"결재완료" };
+  const statusColors = { draft:"#6b7280", 기안:"#2563eb", 합의1:"#7c3aed", 합의2:"#d97706", 결재완료:"#16a34a" };
+  const st = entry.approvalStatus || "draft";
+  const curY = new Date().getFullYear();
+  const yearOpts = Array.from({length: curY - 2023}, (_,i) => 2024 + i).map(y =>
+    `<option value="${y}" ${y===pnlInputYear?"selected":""}>${y}년</option>`).join("");
+  const monOpts  = Array.from({length:12},(_,i) =>
+    `<option value="${i+1}" ${i+1===pnlInputMonth?"selected":""}>${i+1}월</option>`).join("");
+
+  const fields = [
+    { key:"revenue",       id:"pnlRev",    label:"매출액" },
+    { key:"targetRevenue", id:"pnlTgt",    label:"목표매출액" },
+    { key:"cogs",          id:"pnlCogs",   label:"상품매출원가" },
+    { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용" },
+    { key:"sga",           id:"pnlSga",    label:"판매관리비" },
+    { key:"interest",      id:"pnlInt",    label:"이자비용" },
+  ];
+
+  el.innerHTML = `
+    <div class="pnl-input-wrap">
+      <div class="pnl-input-nav">
+        <button class="pnl-nav-btn" id="pnlNavPrev">◀</button>
+        <select id="pnlSelYear">${yearOpts}</select>
+        <select id="pnlSelMonth">${monOpts}</select>
+        <button class="pnl-nav-btn" id="pnlNavNext">▶</button>
+        <span class="pnl-status-badge" style="background:${statusColors[st]}18;color:${statusColors[st]};border:1px solid ${statusColors[st]}40">${statusLabels[st]||st}</span>
+      </div>
+
+      <div class="pnl-form-body">
+        <div class="pnl-form-card">
+          <div class="pnl-form-title">입력 항목</div>
+          ${fields.map(f => `
+            <div class="pnl-field-row">
+              <label class="pnl-field-label">${f.label}</label>
+              <input type="text" id="${f.id}" class="pnl-field-input" value="${entry[f.key]>0?_pf(entry[f.key]):""}" placeholder="0" inputmode="numeric" />
+              <span class="pnl-field-unit">원</span>
+            </div>`).join("")}
+        </div>
+
+        <div class="pnl-preview-card">
+          <div class="pnl-form-title">자동 계산</div>
+          <div class="pnl-prev-row"><span>매출총이익</span><strong id="prvGross" class="${_pc(c.gross)}">${_ps(c.gross)} 원</strong></div>
+          <div class="pnl-prev-row pnl-muted"><span>총이익률</span><strong id="prvGmRate">${c.gmRate.toFixed(1)}%</strong></div>
+          <div class="pnl-prev-row ${c.targetAchieve!==null?(c.targetAchieve>=100?"pnl-pos":"pnl-neg"):"pnl-muted"}">
+            <span>목표 달성률</span>
+            <strong id="prvTarget">${c.targetAchieve!==null?c.targetAchieve.toFixed(1)+"%":"—"}</strong>
+          </div>
+          <div class="pnl-prev-divider"></div>
+          <div class="pnl-prev-row"><span>영업이익</span><strong id="prvOp" class="${_pc(c.op)}">${_ps(c.op)} 원</strong></div>
+          <div class="pnl-prev-row pnl-muted"><span>영업이익률</span><strong id="prvOpRate">${c.opRate.toFixed(1)}%</strong></div>
+          <div class="pnl-prev-divider"></div>
+          <div class="pnl-prev-row pnl-prev-highlight"><span>경영이익</span><strong id="prvMgmt" class="${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</strong></div>
+        </div>
+      </div>
+
+      <div class="pnl-input-actions">
+        <button id="pnlSaveBtn" class="pnl-btn pnl-btn-primary">저장</button>
+        <button id="pnlDeleteBtn" class="pnl-btn pnl-btn-danger">삭제</button>
+        <button id="pnlToReportBtn" class="pnl-btn pnl-btn-ghost">보고서로 →</button>
+      </div>
+    </div>`;
+
+  // 월 이동
+  document.getElementById("pnlNavPrev").addEventListener("click", () => {
+    pnlInputMonth--; if (pnlInputMonth < 1) { pnlInputMonth = 12; pnlInputYear--; }
+    renderPnlTab();
+  });
+  document.getElementById("pnlNavNext").addEventListener("click", () => {
+    pnlInputMonth++; if (pnlInputMonth > 12) { pnlInputMonth = 1; pnlInputYear++; }
+    renderPnlTab();
+  });
+  document.getElementById("pnlSelYear").addEventListener("change", e => { pnlInputYear  = +e.target.value; renderPnlTab(); });
+  document.getElementById("pnlSelMonth").addEventListener("change", e => { pnlInputMonth = +e.target.value; renderPnlTab(); });
+
+  function parseN(s) { return Number(String(s).replace(/[^0-9]/g,"")) || 0; }
+  function getVals() {
+    const v = {};
+    fields.forEach(f => { v[f.key] = parseN(document.getElementById(f.id)?.value || ""); });
+    return v;
+  }
+  function refreshPreview() {
+    const cv = calcPnl(getVals());
+    const g = document.getElementById("prvGross");   if (g) { g.textContent = `${_ps(cv.gross)} 원`; g.className = _pc(cv.gross); }
+    const gm = document.getElementById("prvGmRate"); if (gm) gm.textContent = `${cv.gmRate.toFixed(1)}%`;
+    const tg = document.getElementById("prvTarget"); if (tg) {
+      tg.textContent = cv.targetAchieve !== null ? `${cv.targetAchieve.toFixed(1)}%` : "—";
+      tg.className   = cv.targetAchieve !== null ? (cv.targetAchieve >= 100 ? "pnl-pos" : "pnl-neg") : "";
+    }
+    const op = document.getElementById("prvOp");   if (op) { op.textContent = `${_ps(cv.op)} 원`; op.className = _pc(cv.op); }
+    const or = document.getElementById("prvOpRate"); if (or) or.textContent = `${cv.opRate.toFixed(1)}%`;
+    const mg = document.getElementById("prvMgmt"); if (mg) { mg.textContent = `${_ps(cv.mgmt)} 원`; mg.className = _pc(cv.mgmt); }
+  }
+
+  fields.forEach(f => {
+    document.getElementById(f.id)?.addEventListener("input", e => {
+      const raw = parseN(e.target.value);
+      e.target.value = raw ? _pf(raw) : "";
+      refreshPreview();
+    });
+  });
+
+  document.getElementById("pnlSaveBtn").addEventListener("click", () => {
+    const newEntry = { ...entry, ...getVals() };
+    if (!newEntry.approvalStatus) newEntry.approvalStatus = "draft";
+    upsertPnlEntry(newEntry);
+    pnlToast("저장되었습니다.");
+    renderPnlTab();
+  });
+  document.getElementById("pnlDeleteBtn").addEventListener("click", () => {
+    if (!getPnlEntry(pnlInputYear, pnlInputMonth)) { pnlToast("저장된 데이터가 없습니다."); return; }
+    if (!confirm(`${pnlInputYear}년 ${pnlInputMonth}월 데이터를 삭제하시겠습니까?`)) return;
+    deletePnlEntry(pnlInputYear, pnlInputMonth);
+    pnlToast("삭제되었습니다.");
+    renderPnlTab();
+  });
+  document.getElementById("pnlToReportBtn").addEventListener("click", () => {
+    pnlRptYear = pnlInputYear; pnlRptMonth = pnlInputMonth;
+    pnlSubTab = "report"; renderPnlTab();
+  });
+}
+
+// ── 보고서 탭 ─────────────────────────────────────────────────
+function renderPnlReport(el) {
+  const curY = new Date().getFullYear();
+  const yearOpts = Array.from({length: curY - 2023}, (_,i) => 2024+i).map(y =>
+    `<option value="${y}" ${y===pnlRptYear?"selected":""}>${y}년</option>`).join("");
+  const monOpts  = Array.from({length:12},(_,i) =>
+    `<option value="${i+1}" ${i+1===pnlRptMonth?"selected":""}>${i+1}월</option>`).join("");
+
+  const entry = getPnlEntry(pnlRptYear, pnlRptMonth);
+  const c = entry ? calcPnl(entry) : null;
+  const prevM = pnlRptMonth > 1 ? pnlRptMonth - 1 : 12;
+  const prevY = pnlRptMonth > 1 ? pnlRptYear       : pnlRptYear - 1;
+  const prev  = getPnlEntry(prevY, prevM);
+  const pc    = prev ? calcPnl(prev) : null;
+
+  const statusIdx = entry ? _pnlStatusIdx(entry.approvalStatus) : 0;
+
+  function approvalBox(stepIdx) {
+    const step = PNL_APPROVAL_STEPS[stepIdx];
+    const done = statusIdx > stepIdx;
+    const current = statusIdx === stepIdx && !!entry;
+    const date = entry?.[step.dateKey] || "";
+    return `
+      <div class="pnl-ap-box">
+        <div class="pnl-ap-role">${step.role}</div>
+        <div class="pnl-ap-name">${step.name} ${step.title}</div>
+        <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
+        ${done
+          ? `<div class="pnl-stamp ${step.stampCls}">서명
+               <button class="pnl-revoke-btn" data-step="${stepIdx}" title="결재 취소">↩</button>
+             </div>`
+          : current
+            ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명하기</button>`
+            : `<div class="pnl-stamp pnl-stamp-empty"></div>`
+        }
+      </div>`;
+  }
+
+  function cmpRow(label, prev, curr, isSub) {
+    if (!pc || !c) return "";
+    const diff = curr - prev;
+    const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
+    const trCls = label === "경영이익(손실)" ? "pnl-tr-total" : isSub ? "pnl-tr-sub" : "";
+    return `<tr class="${trCls}">
+      <td>${label}</td>
+      <td>${_ps(prev)}</td>
+      <td>${_ps(curr)}</td>
+      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(diff)}</td>
+    </tr>`;
+  }
+
+  const noDataHtml = `<div class="pnl-no-data">이 달의 데이터가 없습니다. 입력 탭에서 먼저 저장해 주세요.</div>`;
+
+  el.innerHTML = `
+    <div class="pnl-report-wrap">
+      <!-- 툴바 (인쇄 시 숨김) -->
+      <div class="pnl-report-toolbar no-print">
+        <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
+        <select id="pnlRptYear">${yearOpts}</select>
+        <select id="pnlRptMonth">${monOpts}</select>
+        <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+      </div>
+
+      <!-- 보고서 본체 -->
+      <div class="pnl-page" id="pnlReportPage">
+        <!-- 헤더 -->
+        <div class="pnl-doc-header">
+          <div class="pnl-company-badge">MIRAE AUTOMATION CO., LTD</div>
+          <div class="pnl-doc-title">${pnlRptYear}년 ${pnlRptMonth}월 &mdash; 월간 경영손익 보고서</div>
+          <div class="pnl-doc-sub">관리기준 손익 및 경영이익 산출내역</div>
+          <div class="pnl-meta-row">
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안부서</span><span class="pnl-meta-val">${PNL_META.department}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안자</span><span class="pnl-meta-val">${PNL_META.author.name} ${PNL_META.author.title}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안일</span><span class="pnl-meta-val">${entry?.draftDate || "—"}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">문서번호</span>
+              <span class="pnl-meta-val" id="pnlDocNoVal" contenteditable="${!!entry}" style="outline:none;cursor:${entry?"text":"default"}">${entry?.docNo || "—"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnl-doc-body">
+          ${!entry ? noDataHtml : `
+          <!-- KPI 카드 -->
+          <div class="pnl-kpi-grid">
+            <div class="pnl-kpi-card">
+              <div class="pnl-kpi-lbl">매출액</div>
+              <div class="pnl-kpi-val">${_pf(entry.revenue)}</div>
+              <div class="pnl-kpi-unit">원${entry.targetRevenue>0?" / 목표 "+_pf(entry.targetRevenue)+"원":""}</div>
+              ${c.targetAchieve!==null?`<div class="pnl-kpi-achieve ${c.targetAchieve>=100?"pnl-pos":"pnl-neg"}">달성률 ${c.targetAchieve.toFixed(1)}%</div>`:""}
+            </div>
+            <div class="pnl-kpi-card">
+              <div class="pnl-kpi-lbl">매출총이익</div>
+              <div class="pnl-kpi-val ${_pc(c.gross)}">${_ps(c.gross)}</div>
+              <div class="pnl-kpi-unit">원 / 총이익률 ${c.gmRate.toFixed(1)}%</div>
+            </div>
+            <div class="pnl-kpi-card pnl-kpi-highlight">
+              <div class="pnl-kpi-lbl">경영이익(손실)</div>
+              <div class="pnl-kpi-val ${_pc(c.mgmt)}">${_ps(c.mgmt)}</div>
+              <div class="pnl-kpi-unit">금융비용 반영 기준</div>
+            </div>
+          </div>
+
+          <!-- 섹션1 영업이익 -->
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num">1</span>관리기준 영업이익 <small>실질 기준</small></div>
+            <div class="pnl-flow">
+              <div class="pnl-flow-row"><span class="pnl-flow-lbl"><span class="pnl-tag">ㄱ</span> 매출액</span><span class="pnl-flow-val">${_pf(entry.revenue)} 원</span></div>
+              <div class="pnl-flow-divider">차감</div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄴ</span> 상품매출원가</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.cogs)}) 원</span></div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄷ</span> 당기총제조비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.mfg)}) 원</span></div>
+              <div class="pnl-flow-row pnl-flow-sub"><span class="pnl-flow-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="pnl-flow-val ${_pc(c.gross)}">${_ps(c.gross)} 원</span></div>
+              <div class="pnl-flow-divider">차감</div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 판매관리비</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.sga)}) 원</span></div>
+              <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">② 관리기준 영업이익 <small>[①−판관비]</small></span><span class="pnl-flow-val ${_pc(c.op)}">${_ps(c.op)} 원</span></div>
+            </div>
+          </div>
+
+          <!-- 섹션2 경영이익 -->
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num">2</span>경영이익 <small>금융비용 반영 기준</small></div>
+            <div class="pnl-flow">
+              <div class="pnl-flow-row"><span class="pnl-flow-lbl">관리기준 영업이익 (②)</span><span class="pnl-flow-val ${_pc(c.op)}">${_ps(c.op)} 원</span></div>
+              <div class="pnl-flow-divider">차감</div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 이자비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.interest)}) 원</span></div>
+              <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">③ 경영이익(손실) <small>[②−이자비용]</small></span><span class="pnl-flow-val ${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</span></div>
+            </div>
+            <div class="pnl-remark">※ 비고: 이자비용 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+          </div>
+
+          <!-- 섹션3 전월 비교 -->
+          ${prev && pc ? `
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전월 대비 손익 비교</div>
+            <table class="pnl-cmp-table">
+              <thead><tr><th>항목</th><th>${prevY}년 ${prevM}월</th><th>${pnlRptYear}년 ${pnlRptMonth}월</th><th>증감액</th></tr></thead>
+              <tbody>
+                ${cmpRow("매출액",          prev.revenue,       entry.revenue,    false)}
+                ${cmpRow("상품매출원가",    prev.cogs,          entry.cogs,       false)}
+                ${cmpRow("당기총제조비용",  prev.mfg,           entry.mfg,        false)}
+                ${cmpRow("매출총이익",      pc.gross,           c.gross,          true)}
+                ${cmpRow("판관비",          prev.sga,           entry.sga,        false)}
+                ${cmpRow("관리기준 영업이익", pc.op,            c.op,             true)}
+                ${cmpRow("이자비용",        prev.interest,      entry.interest,   false)}
+                ${cmpRow("경영이익(손실)",  pc.mgmt,            c.mgmt,           true)}
+              </tbody>
+            </table>
+            ${entry.ceoComment ? `<div class="pnl-remark">대표이사 의견: "<em>${escapeHtml(entry.ceoComment)}</em>"</div>` : ""}
+          </div>` : ""}
+
+          <!-- 결재란 -->
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num" style="font-size:11px">✓</span>결재</div>
+            <div class="pnl-ap-grid">
+              ${PNL_APPROVAL_STEPS.map((_,i) => approvalBox(i)).join("")}
+            </div>
+            <div class="pnl-ceo-comment-row no-print">
+              <label>대표이사 의견:</label>
+              <input type="text" id="pnlCeoComment" class="pnl-ceo-input" value="${escapeHtml(entry?.ceoComment||"")}" placeholder="의견을 입력하세요" />
+            </div>
+          </div>
+          `}
+        </div><!-- /pnl-doc-body -->
+        <div class="pnl-doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
+      </div><!-- /pnl-page -->
+    </div>`;
+
+  // 툴바 이벤트
+  document.getElementById("pnlRptPrev")?.addEventListener("click", () => {
+    pnlRptMonth--; if (pnlRptMonth < 1) { pnlRptMonth = 12; pnlRptYear--; } renderPnlReport(el);
+  });
+  document.getElementById("pnlRptNext")?.addEventListener("click", () => {
+    pnlRptMonth++; if (pnlRptMonth > 12) { pnlRptMonth = 1; pnlRptYear++; } renderPnlReport(el);
+  });
+  document.getElementById("pnlRptYear")?.addEventListener("change", e => { pnlRptYear  = +e.target.value; renderPnlReport(el); });
+  document.getElementById("pnlRptMonth")?.addEventListener("change", e => { pnlRptMonth = +e.target.value; renderPnlReport(el); });
+  document.getElementById("pnlPrintBtn")?.addEventListener("click", () => window.print());
+
+  // 문서번호 인라인 편집
+  document.getElementById("pnlDocNoVal")?.addEventListener("blur", e => {
+    if (!entry) return;
+    entry.docNo = e.target.textContent.trim();
+    upsertPnlEntry(entry);
+  });
+
+  // 대표이사 의견 저장
+  document.getElementById("pnlCeoComment")?.addEventListener("change", e => {
+    if (!entry) return;
+    entry.ceoComment = e.target.value.trim();
+    upsertPnlEntry(entry);
+  });
+
+  // 서명 버튼
+  el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const step = PNL_APPROVAL_STEPS[+btn.dataset.step];
+      if (!entry) return;
+      entry[step.dateKey]     = _todayKor();
+      entry.approvalStatus    = step.nextStatus;
+      upsertPnlEntry(entry);
+      pnlToast(`${step.role} 서명 완료`);
+      renderPnlReport(el);
+    });
+  });
+
+  // 취소(revoke) 버튼
+  el.querySelectorAll(".pnl-revoke-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (!confirm("결재를 취소하시겠습니까?")) return;
+      const stepIdx = +btn.dataset.step;
+      if (!entry) return;
+      for (let i = stepIdx; i < PNL_APPROVAL_STEPS.length; i++) {
+        entry[PNL_APPROVAL_STEPS[i].dateKey] = "";
+      }
+      entry.approvalStatus = stepIdx > 0 ? PNL_APPROVAL_STEPS[stepIdx-1].nextStatus : "draft";
+      upsertPnlEntry(entry);
+      renderPnlReport(el);
+    });
+  });
+}
+
+// ── 대시보드 탭 ───────────────────────────────────────────────
+async function _loadChartJs() {
+  if (window.Chart) return;
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+function _pnlAggregate(year, period) {
+  const rows = pnlData.filter(d => d.year === year);
+  if (period === "monthly") {
+    return rows.map(d => {
+      const c = calcPnl(d);
+      return { label: `${d.month}월`, ...d, ...c };
+    });
+  }
+  const groups = period === "quarterly"
+    ? [[1,2,3],[4,5,6],[7,8,9],[10,11,12]]
+    : period === "halfyear"
+      ? [[1,2,3,4,5,6],[7,8,9,10,11,12]]
+      : [[1,2,3,4,5,6,7,8,9,10,11,12]];
+  const labels = period === "quarterly" ? ["Q1","Q2","Q3","Q4"]
+    : period === "halfyear" ? ["상반기","하반기"] : [`${year}년`];
+
+  return groups.map((months, gi) => {
+    const grpRows = rows.filter(d => months.includes(d.month));
+    if (!grpRows.length) return null;
+    const sum = grpRows.reduce((acc, d) => {
+      acc.revenue += d.revenue; acc.targetRevenue += d.targetRevenue;
+      acc.cogs += d.cogs; acc.mfg += d.mfg; acc.sga += d.sga; acc.interest += d.interest;
+      return acc;
+    }, { revenue:0, targetRevenue:0, cogs:0, mfg:0, sga:0, interest:0 });
+    const c = calcPnl(sum);
+    return { label: labels[gi], ...sum, ...c };
+  }).filter(Boolean);
+}
+
+async function renderPnlDashboard(el) {
+  const curY = new Date().getFullYear();
+  const allYears = [...new Set(pnlData.map(d => d.year))].sort((a,b) => b - a);
+  if (!allYears.includes(pnlDashYear) && allYears.length) pnlDashYear = allYears[0];
+  const yearOpts = (allYears.length ? allYears : [curY]).map(y =>
+    `<option value="${y}" ${y===pnlDashYear?"selected":""}>${y}년</option>`).join("");
+
+  const agg = _pnlAggregate(pnlDashYear, pnlDashPeriod);
+  const prevYearAgg = _pnlAggregate(pnlDashYear - 1, "monthly");
+
+  // KPI 합산 (전체 or 선택 기간)
+  const totals = agg.reduce((acc, d) => {
+    acc.revenue += d.revenue; acc.targetRevenue += d.targetRevenue;
+    acc.cogs += d.cogs; acc.mfg += d.mfg; acc.sga += d.sga; acc.interest += d.interest;
+    return acc;
+  }, { revenue:0, targetRevenue:0, cogs:0, mfg:0, sga:0, interest:0 });
+  const tc = calcPnl(totals);
+
+  el.innerHTML = `
+    <div class="pnl-dash-wrap">
+      <div class="pnl-dash-toolbar">
+        <select id="pnlDashYear">${yearOpts}</select>
+        <div class="pnl-period-tabs">
+          ${["monthly","quarterly","halfyear","annual"].map((p,i) =>
+            `<button class="pnl-period-btn${pnlDashPeriod===p?" active":""}" data-period="${p}">${["월별","분기","반기","연간"][i]}</button>`
+          ).join("")}
+        </div>
+      </div>
+
+      <!-- KPI 카드 -->
+      <div class="pnl-dash-kpis">
+        ${[
+          { label:"매출액",    val:totals.revenue,      sub: totals.targetRevenue>0?`목표 달성률 ${tc.targetAchieve.toFixed(1)}%`:"",  cls:"" },
+          { label:"매출총이익", val:tc.gross,             sub:`총이익률 ${tc.gmRate.toFixed(1)}%`,  cls:_pc(tc.gross) },
+          { label:"영업이익",  val:tc.op,               sub:`영업이익률 ${tc.opRate.toFixed(1)}%`, cls:_pc(tc.op) },
+          { label:"경영이익",  val:tc.mgmt,             sub:"이자비용 반영",                       cls:_pc(tc.mgmt) },
+          { label:"판관비 합계", val:totals.sga,          sub:"",                                  cls:"" },
+          { label:"이자비용 합계", val:totals.interest,   sub:"",                                  cls:"" },
+        ].map(k => `
+          <div class="pnl-dash-kpi">
+            <div class="pnl-dash-kpi-lbl">${k.label}</div>
+            <div class="pnl-dash-kpi-val ${k.cls}">${_ps(k.val)}</div>
+            ${k.sub ? `<div class="pnl-dash-kpi-sub">${k.sub}</div>` : ""}
+          </div>`).join("")}
+      </div>
+
+      <!-- 차트 영역 -->
+      <div class="pnl-charts-grid">
+        <div class="pnl-chart-box pnl-chart-wide">
+          <div class="pnl-chart-title">매출액 · 원가 구성</div>
+          <canvas id="pnlChart1"></canvas>
+        </div>
+        <div class="pnl-chart-box">
+          <div class="pnl-chart-title">손익 추이</div>
+          <canvas id="pnlChart2"></canvas>
+        </div>
+        <div class="pnl-chart-box">
+          <div class="pnl-chart-title">비용 구조</div>
+          <canvas id="pnlChart3"></canvas>
+        </div>
+      </div>
+
+      <!-- 상세 테이블 -->
+      <div class="pnl-dash-table-wrap">
+        <table class="pnl-dash-table">
+          <thead><tr><th>기간</th><th>매출액</th><th>목표</th><th>달성률</th><th>매출총이익</th><th>총이익률</th><th>영업이익</th><th>경영이익</th><th>판관비</th><th>이자비용</th></tr></thead>
+          <tbody>
+            ${agg.map(d => `
+              <tr class="${d.label.includes("Q")||d.label.includes("반기")||d.label.includes("년")?"pnl-tr-sub":""}">
+                <td>${d.label}</td>
+                <td>${_pf(d.revenue)}</td>
+                <td>${d.targetRevenue>0?_pf(d.targetRevenue):"—"}</td>
+                <td class="${d.targetAchieve!==null?(d.targetAchieve>=100?"pnl-pos":"pnl-neg"):""}">${d.targetAchieve!==null?d.targetAchieve.toFixed(1)+"%":"—"}</td>
+                <td class="${_pc(d.gross)}">${_ps(d.gross)}</td>
+                <td>${d.gmRate.toFixed(1)}%</td>
+                <td class="${_pc(d.op)}">${_ps(d.op)}</td>
+                <td class="${_pc(d.mgmt)}">${_ps(d.mgmt)}</td>
+                <td>${_pf(d.sga)}</td>
+                <td>${_pf(d.interest)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 전년 동월 비교 -->
+      ${prevYearAgg.length && pnlDashPeriod==="monthly" ? `
+      <div class="pnl-section" style="margin-top:24px">
+        <div class="pnl-sec-title" style="font-size:14px;padding-bottom:8px;margin-bottom:12px">전년(${pnlDashYear-1}년) 동월 비교</div>
+        <table class="pnl-dash-table">
+          <thead><tr><th>월</th><th>${pnlDashYear-1}년 매출</th><th>${pnlDashYear}년 매출</th><th>매출 증감률</th><th>${pnlDashYear-1}년 경영이익</th><th>${pnlDashYear}년 경영이익</th><th>손익 변화</th></tr></thead>
+          <tbody>
+            ${Array.from({length:12},(_,i)=>i+1).map(mo => {
+              const cur  = getPnlEntry(pnlDashYear,   mo);
+              const prv  = getPnlEntry(pnlDashYear-1, mo);
+              if (!cur && !prv) return "";
+              const curC = cur ? calcPnl(cur) : null;
+              const prvC = prv ? calcPnl(prv) : null;
+              const revGrowth = prv && cur ? (cur.revenue - prv.revenue) / prv.revenue * 100 : null;
+              return `<tr>
+                <td>${mo}월</td>
+                <td>${prv ? _pf(prv.revenue) : "—"}</td>
+                <td>${cur ? _pf(cur.revenue) : "—"}</td>
+                <td class="${revGrowth!==null?(revGrowth>=0?"pnl-pos":"pnl-neg"):""}">${revGrowth!==null?(revGrowth>=0?"▲":"▼")+Math.abs(revGrowth).toFixed(1)+"%":"—"}</td>
+                <td class="${prvC?_pc(prvC.mgmt):""}">${prvC?_ps(prvC.mgmt):"—"}</td>
+                <td class="${curC?_pc(curC.mgmt):""}">${curC?_ps(curC.mgmt):"—"}</td>
+                <td class="${curC&&prvC?(curC.mgmt>prvC.mgmt?"pnl-pos":"pnl-neg"):""}">${curC&&prvC?(curC.mgmt>prvC.mgmt?"개선":"악화"):"—"}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>` : ""}
+    </div>`;
+
+  // 기간 버튼 이벤트
+  el.querySelectorAll(".pnl-period-btn").forEach(btn => {
+    btn.addEventListener("click", () => { pnlDashPeriod = btn.dataset.period; renderPnlDashboard(el); });
+  });
+  document.getElementById("pnlDashYear")?.addEventListener("change", e => { pnlDashYear = +e.target.value; renderPnlDashboard(el); });
+
+  // Chart.js 차트 렌더
+  if (!agg.length) return;
+  try {
+    await _loadChartJs();
+  } catch (e) { console.warn("[손익] Chart.js 로드 실패:", e); return; }
+
+  const labels = agg.map(d => d.label);
+  const chartDefaults = { font: { family: "'Noto Sans KR', sans-serif", size: 11 } };
+  Chart.defaults.font = chartDefaults.font;
+
+  // 기존 차트 파기
+  ["pnlChart1","pnlChart2","pnlChart3"].forEach(id => {
+    if (_pnlCharts[id]) { _pnlCharts[id].destroy(); delete _pnlCharts[id]; }
+  });
+
+  _pnlCharts.pnlChart1 = new Chart(document.getElementById("pnlChart1"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label:"매출액",         data:agg.map(d=>d.revenue),  backgroundColor:"#3b82f620", borderColor:"#3b82f6", borderWidth:2 },
+        { label:"상품매출원가",    data:agg.map(d=>d.cogs),     backgroundColor:"#94a3b8" },
+        { label:"당기총제조비용",  data:agg.map(d=>d.mfg),      backgroundColor:"#cbd5e1" },
+      ],
+    },
+    options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{y:{ticks:{callback:v=>_pf(v)+"원"}}} },
+  });
+
+  _pnlCharts.pnlChart2 = new Chart(document.getElementById("pnlChart2"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label:"매출총이익", data:agg.map(d=>d.gross),  borderColor:"#16a34a", backgroundColor:"#16a34a18", tension:.3, fill:false },
+        { label:"영업이익",  data:agg.map(d=>d.op),    borderColor:"#2563eb", backgroundColor:"#2563eb18", borderDash:[4,3], tension:.3, fill:false },
+        { label:"경영이익",  data:agg.map(d=>d.mgmt),  borderColor:"#dc2626", backgroundColor:"#dc262618", borderDash:[2,2], tension:.3, fill:false },
+      ],
+    },
+    options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{y:{ticks:{callback:v=>_pf(v)+"원"}}} },
+  });
+
+  _pnlCharts.pnlChart3 = new Chart(document.getElementById("pnlChart3"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label:"원가+제조비", data:agg.map(d=>d.cogs+d.mfg), backgroundColor:"#3b82f6", stack:"cost" },
+        { label:"판관비",      data:agg.map(d=>d.sga),         backgroundColor:"#f97316", stack:"cost" },
+        { label:"이자비용",    data:agg.map(d=>d.interest),    backgroundColor:"#ef4444", stack:"cost" },
+      ],
+    },
+    options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>_pf(v)+"원"}}} },
+  });
 }
 
 init();

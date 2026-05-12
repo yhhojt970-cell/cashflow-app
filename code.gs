@@ -14,6 +14,7 @@ const LEDGER_PAY_SHEET   = "계정별원장_미지급_raw";
 const DAILY_SALES_SHEET  = "영업현황_raw";
 const BIZ_DIVISION_SHEET = "사업부문마스터";
 const FIXED_SHEET        = "고정지출";
+const PNL_SHEET          = "월간손익";
 
 function checkAuth(tokenValue) {
   return String(tokenValue || "").trim() === API_TOKEN;
@@ -60,6 +61,9 @@ function doGet(e) {
       dailySales:     getSheetRows(DAILY_SALES_SHEET,  ss),
       bizDivision:    getSheetRows(BIZ_DIVISION_SHEET, ss),
     });
+  }
+  if (action === "getPnlData") {
+    return jsonOutput({ rows: getSheetRows(PNL_SHEET) });
   }
   if (action === "getMautoData") {
     const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -133,6 +137,13 @@ function doPost(e) {
   if (action === "upsertBizDivision") {
     upsertRowsByKey(BIZ_DIVISION_SHEET, "_row_key", Array.isArray(body.rows) ? body.rows : []);
     return jsonOutput({ ok: true, count: (body.rows||[]).length });
+  }
+  if (action === "savePnlData") {
+    if (body.row) {
+      upsertRowsByKey(PNL_SHEET, "_key", [body.row]);
+      return jsonOutput({ ok: true });
+    }
+    return jsonOutput({ error: "row 없음" });
   }
   if (action === "saveMautoData") {
     const ss = SpreadsheetApp.openById(SHEET_ID);
