@@ -8521,17 +8521,17 @@ function renderPnlTab() {
 // 셀 하나에서 월(1~12) 추출. "1월"/"01월"/Date 객체/숫자 1~12 모두 처리
 function _cellToMonth(c) {
   if (c instanceof Date && !isNaN(c)) return c.getMonth() + 1;
-  // XLS 파일에서 "1월" 헤더가 정수 1~12로 저장되는 경우 처리
   if (typeof c === "number" && Number.isFinite(c) && c >= 1 && c <= 12 && c === Math.floor(c)) return c;
-  const s = String(c).trim().replace(/\s/g, "");  // 내부 공백 제거 후 매칭
+  // ERP XLS 파일은 문자열 끝에 \x00(null byte)를 붙이는 경우가 있어 제거 후 매칭
+  const s = String(c).replace(/[\x00\s]/g, "");
   const m = s.match(/^0?(\d{1,2})월$/);
   if (m) { const n = parseInt(m[1]); if (n >= 1 && n <= 12) return n; }
   return null;
 }
 
-// ERP 행 레이블 정규화: 공백·점·중간점 제거, 전각 → 반각 변환, 숫자 접미사 제거
+// ERP 행 레이블 정규화: null byte·공백·점 제거, 전각 → 반각 변환, 숫자 접미사 제거
 function _normLabel(s) {
-  return String(s ?? "").trim()
+  return String(s ?? "").replace(/\x00/g, "").trim()
     .replace(/[Ⅰ]/g, "I").replace(/[Ⅱ]/g, "II").replace(/[Ⅲ]/g, "III")
     .replace(/[Ⅳ]/g, "IV").replace(/[Ⅴ]/g, "V").replace(/[Ⅵ]/g, "VI")
     .replace(/[Ⅶ]/g, "VII").replace(/[Ⅷ]/g, "VIII").replace(/[Ⅸ]/g, "IX")
@@ -8584,7 +8584,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
         const cellTxt = addr
           ? String((ws[addr] && (ws[addr].w || ws[addr].v)) || "")
           : String(row[ci] || "");
-        if (cellTxt.replace(/\s/g, "") === "과목") { labelCol = ci; break; }
+        if (cellTxt.replace(/[\s\x00]/g, "") === "과목") { labelCol = ci; break; }
       }
       break;
     }
@@ -8611,7 +8611,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
 
   for (let ri = headerRowIdx + 1; ri < raw.length; ri++) {
     const row = raw[ri];
-    const rawLabel = String(row[labelCol] ?? "").trim().replace(/\s+/g, " ");
+    const rawLabel = String(row[labelCol] ?? "").replace(/\x00/g, "").trim().replace(/\s+/g, " ");
     if (!rawLabel) continue;
     const normLabel = _normLabel(rawLabel);
     for (const [field, matcher] of finderEntries) {
