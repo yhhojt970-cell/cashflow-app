@@ -8543,8 +8543,21 @@ function _parsePnlMonthSheet(wb, rowFinders) {
   const sheetName = wb.SheetNames.find(n =>
     n.includes("손익") || n.includes("원가") || n.includes("계산서") || n.includes("명세서")
   ) || wb.SheetNames[0];
-  const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
-  console.log("[PNL] sheet:", sheetName, "rows:", raw.length, "첫3행:", raw.slice(0, 3).map(r => r.slice(0, 6)));
+  const ws = wb.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  const wsRange = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : null;
+
+  // 셀의 표시 텍스트(w)와 원시값(v) 모두에서 월 번호를 추출하는 헬퍼
+  function _cellMonthFromWs(ri, ci) {
+    if (wsRange) {
+      const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+      const cell = ws[addr];
+      if (!cell) return null;
+      // cell.w: 표시 텍스트 (예: "1월", "01월") — 날짜 시리얼이라도 이 값은 정상
+      return _cellToMonth(cell.w) || _cellToMonth(cell.v);
+    }
+    return _cellToMonth(raw[ri] && raw[ri][ci]);
+  }
 
   let detectedYear = null;
   let headerRowIdx = -1;
@@ -8557,21 +8570,37 @@ function _parsePnlMonthSheet(wb, rowFinders) {
     const ym = rowText.match(/(\d{4})년/);
     if (ym && !detectedYear) detectedYear = parseInt(ym[1]);
 
-    // 헤더 행: 3개 이상의 월 셀 포함 (텍스트·Date 객체·정수 모두 처리)
+    const maxCol = wsRange ? wsRange.e.c : row.length - 1;
     const tmpMonthCols = {};
-    row.forEach((c, ci) => {
-      const m = _cellToMonth(c);
+    for (let ci = 0; ci <= maxCol; ci++) {
+      const m = _cellMonthFromWs(ri, ci);
       if (m) tmpMonthCols[m] = ci;
-    });
+    }
     if (Object.keys(tmpMonthCols).length >= 3) {
       headerRowIdx = ri;
       monthCols = tmpMonthCols;
-      // "과목" 또는 "과 목" (공백 포함 변형) 모두 허용
-      row.forEach((c, ci) => { if (String(c).replace(/\s/g, "") === "과목") labelCol = ci; });
+      for (let ci = 0; ci <= maxCol; ci++) {
+        const addr = wsRange ? XLSX.utils.encode_cell({ r: ri, c: ci }) : null;
+        const cellTxt = addr
+          ? String((ws[addr] && (ws[addr].w || ws[addr].v)) || "")
+          : String(row[ci] || "");
+        if (cellTxt.replace(/\s/g, "") === "과목") { labelCol = ci; break; }
+      }
       break;
     }
   }
-  console.log("[PNL] headerRowIdx:", headerRowIdx, "monthCols:", monthCols, "labelCol:", labelCol, "year:", detectedYear);
+
+  // 진단 로그 (F12 Console에서 확인)
+  console.log("[PNL] sheet:", sheetName, "headerRow:", headerRowIdx, "monthCols:", monthCols, "labelCol:", labelCol, "year:", detectedYear);
+  if (raw.length > 5 && wsRange) {
+    const r5 = [];
+    for (let ci = 0; ci <= Math.min(15, wsRange.e.c); ci++) {
+      const addr = XLSX.utils.encode_cell({ r: 5, c: ci });
+      const cell = ws[addr];
+      r5.push(cell ? `w=${cell.w} v=${cell.v} t=${cell.t}` : "-");
+    }
+    console.log("[PNL] row[5]:", r5);
+  }
   if (headerRowIdx < 0) return { data: null, year: detectedYear };
 
   const result = {};
