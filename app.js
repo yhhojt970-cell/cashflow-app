@@ -8364,6 +8364,9 @@ let pnlRptMonth = new Date().getMonth() + 1;
 let pnlDashYear = new Date().getFullYear();
 let pnlDashPeriod = "monthly";
 let _pnlCharts  = {};
+let _pnlImportIncome = null;  // 손익계산서 파싱 결과 {month: {revenue,cogs,sga,interest}}
+let _pnlImportCost   = null;  // 원가명세서 파싱 결과 {month: {mfg}}
+let _pnlImportYear   = new Date().getFullYear();
 
 // ── 로컬 스토리지 ─────────────────────────────────────────────
 function loadPnlLocal() {
@@ -8513,6 +8516,202 @@ function renderPnlTab() {
   else                             renderPnlDashboard(content);
 }
 
+// ── Excel 일괄입력 파서 ────────────────────────────────────────
+
+function _parsePnlMonthSheet(wb, rowFinders) {
+  // 우선 시트명 탐색, 없으면 첫 번째 시트
+  const sheetName = wb.SheetNames.find(n =>
+    n.includes("손익") || n.includes("원가") || n.includes("계산서") || n.includes("명세서")
+  ) || wb.SheetNames[0];
+  const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+
+  let detectedYear = null;
+  let headerRowIdx = -1;
+  let monthCols = {};
+  let labelCol  = 0;
+
+  for (let ri = 0; ri < Math.min(20, raw.length); ri++) {
+    const row = raw[ri];
+    const rowText = row.map(c => String(c)).join(" ");
+    // 연도 탐지
+    const ym = rowText.match(/(\d{4})년/);
+    if (ym && !detectedYear) detectedYear = parseInt(ym[1]);
+    // 헤더 행: 3개 이상 "X월" 패턴 포함
+    const mCount = row.filter(c => /^\d+월$/.test(String(c).trim())).length;
+    if (mCount >= 3) {
+      headerRowIdx = ri;
+      row.forEach((c, ci) => {
+        const m = String(c).trim().match(/^(\d+)월$/);
+        if (m) monthCols[parseInt(m[1])] = ci;
+        if (String(c).trim() === "과목") labelCol = ci;
+      });
+      break;
+    }
+  }
+  if (headerRowIdx < 0) return { data: null, year: detectedYear };
+
+  const result = {};
+  for (let m = 1; m <= 12; m++) result[m] = {};
+
+  const found = new Set();
+  const finderEntries = Object.entries(rowFinders);
+
+  for (let ri = headerRowIdx + 1; ri < raw.length; ri++) {
+    const row = raw[ri];
+    const label = String(row[labelCol] ?? "").trim().replace(/\s+/g, " ");
+    if (!label) continue;
+    for (const [field, matcher] of finderEntries) {
+      if (found.has(field)) continue;
+      if (matcher(label)) {
+        found.add(field);
+        for (let m = 1; m <= 12; m++) {
+          const ci = monthCols[m];
+          if (ci == null) continue;
+          result[m][field] = parseFloat(String(row[ci] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+        }
+        break;
+      }
+    }
+    if (found.size === finderEntries.length) break;
+  }
+  return { data: result, year: detectedYear };
+}
+
+function parsePnlIncomeStatement(wb) {
+  return _parsePnlMonthSheet(wb, {
+    revenue:  s => /^I\s*[\s.]+매출액/.test(s) || s === "매출액",
+    cogs:     s => /^II\s*[\s.]+매출원가/.test(s) || s === "매출원가",
+    sga:      s => (/^IV\s*[\s.]/.test(s) || s.startsWith("Ⅳ")) && (s.includes("판매비") || s.includes("판관비")),
+    interest: s => s.replace(/\d+$/, "").trim() === "이자비용" || s === "이자비용",
+  });
+}
+
+function parsePnlCostStatement(wb) {
+  return _parsePnlMonthSheet(wb, {
+    mfg: s => /^11\s*[\s.]+당기제품제조원가/.test(s) || s === "당기제품제조원가",
+  });
+}
+
+function openPnlImportDialog() {
+  const inc = _pnlImportIncome || {};
+  const cst = _pnlImportCost   || {};
+  const yr  = _pnlImportYear;
+  const curY = new Date().getFullYear();
+  const yearOpts = Array.from({length: curY - 2023}, (_, i) => 2024 + i)
+    .map(y => `<option value="${y}" ${y === yr ? "selected" : ""}>${y}년</option>`).join("");
+
+  const months = Array.from({length: 12}, (_, i) => i + 1);
+  const rows = months.map(m => {
+    const id = getPnlEntry(yr, m);
+    const rev  = (inc[m] && inc[m].revenue)  || 0;
+    const cogs = (inc[m] && inc[m].cogs)     || 0;
+    const sga  = (inc[m] && inc[m].sga)      || 0;
+    const mfg  = (cst[m] && cst[m].mfg)      || 0;
+    const intr = (inc[m] && inc[m].interest) || 0;
+    const tgt  = id ? (id.targetRevenue || 0) : 0;
+    return { m, rev, cogs, sga, mfg, intr, tgt };
+  });
+
+  const fv = v => v ? _pf(v) : "";
+  const tableRows = rows.map(r => `
+    <tr data-month="${r.m}">
+      <td class="pnl-id-m">${r.m}월</td>
+      <td><input type="text" class="pnl-id-inp" data-f="revenue"       value="${fv(r.rev)}"  placeholder="0" inputmode="numeric" /></td>
+      <td><input type="text" class="pnl-id-inp" data-f="cogs"          value="${fv(r.cogs)}" placeholder="0" inputmode="numeric" /></td>
+      <td><input type="text" class="pnl-id-inp" data-f="sga"           value="${fv(r.sga)}"  placeholder="0" inputmode="numeric" /></td>
+      <td><input type="text" class="pnl-id-inp" data-f="mfg"           value="${fv(r.mfg)}"  placeholder="0" inputmode="numeric" /></td>
+      <td><input type="text" class="pnl-id-inp" data-f="interest"      value="${fv(r.intr)}" placeholder="0" inputmode="numeric" /></td>
+      <td><input type="text" class="pnl-id-inp pnl-id-manual" data-f="targetRevenue" value="${fv(r.tgt)}"  placeholder="수동입력" inputmode="numeric" /></td>
+      <td class="pnl-id-calc" data-calc="mgmt">—</td>
+    </tr>`).join("");
+
+  const overlay = document.createElement("div");
+  overlay.id = "pnlImportOverlay";
+  overlay.className = "pnl-import-overlay";
+  overlay.innerHTML = `
+    <div class="pnl-import-dialog">
+      <div class="pnl-id-header">
+        <span class="pnl-id-title">📊 Excel 일괄 입력 — 미리보기</span>
+        <select id="pnlIdYearSel">${yearOpts}</select>
+        <button class="pnl-id-close" id="pnlIdClose">✕</button>
+      </div>
+      <div class="pnl-id-hint">회색 셀은 Excel에서 자동 추출된 값입니다. <span class="pnl-id-manual-hint">목표매출</span>만 직접 입력하세요.</div>
+      <div class="pnl-id-table-wrap">
+        <table class="pnl-id-table">
+          <thead><tr>
+            <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
+            <th>제조원가</th><th>이자비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th><th>경영이익(계산)</th>
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+      <div class="pnl-id-footer">
+        <span id="pnlIdMsg" class="pnl-id-msg"></span>
+        <button class="pnl-btn pnl-btn-ghost" id="pnlIdCancel">취소</button>
+        <button class="pnl-btn pnl-btn-primary" id="pnlIdSave">전체 저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  function parseN(s) { return Number(String(s).replace(/[^0-9]/g, "")) || 0; }
+  function getRowVals(tr) {
+    const v = {};
+    tr.querySelectorAll(".pnl-id-inp").forEach(inp => { v[inp.dataset.f] = parseN(inp.value); });
+    return v;
+  }
+  function refreshCalcCells() {
+    overlay.querySelectorAll("tbody tr").forEach(tr => {
+      const v = getRowVals(tr);
+      const c = calcPnl(v);
+      const td = tr.querySelector("[data-calc=mgmt]");
+      if (td) {
+        td.textContent = _ps(c.mgmt) + " 원";
+        td.className = "pnl-id-calc " + _pc(c.mgmt);
+      }
+    });
+  }
+
+  // 숫자 포맷 + 계산 갱신
+  overlay.querySelectorAll(".pnl-id-inp").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const raw = parseN(inp.value);
+      inp.value = raw ? _pf(raw) : "";
+      refreshCalcCells();
+    });
+  });
+  refreshCalcCells();
+
+  document.getElementById("pnlIdYearSel").addEventListener("change", e => {
+    _pnlImportYear = parseInt(e.target.value);
+    overlay.remove();
+    openPnlImportDialog();
+  });
+  document.getElementById("pnlIdClose").addEventListener("click", () => overlay.remove());
+  document.getElementById("pnlIdCancel").addEventListener("click", () => overlay.remove());
+
+  document.getElementById("pnlIdSave").addEventListener("click", () => {
+    const yr2 = parseInt(document.getElementById("pnlIdYearSel").value);
+    let saved = 0;
+    overlay.querySelectorAll("tbody tr").forEach(tr => {
+      const m = parseInt(tr.dataset.month);
+      const v = getRowVals(tr);
+      if (!v.revenue && !v.cogs && !v.sga && !v.mfg && !v.interest) return; // 빈 행 skip
+      const existing = getPnlEntry(yr2, m) || {};
+      upsertPnlEntry({
+        ...existing,
+        year: yr2, month: m,
+        revenue: v.revenue, cogs: v.cogs, sga: v.sga,
+        mfg: v.mfg, interest: v.interest,
+        targetRevenue: v.targetRevenue || existing.targetRevenue || 0,
+        approvalStatus: existing.approvalStatus || "draft",
+      });
+      saved++;
+    });
+    document.getElementById("pnlIdMsg").textContent = `${saved}개월 저장 완료`;
+    setTimeout(() => { overlay.remove(); renderPnlTab(); }, 800);
+  });
+}
+
 // ── 입력 탭 ──────────────────────────────────────────────────
 function renderPnlInput(el) {
   const entry = getPnlEntry(pnlInputYear, pnlInputMonth) || {
@@ -8540,8 +8739,22 @@ function renderPnlInput(el) {
     { key:"interest",      id:"pnlInt",    label:"이자비용" },
   ];
 
+  const incLabel = _pnlImportIncome ? "✅ 손익계산서" : "📊 손익계산서 업로드";
+  const cstLabel = _pnlImportCost   ? "✅ 원가명세서" : "📋 원가명세서 업로드";
+  const canPreview = _pnlImportIncome || _pnlImportCost;
+
   el.innerHTML = `
     <div class="pnl-input-wrap">
+
+      <div class="pnl-import-section">
+        <span class="pnl-import-label">Excel 일괄 입력</span>
+        <button class="pnl-import-btn${_pnlImportIncome?" pnl-import-done":""}" id="pnlIncomeUploadBtn">${incLabel}</button>
+        <button class="pnl-import-btn${_pnlImportCost?" pnl-import-done":""}" id="pnlCostUploadBtn">${cstLabel}</button>
+        ${canPreview ? `<button class="pnl-btn pnl-btn-primary pnl-import-preview-btn" id="pnlImportPreviewBtn">미리보기 / 일괄저장 →</button>` : ""}
+        <input type="file" id="pnlIncomeFileInput" accept=".xls,.xlsx" hidden />
+        <input type="file" id="pnlCostFileInput"   accept=".xls,.xlsx" hidden />
+      </div>
+
       <div class="pnl-input-nav">
         <button class="pnl-nav-btn" id="pnlNavPrev">◀</button>
         <select id="pnlSelYear">${yearOpts}</select>
@@ -8641,6 +8854,44 @@ function renderPnlInput(el) {
     pnlRptYear = pnlInputYear; pnlRptMonth = pnlInputMonth;
     pnlSubTab = "report"; renderPnlTab();
   });
+
+  // ── Excel 일괄입력 파일 핸들러 ──
+  function handlePnlFile(inputId, type) {
+    const inp = document.getElementById(inputId);
+    if (!inp) return;
+    inp.value = "";
+    inp.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+          if (type === "income") {
+            const { data, year } = parsePnlIncomeStatement(wb);
+            if (!data) { pnlToast("손익계산서 파싱 실패 — 시트 구조를 확인하세요."); return; }
+            _pnlImportIncome = data;
+            if (year) _pnlImportYear = year;
+          } else {
+            const { data, year } = parsePnlCostStatement(wb);
+            if (!data) { pnlToast("원가명세서 파싱 실패 — 시트 구조를 확인하세요."); return; }
+            _pnlImportCost = data;
+            if (year) _pnlImportYear = year;
+          }
+          pnlToast(`${type === "income" ? "손익계산서" : "원가명세서"} 파싱 완료 (${_pnlImportYear}년)`);
+          renderPnlTab();
+        } catch (err) {
+          pnlToast("파일 읽기 오류: " + (err.message || err));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    inp.click();
+  }
+
+  document.getElementById("pnlIncomeUploadBtn").addEventListener("click", () => handlePnlFile("pnlIncomeFileInput", "income"));
+  document.getElementById("pnlCostUploadBtn").addEventListener("click",   () => handlePnlFile("pnlCostFileInput",   "cost"));
+  document.getElementById("pnlImportPreviewBtn")?.addEventListener("click", openPnlImportDialog);
 }
 
 // ── 보고서 탭 ─────────────────────────────────────────────────
