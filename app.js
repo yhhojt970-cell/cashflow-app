@@ -8521,8 +8521,10 @@ function renderPnlTab() {
 // 셀 하나에서 월(1~12) 추출. "1월"/"01월"/Date 객체/숫자 1~12 모두 처리
 function _cellToMonth(c) {
   if (c instanceof Date && !isNaN(c)) return c.getMonth() + 1;
-  const s = String(c).trim();
-  const m = s.match(/^0?(\d{1,2})\s*월$/);
+  // XLS 파일에서 "1월" 헤더가 정수 1~12로 저장되는 경우 처리
+  if (typeof c === "number" && Number.isFinite(c) && c >= 1 && c <= 12 && c === Math.floor(c)) return c;
+  const s = String(c).trim().replace(/\s/g, "");  // 내부 공백 제거 후 매칭
+  const m = s.match(/^0?(\d{1,2})월$/);
   if (m) { const n = parseInt(m[1]); if (n >= 1 && n <= 12) return n; }
   return null;
 }
@@ -8542,6 +8544,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
     n.includes("손익") || n.includes("원가") || n.includes("계산서") || n.includes("명세서")
   ) || wb.SheetNames[0];
   const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+  console.log("[PNL] sheet:", sheetName, "rows:", raw.length, "첫3행:", raw.slice(0, 3).map(r => r.slice(0, 6)));
 
   let detectedYear = null;
   let headerRowIdx = -1;
@@ -8554,7 +8557,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
     const ym = rowText.match(/(\d{4})년/);
     if (ym && !detectedYear) detectedYear = parseInt(ym[1]);
 
-    // 헤더 행: 3개 이상의 월 셀 포함 (텍스트·Date 객체 모두 처리)
+    // 헤더 행: 3개 이상의 월 셀 포함 (텍스트·Date 객체·정수 모두 처리)
     const tmpMonthCols = {};
     row.forEach((c, ci) => {
       const m = _cellToMonth(c);
@@ -8563,10 +8566,12 @@ function _parsePnlMonthSheet(wb, rowFinders) {
     if (Object.keys(tmpMonthCols).length >= 3) {
       headerRowIdx = ri;
       monthCols = tmpMonthCols;
-      row.forEach((c, ci) => { if (String(c).trim() === "과목") labelCol = ci; });
+      // "과목" 또는 "과 목" (공백 포함 변형) 모두 허용
+      row.forEach((c, ci) => { if (String(c).replace(/\s/g, "") === "과목") labelCol = ci; });
       break;
     }
   }
+  console.log("[PNL] headerRowIdx:", headerRowIdx, "monthCols:", monthCols, "labelCol:", labelCol, "year:", detectedYear);
   if (headerRowIdx < 0) return { data: null, year: detectedYear };
 
   const result = {};
@@ -8596,6 +8601,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
     }
     if (found.size === finderEntries.length) break;
   }
+  console.log("[PNL] found:", [...found], "missing:", finderEntries.map(([k])=>k).filter(k=>!found.has(k)));
   return { data: result, year: detectedYear };
 }
 
@@ -8899,7 +8905,7 @@ function renderPnlInput(el) {
       const reader = new FileReader();
       reader.onload = ev => {
         try {
-          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array", cellDates: true });
           if (type === "income") {
             const { data, year } = parsePnlIncomeStatement(wb);
             if (!data) { pnlToast("손익계산서 파싱 실패 — 시트 구조를 확인하세요."); return; }
