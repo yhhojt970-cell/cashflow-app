@@ -9235,7 +9235,7 @@ function renderPnlReport(el) {
                <button class="pnl-revoke-btn" data-step="${stepIdx}" title="결재 취소">↩</button>
              </div>`
           : current
-            ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명하기</button>`
+            ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
             : `<div class="pnl-stamp pnl-stamp-empty"></div>`
         }
       </div>`;
