@@ -4672,3 +4672,16 @@ td {
 .pnl-inv-save-btn { padding: 4px 12px; background: var(--accent); color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .pnl-inv-save-btn:hover { background: #1d4ed8; }
 .pnl-inv-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+/* ── 경영손익 import 다이얼로그 — 월 선택 체크박스 ── */
+.pnl-id-chk-head { width: 44px; text-align: center; }
+.pnl-id-chk-cell { text-align: center; vertical-align: middle; padding: 0 6px; }
+.pnl-id-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+.pnl-id-row-locked { background: #f9fafb; color: #9ca3af; }
+.pnl-id-row-locked .pnl-id-m { color: #9ca3af; }
+.pnl-id-row-unchecked { opacity: 0.4; }
+.pnl-id-row-empty td:not(.pnl-id-chk-cell):not(.pnl-id-m) { color: #c9d0dc; }
+.pnl-id-sel-btns { display: flex; gap: 6px; padding: 6px 16px 0; }
+.pnl-id-sel-btn { padding: 3px 10px; font-size: 12px; border: 1px solid var(--border, #d1d9e8); border-radius: 5px; background: #fff; cursor: pointer; color: var(--text); }
+.pnl-id-sel-btn:hover { background: #f0f4ff; }
+.pnl-id-sel-cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }

@@ -8820,35 +8820,49 @@ function parsePnlCostStatement(wb) {
 }
 
 function openPnlImportDialog() {
-  const inc = _pnlImportIncome || {};
-  const cst = _pnlImportCost   || {};
-  const yr  = _pnlImportYear;
+  const inc  = _pnlImportIncome || {};
+  const cst  = _pnlImportCost   || {};
+  const yr   = _pnlImportYear;
   const curY = new Date().getFullYear();
+  const curM = new Date().getMonth() + 1;
   const yearOpts = Array.from({length: curY - 2023}, (_, i) => 2024 + i)
     .map(y => `<option value="${y}" ${y === yr ? "selected" : ""}>${y}년</option>`).join("");
 
   const months = Array.from({length: 12}, (_, i) => i + 1);
   const rows = months.map(m => {
-    const id = getPnlEntry(yr, m);
+    const id       = getPnlEntry(yr, m);
+    const approved = id?.approvalStatus === "결재완료";
     const rev  = (inc[m] && inc[m].revenue)  || 0;
     const cogs = (inc[m] && inc[m].cogs)     || 0;
     const sga  = (inc[m] && inc[m].sga)      || 0;
     const mfg  = (cst[m] && cst[m].mfg)      || 0;
     const intr = (inc[m] && inc[m].interest) || 0;
     const tgt  = id ? (id.targetRevenue || 0) : 0;
-    return { m, rev, cogs, sga, mfg, intr, tgt };
+    const hasData = !!(rev || cogs || sga || mfg || intr);
+    // 현재 연도면 현재 월만, 과거 연도면 마지막 데이터 월만 기본 체크
+    const isDefaultChecked = hasData && !approved && (yr === curY ? m === curM : false);
+    return { m, rev, cogs, sga, mfg, intr, tgt, approved, hasData, isDefaultChecked };
   });
+
+  // 기본 체크된 행이 없으면 마지막 데이터 행을 체크
+  if (!rows.some(r => r.isDefaultChecked)) {
+    const lastWithData = [...rows].reverse().find(r => r.hasData && !r.approved);
+    if (lastWithData) lastWithData.isDefaultChecked = true;
+  }
 
   const fv = v => v ? _pf(v) : "";
   const tableRows = rows.map(r => `
-    <tr data-month="${r.m}">
-      <td class="pnl-id-m">${r.m}월</td>
-      <td><input type="text" class="pnl-id-inp" data-f="revenue"       value="${fv(r.rev)}"  placeholder="0" inputmode="numeric" /></td>
-      <td><input type="text" class="pnl-id-inp" data-f="cogs"          value="${fv(r.cogs)}" placeholder="0" inputmode="numeric" /></td>
-      <td><input type="text" class="pnl-id-inp" data-f="sga"           value="${fv(r.sga)}"  placeholder="0" inputmode="numeric" /></td>
-      <td><input type="text" class="pnl-id-inp" data-f="mfg"           value="${fv(r.mfg)}"  placeholder="0" inputmode="numeric" /></td>
-      <td><input type="text" class="pnl-id-inp" data-f="interest"      value="${fv(r.intr)}" placeholder="0" inputmode="numeric" /></td>
-      <td><input type="text" class="pnl-id-inp pnl-id-manual" data-f="targetRevenue" value="${fv(r.tgt)}"  placeholder="수동입력" inputmode="numeric" /></td>
+    <tr data-month="${r.m}" class="${r.approved ? "pnl-id-row-locked" : ""}${!r.hasData ? " pnl-id-row-empty" : ""}">
+      <td class="pnl-id-chk-cell">
+        <input type="checkbox" class="pnl-id-chk" ${r.isDefaultChecked ? "checked" : ""} ${r.approved ? "disabled title=\"결재완료 — 잠금\"" : ""} />
+      </td>
+      <td class="pnl-id-m">${r.m}월${r.approved ? " 🔒" : ""}</td>
+      <td><input type="text" class="pnl-id-inp" data-f="revenue"       value="${fv(r.rev)}"  placeholder="0" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
+      <td><input type="text" class="pnl-id-inp" data-f="cogs"          value="${fv(r.cogs)}" placeholder="0" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
+      <td><input type="text" class="pnl-id-inp" data-f="sga"           value="${fv(r.sga)}"  placeholder="0" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
+      <td><input type="text" class="pnl-id-inp" data-f="mfg"           value="${fv(r.mfg)}"  placeholder="0" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
+      <td><input type="text" class="pnl-id-inp" data-f="interest"      value="${fv(r.intr)}" placeholder="0" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
+      <td><input type="text" class="pnl-id-inp pnl-id-manual" data-f="targetRevenue" value="${fv(r.tgt)}" placeholder="수동입력" inputmode="numeric" ${r.approved ? "disabled" : ""}/></td>
       <td class="pnl-id-calc" data-calc="mgmt">—</td>
     </tr>`).join("");
 
@@ -8862,10 +8876,19 @@ function openPnlImportDialog() {
         <select id="pnlIdYearSel">${yearOpts}</select>
         <button class="pnl-id-close" id="pnlIdClose">✕</button>
       </div>
-      <div class="pnl-id-hint">회색 셀은 Excel에서 자동 추출된 값입니다. <span class="pnl-id-manual-hint">목표매출</span>만 직접 입력하세요.</div>
+      <div class="pnl-id-hint">
+        ☑ 체크한 월만 저장됩니다. 🔒 결재완료 월은 잠금 상태입니다.<br/>
+        회색 셀은 Excel에서 자동 추출된 값이며, <span class="pnl-id-manual-hint">목표매출</span>만 직접 입력하세요.
+      </div>
+      <div class="pnl-id-sel-btns">
+        <button class="pnl-id-sel-btn" id="pnlIdSelAll">전체선택</button>
+        <button class="pnl-id-sel-btn" id="pnlIdSelNone">전체해제</button>
+        <button class="pnl-id-sel-btn pnl-id-sel-cur" id="pnlIdSelCur">이번달만</button>
+      </div>
       <div class="pnl-id-table-wrap">
         <table class="pnl-id-table">
           <thead><tr>
+            <th class="pnl-id-chk-head">저장</th>
             <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
             <th>제조원가</th><th>이자비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th><th>경영이익(계산)</th>
           </tr></thead>
@@ -8875,7 +8898,7 @@ function openPnlImportDialog() {
       <div class="pnl-id-footer">
         <span id="pnlIdMsg" class="pnl-id-msg"></span>
         <button class="pnl-btn pnl-btn-ghost" id="pnlIdCancel">취소</button>
-        <button class="pnl-btn pnl-btn-primary" id="pnlIdSave">전체 저장</button>
+        <button class="pnl-btn pnl-btn-primary" id="pnlIdSave">선택 저장</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -8898,7 +8921,6 @@ function openPnlImportDialog() {
     });
   }
 
-  // 숫자 포맷 + 계산 갱신
   overlay.querySelectorAll(".pnl-id-inp").forEach(inp => {
     inp.addEventListener("input", () => {
       const raw = parseN(inp.value);
@@ -8907,6 +8929,33 @@ function openPnlImportDialog() {
     });
   });
   refreshCalcCells();
+
+  // 체크박스 → 행 dimming
+  function updateRowDim(tr) {
+    const chk = tr.querySelector(".pnl-id-chk");
+    if (!chk || chk.disabled) return;
+    tr.classList.toggle("pnl-id-row-unchecked", !chk.checked);
+  }
+  overlay.querySelectorAll("tbody tr").forEach(tr => {
+    updateRowDim(tr);
+    const chk = tr.querySelector(".pnl-id-chk");
+    if (chk) chk.addEventListener("change", () => updateRowDim(tr));
+  });
+
+  // 전체선택 / 전체해제 / 이번달만
+  overlay.querySelector("#pnlIdSelAll").addEventListener("click", () => {
+    overlay.querySelectorAll(".pnl-id-chk:not(:disabled)").forEach(c => { c.checked = true; updateRowDim(c.closest("tr")); });
+  });
+  overlay.querySelector("#pnlIdSelNone").addEventListener("click", () => {
+    overlay.querySelectorAll(".pnl-id-chk:not(:disabled)").forEach(c => { c.checked = false; updateRowDim(c.closest("tr")); });
+  });
+  overlay.querySelector("#pnlIdSelCur").addEventListener("click", () => {
+    overlay.querySelectorAll(".pnl-id-chk:not(:disabled)").forEach(c => {
+      const m = parseInt(c.closest("tr").dataset.month);
+      c.checked = (m === curM);
+      updateRowDim(c.closest("tr"));
+    });
+  });
 
   document.getElementById("pnlIdYearSel").addEventListener("change", e => {
     _pnlImportYear = parseInt(e.target.value);
@@ -8920,6 +8969,8 @@ function openPnlImportDialog() {
     const yr2 = parseInt(document.getElementById("pnlIdYearSel").value);
     let saved = 0;
     overlay.querySelectorAll("tbody tr").forEach(tr => {
+      const chk = tr.querySelector(".pnl-id-chk");
+      if (!chk || !chk.checked || chk.disabled) return; // 체크 안 된 행 skip
       const m = parseInt(tr.dataset.month);
       const v = getRowVals(tr);
       if (!v.revenue && !v.cogs && !v.sga && !v.mfg && !v.interest) return; // 빈 행 skip
