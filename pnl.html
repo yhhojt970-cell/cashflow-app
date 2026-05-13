@@ -218,7 +218,10 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
   <label>월</label>
   <select id="selMonth">
     <option value="0">전체</option>
-    ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}
+    <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option>
+    <option value="4">4월</option><option value="5">5월</option><option value="6">6월</option>
+    <option value="7">7월</option><option value="8">8월</option><option value="9">9월</option>
+    <option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
   </select>
   <div class="tab-btns">
     <button class="tab-btn active" id="btnReport">📄 보고서</button>
@@ -416,10 +419,10 @@ function buildReportHtml(entry, yr) {
         <div class="flow">
           <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 이자비용</span><span class="fr-val neg">(${fmt(entry.interest)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실) <small>[②−이자비용]</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용</span><span class="fr-val neg">(${fmt(entry.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실) <small>[②−영업외비용]</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
         </div>
-        <div class="remark">※ 비고: 이자비용 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+        <div class="remark">※ 비고: 영업외비용(이자비용 등) 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
       </div>
 
       ${prev&&pc?`
@@ -434,7 +437,7 @@ function buildReportHtml(entry, yr) {
             ${cmpRow("매출총이익",       pc.gross,      c.gross,        true)}
             ${cmpRow("판관비",           prev.sga,      entry.sga,      false)}
             ${cmpRow("관리기준 영업이익",pc.op,         c.op,           true)}
-            ${cmpRow("이자비용",         prev.interest, entry.interest, false)}
+            ${cmpRow("영업외비용",        prev.interest, entry.interest, false)}
             ${cmpRow("경영이익(손실)",   pc.mgmt,       c.mgmt,         true)}
           </tbody>
         </table>
@@ -493,9 +496,9 @@ function renderDashboard() {
         {l:"매출액",val:tot.revenue,sub:tc.tgtA!==null?`달성률 ${tc.tgtA.toFixed(1)}%`:"",cls:""},
         {l:"매출총이익",val:tc.gross,sub:`총이익률 ${tc.gmR.toFixed(1)}%`,cls:clsPN(tc.gross)},
         {l:"영업이익",val:tc.op,sub:`영업이익률 ${tc.opR.toFixed(1)}%`,cls:clsPN(tc.op)},
-        {l:"경영이익",val:tc.mgmt,sub:"이자비용 반영",cls:clsPN(tc.mgmt)},
+        {l:"경영이익",val:tc.mgmt,sub:"영업외비용 반영",cls:clsPN(tc.mgmt)},
         {l:"판관비 합계",val:tot.sga,sub:"",cls:""},
-        {l:"이자비용 합계",val:tot.interest,sub:"",cls:""},
+        {l:"영업외비용 합계",val:tot.interest,sub:"",cls:""},
       ].map(k=>`<div class="dash-kpi">
         <div class="dash-kpi-lbl">${k.l}</div>
         <div class="dash-kpi-val ${k.cls}">${fmtS(k.val)}</div>
@@ -542,7 +545,7 @@ function renderDashboard() {
   dashCharts.dc3 = new Chart(document.getElementById("dc3"),{type:"bar",data:{labels,datasets:[
     {label:"원가+제조비",data:agg.map(d=>d.cogs+d.mfg),backgroundColor:"#3b82f6",stack:"c"},
     {label:"판관비",     data:agg.map(d=>d.sga),         backgroundColor:"#f97316",stack:"c"},
-    {label:"이자비용",   data:agg.map(d=>d.interest),    backgroundColor:"#ef4444",stack:"c"},
+    {label:"영업외비용", data:agg.map(d=>d.interest),    backgroundColor:"#ef4444",stack:"c"},
   ]},options:{responsive:true,plugins:{legend:{position:"top"}},scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>fmt(v)+"원"}}}}});
 }
 
