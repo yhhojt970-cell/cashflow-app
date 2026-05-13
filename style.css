@@ -4652,3 +4652,23 @@ td {
   .pnl-ap-grid   { flex-wrap: wrap; }
   .pnl-ap-box    { min-width: 40%; }
 }
+
+/* ── 경영손익 재고 관리 탭 ── */
+.pnl-inv-wrap { padding: 20px 24px; }
+.pnl-inv-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.pnl-inv-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.pnl-inv-top select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.pnl-inv-hint { font-size: 12px; color: var(--muted); background: #f0f4ff; border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin-bottom: 16px; line-height: 1.6; }
+.pnl-inv-table-wrap { overflow-x: auto; }
+.pnl-inv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pnl-inv-table th { background: #f1f5fb; padding: 9px 12px; text-align: center; border: 1px solid #dde3ee; font-weight: 600; color: var(--text); white-space: nowrap; }
+.pnl-inv-table td { padding: 6px 10px; border: 1px solid #e5eaf3; text-align: right; vertical-align: middle; }
+.pnl-inv-m { text-align: center !important; font-weight: 600; color: var(--text); background: #fafbfd; }
+.pnl-inv-inp { width: 130px; padding: 5px 8px; border: 1px solid #d1d9e8; border-radius: 5px; font-size: 13px; text-align: right; background: #fff; }
+.pnl-inv-inp:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px #2563eb20; }
+.pnl-inv-purchase-inp { background: #f0f7ff; border-color: #bfdbfe; color: #1d4ed8; }
+.pnl-inv-calc { font-weight: 600; color: var(--muted); font-size: 13px; }
+.pnl-inv-calc.pnl-inv-active { color: #1e40af; background: #eff6ff; }
+.pnl-inv-save-btn { padding: 4px 12px; background: var(--accent); color: #fff; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.pnl-inv-save-btn:hover { background: #1d4ed8; }
+.pnl-inv-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }

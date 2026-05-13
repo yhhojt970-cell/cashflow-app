@@ -8363,6 +8363,7 @@ let pnlRptYear  = new Date().getFullYear();
 let pnlRptMonth = new Date().getMonth() + 1;
 let pnlDashYear = new Date().getFullYear();
 let pnlDashPeriod = "monthly";
+let pnlInvYear  = new Date().getFullYear();
 let _pnlCharts  = {};
 let _pnlImportIncome = null;  // 손익계산서 파싱 결과 {month: {revenue,cogs,sga,interest}}
 let _pnlImportCost   = null;  // 원가명세서 파싱 결과 {month: {mfg}}
@@ -8435,10 +8436,13 @@ async function loadPnlRemote() {
         revenue: Number(r.revenue || 0), targetRevenue: Number(r.targetRevenue || 0),
         cogs: Number(r.cogs || 0), mfg: Number(r.mfg || 0),
         sga: Number(r.sga || 0), interest: Number(r.interest || 0),
+        purchaseAmount: Number(r.purchaseAmount || 0),
         approvalStatus: r.approvalStatus || "draft",
         draftDate: r.draftDate || "", agree1Date: r.agree1Date || "",
         agree2Date: r.agree2Date || "", ceoDate: r.ceoDate || "",
         docNo: r.docNo || "", ceoComment: r.ceoComment || "",
+        ...(r.beginInventory != null && r.beginInventory !== "" ? { beginInventory: Number(r.beginInventory) } : {}),
+        ...(r.endInventory   != null && r.endInventory   !== "" ? { endInventory:   Number(r.endInventory)   } : {}),
       };
       const idx = pnlData.findIndex(d => d.year === y && d.month === m);
       if (idx >= 0) pnlData[idx] = entry; else pnlData.push(entry);
@@ -8451,13 +8455,18 @@ async function loadPnlRemote() {
 
 // ── 계산 유틸 ─────────────────────────────────────────────────
 function calcPnl(d) {
-  const gross = d.revenue - (d.cogs + d.mfg);
-  const op    = gross - d.sga;
-  const mgmt  = op - d.interest;
+  // 기초/기말 재고 수동 입력 시: 매출원가 = 기초재고 + 당기상품매입 − 기말재고
+  const hasManualInv = d.beginInventory !== undefined && d.endInventory !== undefined;
+  const effectiveCogs = hasManualInv
+    ? (d.beginInventory || 0) + (d.purchaseAmount || 0) - (d.endInventory || 0)
+    : (d.cogs || 0);
+  const gross = (d.revenue || 0) - (effectiveCogs + (d.mfg || 0));
+  const op    = gross - (d.sga || 0);
+  const mgmt  = op - (d.interest || 0);
   const gmRate  = d.revenue > 0 ? gross / d.revenue * 100 : 0;
   const opRate  = d.revenue > 0 ? op    / d.revenue * 100 : 0;
   const targetAchieve = d.targetRevenue > 0 ? d.revenue / d.targetRevenue * 100 : null;
-  return { gross, op, mgmt, gmRate, opRate, targetAchieve };
+  return { gross, op, mgmt, gmRate, opRate, targetAchieve, cogs: effectiveCogs };
 }
 const _pf  = n => Math.abs(n).toLocaleString("ko-KR");
 const _ps  = n => n >= 0 ? _pf(n) : `△${_pf(n)}`;
@@ -8499,6 +8508,7 @@ function renderPnlTab() {
         <button class="pnl-sub-btn${pnlSubTab==="input"?" active":""}" data-pnl-tab="input">📊 입력</button>
         <button class="pnl-sub-btn${pnlSubTab==="report"?" active":""}" data-pnl-tab="report">📄 보고서</button>
         <button class="pnl-sub-btn${pnlSubTab==="dashboard"?" active":""}" data-pnl-tab="dashboard">📈 대시보드</button>
+        <button class="pnl-sub-btn${pnlSubTab==="inventory"?" active":""}" data-pnl-tab="inventory">📦 재고</button>
       </div>
       <div id="pnl-sub-content"></div>
     </div>`;
@@ -8511,9 +8521,155 @@ function renderPnlTab() {
   });
 
   const content = document.getElementById("pnl-sub-content");
-  if (pnlSubTab === "input")     renderPnlInput(content);
-  else if (pnlSubTab === "report") renderPnlReport(content);
-  else                             renderPnlDashboard(content);
+  if (pnlSubTab === "input")          renderPnlInput(content);
+  else if (pnlSubTab === "report")    renderPnlReport(content);
+  else if (pnlSubTab === "inventory") renderPnlInventory(content);
+  else                                renderPnlDashboard(content);
+}
+
+// ── 재고 관리 탭 ─────────────────────────────────────────────
+function renderPnlInventory(el) {
+  const curY = new Date().getFullYear();
+  const yearOpts = Array.from({length: curY - 2023}, (_, i) => 2024 + i)
+    .map(y => `<option value="${y}" ${y === pnlInvYear ? "selected" : ""}>${y}년</option>`).join("");
+
+  const inc = _pnlImportIncome || {};
+
+  function buildRows() {
+    return Array.from({length: 12}, (_, i) => {
+      const m = i + 1;
+      const entry = getPnlEntry(pnlInvYear, m) || {};
+      const purchase = (inc[m] && inc[m].purchaseAmount) || entry.purchaseAmount || 0;
+      const begin = entry.beginInventory;
+      const end   = entry.endInventory;
+      const hasManual = begin !== undefined && end !== undefined;
+      const calcCogs  = hasManual
+        ? (begin || 0) + purchase - (end || 0)
+        : (entry.cogs || 0);
+      return { m, begin, end, purchase, calcCogs, hasManual, hasPurchase: !!purchase };
+    });
+  }
+
+  function render() {
+    const rows = buildRows();
+    el.innerHTML = `
+      <div class="pnl-inv-wrap">
+        <div class="pnl-inv-top">
+          <span class="pnl-inv-title">📦 기초 / 기말 재고 관리</span>
+          <select id="pnlInvYearSel">${yearOpts}</select>
+        </div>
+        <div class="pnl-inv-hint">
+          기초·기말 재고를 입력하면 <b>상품매출원가 = 기초재고 + 당기상품매입 − 기말재고</b>로 자동 계산됩니다.<br/>
+          당기상품매입은 손익계산서 Excel 업로드 후 자동 추출됩니다. 비어있으면 직접 입력하세요.
+        </div>
+        <div class="pnl-inv-table-wrap">
+          <table class="pnl-inv-table">
+            <thead><tr>
+              <th>월</th>
+              <th>기초재고 ✏️</th>
+              <th>당기상품매입 ✏️</th>
+              <th>기말재고 ✏️</th>
+              <th>계산 매출원가</th>
+              <th>저장</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr data-month="${r.m}">
+                  <td class="pnl-inv-m">${r.m}월</td>
+                  <td><input type="text" class="pnl-inv-inp" data-f="begin" value="${r.begin !== undefined ? _pf(r.begin) : ""}" placeholder="0" inputmode="numeric" /></td>
+                  <td><input type="text" class="pnl-inv-inp pnl-inv-purchase-inp" data-f="purchase" value="${r.purchase ? _pf(r.purchase) : ""}" placeholder="0" inputmode="numeric" /></td>
+                  <td><input type="text" class="pnl-inv-inp" data-f="end" value="${r.end !== undefined ? _pf(r.end) : ""}" placeholder="0" inputmode="numeric" /></td>
+                  <td class="pnl-inv-calc${r.hasManual ? " pnl-inv-active" : ""}">${r.hasManual ? _pf(r.calcCogs) : "—"}</td>
+                  <td><button class="pnl-inv-save-btn" data-month="${r.m}">저장</button></td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="pnl-inv-footer">
+          <button class="pnl-btn pnl-btn-ghost" id="pnlInvClearYear">전체 초기화</button>
+          <button class="pnl-btn pnl-btn-primary" id="pnlInvSaveAll">전체 저장</button>
+        </div>
+      </div>`;
+
+    el.querySelector("#pnlInvYearSel").addEventListener("change", e => {
+      pnlInvYear = parseInt(e.target.value);
+      render();
+    });
+
+    function parseN(s) { return Number(String(s).replace(/[^0-9]/g, "")) || 0; }
+
+    function refreshCalcCell(tr) {
+      const beginVal   = tr.querySelector("[data-f=begin]").value.trim();
+      const endVal     = tr.querySelector("[data-f=end]").value.trim();
+      const purchaseVal = tr.querySelector("[data-f=purchase]").value.trim();
+      const calcTd     = tr.querySelector(".pnl-inv-calc");
+      if (beginVal !== "" || endVal !== "") {
+        const calc = parseN(beginVal) + parseN(purchaseVal) - parseN(endVal);
+        calcTd.textContent = _pf(calc);
+        calcTd.classList.add("pnl-inv-active");
+      } else {
+        calcTd.textContent = "—";
+        calcTd.classList.remove("pnl-inv-active");
+      }
+    }
+
+    el.querySelectorAll(".pnl-inv-inp").forEach(inp => {
+      inp.addEventListener("input", () => {
+        const raw = parseN(inp.value);
+        inp.value = raw ? _pf(raw) : "";
+        refreshCalcCell(inp.closest("tr"));
+      });
+    });
+
+    function saveRow(tr) {
+      const m = parseInt(tr.dataset.month);
+      const beginVal   = tr.querySelector("[data-f=begin]").value.trim();
+      const endVal     = tr.querySelector("[data-f=end]").value.trim();
+      const purchaseVal = parseN(tr.querySelector("[data-f=purchase]").value);
+      const existing   = getPnlEntry(pnlInvYear, m) || {};
+      const update     = { ...existing, year: pnlInvYear, month: m, purchaseAmount: purchaseVal };
+
+      if (beginVal !== "" || endVal !== "") {
+        update.beginInventory = parseN(beginVal);
+        update.endInventory   = parseN(endVal);
+        update.cogs = update.beginInventory + purchaseVal - update.endInventory;
+      } else {
+        delete update.beginInventory;
+        delete update.endInventory;
+      }
+      upsertPnlEntry(update);
+    }
+
+    el.querySelectorAll(".pnl-inv-save-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const m  = parseInt(btn.dataset.month);
+        const tr = el.querySelector(`tr[data-month="${m}"]`);
+        saveRow(tr);
+        btn.textContent = "✓";
+        setTimeout(() => { btn.textContent = "저장"; }, 1500);
+      });
+    });
+
+    el.querySelector("#pnlInvSaveAll").addEventListener("click", () => {
+      el.querySelectorAll("tbody tr").forEach(tr => saveRow(tr));
+      pnlToast("재고 전체 저장 완료");
+      render();
+    });
+
+    el.querySelector("#pnlInvClearYear").addEventListener("click", () => {
+      if (!confirm(`${pnlInvYear}년 재고 입력값을 모두 초기화하겠습니까?`)) return;
+      Array.from({length: 12}, (_, i) => i + 1).forEach(m => {
+        const existing = getPnlEntry(pnlInvYear, m);
+        if (!existing) return;
+        const { beginInventory, endInventory, ...rest } = existing;
+        upsertPnlEntry(rest);
+      });
+      pnlToast("초기화 완료");
+      render();
+    });
+  }
+
+  render();
 }
 
 // ── Excel 일괄입력 파서 ────────────────────────────────────────
@@ -8649,6 +8805,9 @@ function parsePnlIncomeStatement(wb) {
     // "이자비용" (ERP 접미 숫자 제거 후 일치)
     interest: (raw, norm) =>
       norm === "이자비용" && !raw.includes("수익"),
+    // "당기상품매입액" — 매출원가 계산의 재고 공식용
+    purchaseAmount: (raw, norm) =>
+      norm === "당기상품매입액" || norm.endsWith("당기상품매입액"),
   });
 }
 
@@ -8772,6 +8931,7 @@ function openPnlImportDialog() {
         mfg: v.mfg, interest: v.interest,
         targetRevenue: v.targetRevenue || existing.targetRevenue || 0,
         approvalStatus: existing.approvalStatus || "draft",
+        purchaseAmount: (inc[m] && inc[m].purchaseAmount) || existing.purchaseAmount || 0,
       });
       saved++;
     });
