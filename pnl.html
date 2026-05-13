@@ -187,6 +187,15 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .status-합의2    { background:#fef3c7; color:#d97706; }
 .status-결재완료 { background:#dcfce7; color:#16a34a; }
 
+/* 서명 버튼 */
+.sign-btn {
+  background:var(--navy); color:#fff; border:none; border-radius:4px;
+  font-size:10px; font-weight:700; width:44px; min-height:38px; cursor:pointer;
+  white-space:normal; line-height:1.4; padding:4px 2px;
+}
+.sign-btn:hover { background:var(--navy-lt); }
+.sign-btn:disabled { opacity:.5; cursor:default; }
+
 /* 노데이터 */
 .no-data { text-align:center; padding:48px 0; color:var(--muted); font-size:14px; }
 
@@ -252,11 +261,16 @@ const PNL_META = {
   ceo: { name:"장운기", title:"대표이사" },
 };
 const APPROVAL_STEPS = [
-  { dateKey:"draftDate",  role:"기안",    name:"여희정", title:"차장",    stampCls:"stamp-signed"   },
-  { dateKey:"agree1Date", role:"합의",    name:"김도연", title:"부장",    stampCls:"stamp-signed"   },
-  { dateKey:"agree2Date", role:"합의",    name:"오성철", title:"부장",    stampCls:"stamp-signed"   },
-  { dateKey:"ceoDate",    role:"최종결재", name:"장운기", title:"대표이사", stampCls:"stamp-approved" },
+  { dateKey:"draftDate",  role:"기안",    name:"여희정", title:"차장",    email:"yhj@mauto.co.kr", nextStatus:"기안",     stampCls:"stamp-signed"   },
+  { dateKey:"agree1Date", role:"합의",    name:"김도연", title:"부장",    email:"kdy@mauto.co.kr", nextStatus:"합의1",    stampCls:"stamp-signed"   },
+  { dateKey:"agree2Date", role:"합의",    name:"오성철", title:"부장",    email:"osc@mauto.co.kr", nextStatus:"합의2",    stampCls:"stamp-signed"   },
+  { dateKey:"ceoDate",    role:"최종결재", name:"장운기", title:"대표이사", email:"jug@mauto.co.kr", nextStatus:"결재완료", stampCls:"stamp-approved" },
 ];
+
+// URL ?email= 파라미터로 현재 접속자 식별
+const _urlEmail = new URLSearchParams(window.location.search).get("email") || "";
+const viewerEmail = _urlEmail.toLowerCase().trim();
+const viewerStepIdx = APPROVAL_STEPS.findIndex(s => s.email.toLowerCase() === viewerEmail);
 const STATUS_ORDER = ["draft","기안","합의1","합의2","결재완료"];
 const STATUS_LABELS = { draft:"작성중", 기안:"기안완료", 합의1:"합의①완료", 합의2:"합의②완료", 결재완료:"결재완료" };
 const STATUS_CLS    = { draft:"status-draft", 기안:"status-기안", 합의1:"status-합의1", 합의2:"status-합의2", 결재완료:"status-결재완료" };
@@ -310,21 +324,21 @@ async function loadData() {
     }
     const rows = Array.isArray(body?.rows) ? body.rows : [];
     pnlData = rows.map(r => ({
-      year: numOf(pick(r, ["year", "??"])),
-      month: numOf(pick(r, ["month", "?"])),
-      revenue: numOf(pick(r, ["revenue", "??"])),
-      targetRevenue: numOf(pick(r, ["targetRevenue", "????"])),
-      cogs: numOf(pick(r, ["cogs", "??????"])),
-      mfg: numOf(pick(r, ["mfg", "??????"])),
-      sga: numOf(pick(r, ["sga", "???"])),
-      interest: numOf(pick(r, ["interest", "?????"])),
-      approvalStatus: pick(r, ["approvalStatus", "????"], "draft"),
-      draftDate:  pick(r, ["draftDate", "???"], ""),
-      agree1Date: pick(r, ["agree1Date", "??1?"], ""),
-      agree2Date: pick(r, ["agree2Date", "??2?"], ""),
-      ceoDate:    pick(r, ["ceoDate", "?????"], ""),
-      docNo:      pick(r, ["docNo", "????"], ""),
-      ceoComment: pick(r, ["ceoComment", "?????"], ""),
+      year:           numOf(r.year),
+      month:          numOf(r.month),
+      revenue:        numOf(r.revenue),
+      targetRevenue:  numOf(r.targetRevenue),
+      cogs:           numOf(r.cogs),
+      mfg:            numOf(r.mfg),
+      sga:            numOf(r.sga),
+      interest:       numOf(r.interest),
+      approvalStatus: r.approvalStatus || "draft",
+      draftDate:      r.draftDate  || "",
+      agree1Date:     r.agree1Date || "",
+      agree2Date:     r.agree2Date || "",
+      ceoDate:        r.ceoDate    || "",
+      docNo:          r.docNo      || "",
+      ceoComment:     r.ceoComment || "",
     })).filter(r => r.year && r.month);
     pnlData.sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
     if (pnlData.length) {
@@ -377,12 +391,19 @@ function buildReportHtml(entry, yr) {
   function apBox(idx) {
     const step = APPROVAL_STEPS[idx];
     const done = si > idx;
+    const canSign = !done && viewerStepIdx === idx && si === idx;
     const date = entry[step.dateKey]||"";
+    const stampCls = done ? step.stampCls : "stamp-empty";
+    const stampInner = done
+      ? "서명"
+      : canSign
+        ? `<button class="sign-btn" data-year="${entry.year}" data-month="${entry.month}" data-step="${idx}">서명<br>하기</button>`
+        : "";
     return `<div class="ap-box">
       <div class="ap-role">${step.role}</div>
       <div class="ap-name">${step.name} ${step.title}</div>
       <div class="ap-date">${done&&date?date:"&nbsp;"}</div>
-      <div class="stamp ${done?step.stampCls:"stamp-empty"}">${done?"서명":""}</div>
+      <div class="stamp ${stampCls}">${stampInner}</div>
     </div>`;
   }
 
@@ -593,6 +614,54 @@ document.getElementById("btnDash").addEventListener("click", () => {
   document.getElementById("btnDash").classList.add("active");
   document.getElementById("btnReport").classList.remove("active");
   render();
+});
+
+// ── 서명 처리 ──
+async function signEntry(year, month, stepIdx) {
+  const step = APPROVAL_STEPS[stepIdx];
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = getEntry(year, month);
+  if (!entry) throw new Error("데이터 없음");
+
+  const updated = {
+    ...entry,
+    approvalStatus: step.nextStatus,
+    [step.dateKey]: today,
+    _key: `${year}_${String(month).padStart(2, "0")}`,
+  };
+
+  const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
+  const resp = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, action: "savePnlData", rows: [updated] }),
+  });
+  if (!resp.ok) throw new Error(resp.status);
+  const body = await resp.json();
+  if (body && body.error) throw new Error(body.error);
+
+  const i = pnlData.findIndex(d => d.year === year && d.month === month);
+  if (i >= 0) Object.assign(pnlData[i], { approvalStatus: step.nextStatus, [step.dateKey]: today });
+  render();
+}
+
+document.getElementById("reportView").addEventListener("click", async e => {
+  const btn = e.target.closest(".sign-btn");
+  if (!btn) return;
+  const year = +btn.dataset.year;
+  const month = +btn.dataset.month;
+  const stepIdx = +btn.dataset.step;
+  const step = APPROVAL_STEPS[stepIdx];
+  if (!confirm(`${year}년 ${month}월 보고서에 ${step.role}(${step.name} ${step.title})으로 서명하시겠습니까?`)) return;
+  btn.disabled = true;
+  btn.textContent = "처리중...";
+  try {
+    await signEntry(year, month, stepIdx);
+  } catch (err) {
+    alert("서명 처리 실패: " + err.message);
+    btn.disabled = false;
+    btn.innerHTML = "서명<br>하기";
+  }
 });
 
 // ── 초기 월 선택 (현재월) ──
