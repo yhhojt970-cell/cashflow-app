@@ -8867,6 +8867,8 @@ function openPnlImportDialog() {
       <td><input type="text" class="pnl-id-inp" data-f="mfg"           value="${fv(r.mfg)}"  placeholder="0" inputmode="numeric" /></td>
       <td><input type="text" class="pnl-id-inp" data-f="interest"      value="${fv(r.intr)}" placeholder="0" inputmode="numeric" /></td>
       <td><input type="text" class="pnl-id-inp pnl-id-manual" data-f="targetRevenue" value="${fv(r.tgt)}" placeholder="수동입력" inputmode="numeric" /></td>
+      <td class="pnl-id-calc" data-calc="gross">—</td>
+      <td class="pnl-id-calc" data-calc="op">—</td>
       <td class="pnl-id-calc" data-calc="mgmt">—</td>
     </tr>`).join("");
 
@@ -8894,7 +8896,10 @@ function openPnlImportDialog() {
           <thead><tr>
             <th class="pnl-id-chk-head">저장</th>
             <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
-            <th>제조원가</th><th>이자비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th><th>경영이익(계산)</th>
+            <th>제조원가</th><th>이자비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th>
+            <th class="pnl-id-calc-col">매출총이익</th>
+            <th class="pnl-id-calc-col">영업이익</th>
+            <th class="pnl-id-calc-col">경영이익</th>
           </tr></thead>
           <tbody>${tableRows}</tbody>
         </table>
@@ -8917,11 +8922,22 @@ function openPnlImportDialog() {
     overlay.querySelectorAll("tbody tr").forEach(tr => {
       const v = getRowVals(tr);
       const c = calcPnl(v);
-      const td = tr.querySelector("[data-calc=mgmt]");
-      if (td) {
-        td.textContent = _ps(c.mgmt) + " 원";
-        td.className = "pnl-id-calc " + _pc(c.mgmt);
-      }
+      const hasVals = !!(v.revenue || v.cogs || v.mfg || v.sga || v.interest);
+      [
+        { key: "gross", val: c.gross },
+        { key: "op",    val: c.op    },
+        { key: "mgmt",  val: c.mgmt  },
+      ].forEach(({ key, val }) => {
+        const td = tr.querySelector(`[data-calc=${key}]`);
+        if (!td) return;
+        if (hasVals) {
+          td.textContent = _ps(val) + " 원";
+          td.className = "pnl-id-calc " + _pc(val);
+        } else {
+          td.textContent = "—";
+          td.className = "pnl-id-calc";
+        }
+      });
     });
   }
 
@@ -9286,7 +9302,7 @@ function renderPnlReport(el) {
             <div class="pnl-flow">
               <div class="pnl-flow-row"><span class="pnl-flow-lbl"><span class="pnl-tag">ㄱ</span> 매출액</span><span class="pnl-flow-val">${_pf(entry.revenue)} 원</span></div>
               <div class="pnl-flow-divider">차감</div>
-              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄴ</span> 상품매출원가</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.cogs)}) 원</span></div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄴ</span> 상품매출원가</span><span class="pnl-flow-val pnl-neg">(${_pf(c.cogs)}) 원</span></div>
               <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄷ</span> 당기총제조비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.mfg)}) 원</span></div>
               <div class="pnl-flow-row pnl-flow-sub"><span class="pnl-flow-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="pnl-flow-val ${_pc(c.gross)}">${_ps(c.gross)} 원</span></div>
               <div class="pnl-flow-divider">차감</div>
@@ -9315,7 +9331,7 @@ function renderPnlReport(el) {
               <thead><tr><th>항목</th><th>${prevY}년 ${prevM}월</th><th>${pnlRptYear}년 ${pnlRptMonth}월</th><th>증감액</th></tr></thead>
               <tbody>
                 ${cmpRow("매출액",          prev.revenue,       entry.revenue,    false)}
-                ${cmpRow("상품매출원가",    prev.cogs,          entry.cogs,       false)}
+                ${cmpRow("상품매출원가",    pc.cogs,            c.cogs,           false)}
                 ${cmpRow("당기총제조비용",  prev.mfg,           entry.mfg,        false)}
                 ${cmpRow("매출총이익",      pc.gross,           c.gross,          true)}
                 ${cmpRow("판관비",          prev.sga,           entry.sga,        false)}

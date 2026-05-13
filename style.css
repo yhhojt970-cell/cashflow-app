@@ -4685,3 +4685,5 @@ td {
 .pnl-id-sel-btn { padding: 3px 10px; font-size: 12px; border: 1px solid var(--border, #d1d9e8); border-radius: 5px; background: #fff; cursor: pointer; color: var(--text); }
 .pnl-id-sel-btn:hover { background: #f0f4ff; }
 .pnl-id-sel-cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.pnl-id-calc-col { background: #eef2ff; color: #3730a3; font-weight: 600; }
