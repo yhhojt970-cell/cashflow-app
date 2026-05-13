@@ -8805,9 +8805,12 @@ function parsePnlIncomeStatement(wb) {
     // "IV.판매비와관리비" 등
     sga: (raw, norm) =>
       norm.startsWith("IV") && (norm.includes("판매비") || norm.includes("판관비")),
-    // "이자비용" (ERP 접미 숫자 제거 후 일치)
+    // "V.영업외비용" 합계 행 — 숫자/Ⅴ 접두어 포함 형식 모두 허용
+    // fallback: 영업외비용 합계 행이 없으면 이자비용 행 사용
     interest: (raw, norm) =>
-      norm === "이자비용" && !raw.includes("수익"),
+      norm.startsWith("V영업외비용") || norm.startsWith("5영업외비용") ||
+      norm === "영업외비용" || norm.startsWith("영업외비용합계") ||
+      (norm === "이자비용" && !raw.includes("수익")),
     // "당기상품매입액" — 매출원가 계산의 재고 공식용
     purchaseAmount: (raw, norm) =>
       norm === "당기상품매입액" || norm.endsWith("당기상품매입액"),
@@ -8896,7 +8899,7 @@ function openPnlImportDialog() {
           <thead><tr>
             <th class="pnl-id-chk-head">저장</th>
             <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
-            <th>제조원가</th><th>이자비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th>
+            <th>제조원가</th><th>영업외비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th>
             <th class="pnl-id-calc-col">매출총이익</th>
             <th class="pnl-id-calc-col">영업이익</th>
             <th class="pnl-id-calc-col">경영이익</th>
@@ -9035,7 +9038,7 @@ function renderPnlInput(el) {
     { key:"cogs",          id:"pnlCogs",   label:"상품매출원가" },
     { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용" },
     { key:"sga",           id:"pnlSga",    label:"판매관리비" },
-    { key:"interest",      id:"pnlInt",    label:"이자비용" },
+    { key:"interest",      id:"pnlInt",    label:"영업외비용" },
   ];
 
   const incLabel = _pnlImportIncome ? "✅ 손익계산서" : "📊 손익계산서 업로드";
@@ -9317,10 +9320,10 @@ function renderPnlReport(el) {
             <div class="pnl-flow">
               <div class="pnl-flow-row"><span class="pnl-flow-lbl">관리기준 영업이익 (②)</span><span class="pnl-flow-val ${_pc(c.op)}">${_ps(c.op)} 원</span></div>
               <div class="pnl-flow-divider">차감</div>
-              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 이자비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.interest)}) 원</span></div>
-              <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">③ 경영이익(손실) <small>[②−이자비용]</small></span><span class="pnl-flow-val ${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</span></div>
+              <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 영업외비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.interest)}) 원</span></div>
+              <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">③ 경영이익(손실) <small>[②−영업외비용]</small></span><span class="pnl-flow-val ${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</span></div>
             </div>
-            <div class="pnl-remark">※ 비고: 이자비용 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+            <div class="pnl-remark">※ 비고: 영업외비용(이자비용 등) 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
           </div>
 
           <!-- 섹션3 전월 비교 -->
@@ -9336,7 +9339,7 @@ function renderPnlReport(el) {
                 ${cmpRow("매출총이익",      pc.gross,           c.gross,          true)}
                 ${cmpRow("판관비",          prev.sga,           entry.sga,        false)}
                 ${cmpRow("관리기준 영업이익", pc.op,            c.op,             true)}
-                ${cmpRow("이자비용",        prev.interest,      entry.interest,   false)}
+                ${cmpRow("영업외비용",       prev.interest,      entry.interest,   false)}
                 ${cmpRow("경영이익(손실)",  pc.mgmt,            c.mgmt,           true)}
               </tbody>
             </table>
@@ -9490,9 +9493,9 @@ async function renderPnlDashboard(el) {
           { label:"매출액",    val:totals.revenue,      sub: totals.targetRevenue>0?`목표 달성률 ${tc.targetAchieve.toFixed(1)}%`:"",  cls:"" },
           { label:"매출총이익", val:tc.gross,             sub:`총이익률 ${tc.gmRate.toFixed(1)}%`,  cls:_pc(tc.gross) },
           { label:"영업이익",  val:tc.op,               sub:`영업이익률 ${tc.opRate.toFixed(1)}%`, cls:_pc(tc.op) },
-          { label:"경영이익",  val:tc.mgmt,             sub:"이자비용 반영",                       cls:_pc(tc.mgmt) },
+          { label:"경영이익",  val:tc.mgmt,             sub:"영업외비용 반영",                     cls:_pc(tc.mgmt) },
           { label:"판관비 합계", val:totals.sga,          sub:"",                                  cls:"" },
-          { label:"이자비용 합계", val:totals.interest,   sub:"",                                  cls:"" },
+          { label:"영업외비용 합계", val:totals.interest,  sub:"",                                  cls:"" },
         ].map(k => `
           <div class="pnl-dash-kpi">
             <div class="pnl-dash-kpi-lbl">${k.label}</div>
@@ -9520,7 +9523,7 @@ async function renderPnlDashboard(el) {
       <!-- 상세 테이블 -->
       <div class="pnl-dash-table-wrap">
         <table class="pnl-dash-table">
-          <thead><tr><th>기간</th><th>매출액</th><th>목표</th><th>달성률</th><th>매출총이익</th><th>총이익률</th><th>영업이익</th><th>경영이익</th><th>판관비</th><th>이자비용</th></tr></thead>
+          <thead><tr><th>기간</th><th>매출액</th><th>목표</th><th>달성률</th><th>매출총이익</th><th>총이익률</th><th>영업이익</th><th>경영이익</th><th>판관비</th><th>영업외비용</th></tr></thead>
           <tbody>
             ${agg.map(d => `
               <tr class="${d.label.includes("Q")||d.label.includes("반기")||d.label.includes("년")?"pnl-tr-sub":""}">
@@ -9622,7 +9625,7 @@ async function renderPnlDashboard(el) {
       datasets: [
         { label:"원가+제조비", data:agg.map(d=>d.cogs+d.mfg), backgroundColor:"#3b82f6", stack:"cost" },
         { label:"판관비",      data:agg.map(d=>d.sga),         backgroundColor:"#f97316", stack:"cost" },
-        { label:"이자비용",    data:agg.map(d=>d.interest),    backgroundColor:"#ef4444", stack:"cost" },
+        { label:"영업외비용",  data:agg.map(d=>d.interest),    backgroundColor:"#ef4444", stack:"cost" },
       ],
     },
     options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>_pf(v)+"원"}}} },
