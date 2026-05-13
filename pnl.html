@@ -240,6 +240,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 // ── 설정 (현금흐름관리 앱과 동일한 Apps Script URL 및 Token) ──
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9T3kGOQ5xPZ2wwy0Np0LSt-mHoudhvN39Zv2KNimE5ORKKEd_mghZXHua1D_i6LVF/exec";
 const TOKEN_KEY  = "receivable-payable-webapp.api-token.v1";
+const DEFAULT_TOKEN = "miraeautomation2026";
 
 const PNL_META = {
   companyName:"미래오토메이션(주)", department:"관리부",
@@ -267,8 +268,19 @@ let dashCharts = {};
 
 // ── 유틸 ──
 const fmt    = n => Math.abs(n).toLocaleString("ko-KR");
-const fmtS   = n => n >= 0 ? fmt(n) : `△${fmt(n)}`;
+const fmtS   = n => n >= 0 ? fmt(n) : `- ${fmt(n)}`;
 const clsPN  = n => n >= 0 ? "pos" : "neg";
+const pick = (obj, keys, def = "") => {
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+  }
+  return def;
+};
+const numOf = v => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
 function calc(d) {
   const gross = d.revenue - (d.cogs + d.mfg);
   const op    = gross - d.sga;
@@ -282,30 +294,48 @@ function getEntry(y, m) { return pnlData.find(d=>d.year===y&&d.month===m)??null;
 
 // ── 데이터 로드 ──
 async function loadData() {
-  const token = localStorage.getItem(TOKEN_KEY) || "";
+  const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
+  if (!localStorage.getItem(TOKEN_KEY) && DEFAULT_TOKEN) {
+    localStorage.setItem(TOKEN_KEY, DEFAULT_TOKEN);
+  }
   try {
     const url = new URL(SCRIPT_URL);
-    if (token) url.searchParams.set("token", token);
+    url.searchParams.set("token", token);
     url.searchParams.set("action", "getPnlData");
     const resp = await fetch(url.toString());
     if (!resp.ok) throw new Error(resp.status);
     const body = await resp.json();
+    if (body && body.error) {
+      throw new Error(`API 오류: ${body.error}`);
+    }
     const rows = Array.isArray(body?.rows) ? body.rows : [];
     pnlData = rows.map(r => ({
-      year: Number(r.year), month: Number(r.month),
-      revenue: Number(r.revenue||0), targetRevenue: Number(r.targetRevenue||0),
-      cogs: Number(r.cogs||0), mfg: Number(r.mfg||0),
-      sga: Number(r.sga||0), interest: Number(r.interest||0),
-      approvalStatus: r.approvalStatus||"draft",
-      draftDate:  r.draftDate||"",  agree1Date: r.agree1Date||"",
-      agree2Date: r.agree2Date||"", ceoDate:    r.ceoDate||"",
-      docNo: r.docNo||"", ceoComment: r.ceoComment||"",
-    })).filter(r=>r.year&&r.month);
+      year: numOf(pick(r, ["year", "??"])),
+      month: numOf(pick(r, ["month", "?"])),
+      revenue: numOf(pick(r, ["revenue", "??"])),
+      targetRevenue: numOf(pick(r, ["targetRevenue", "????"])),
+      cogs: numOf(pick(r, ["cogs", "??????"])),
+      mfg: numOf(pick(r, ["mfg", "??????"])),
+      sga: numOf(pick(r, ["sga", "???"])),
+      interest: numOf(pick(r, ["interest", "?????"])),
+      approvalStatus: pick(r, ["approvalStatus", "????"], "draft"),
+      draftDate:  pick(r, ["draftDate", "???"], ""),
+      agree1Date: pick(r, ["agree1Date", "??1?"], ""),
+      agree2Date: pick(r, ["agree2Date", "??2?"], ""),
+      ceoDate:    pick(r, ["ceoDate", "?????"], ""),
+      docNo:      pick(r, ["docNo", "????"], ""),
+      ceoComment: pick(r, ["ceoComment", "?????"], ""),
+    })).filter(r => r.year && r.month);
     pnlData.sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
+    if (pnlData.length) {
+      const latest = pnlData[pnlData.length - 1];
+      document.getElementById("selYear").value = String(latest.year);
+      document.getElementById("selMonth").value = String(latest.month);
+    }
   } catch (e) {
     console.warn("[pnl] 로드 실패:", e);
     document.getElementById("reportView").innerHTML =
-      `<div class="loading">데이터를 불러오지 못했습니다.<br><small>${e}</small></div>`;
+      `<div class="loading">데이터를 불러오지 못했습니다.<br><small>${e}</small><br><small>Apps Script URL/배포버전/token 값을 확인하세요.</small></div>`;
     return;
   }
   render();
