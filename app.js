@@ -8793,15 +8793,15 @@ function _parsePnlMonthSheet(wb, rowFinders) {
 // matcher(rawLabel, normLabel) 형태로 호출됨
 function parsePnlIncomeStatement(wb) {
   return _parsePnlMonthSheet(wb, {
-    // 최상위 매출액 행 매칭:
-    // - "I매출액..." / "1매출액..." 으로 시작하면 하위 행이 아님 → 상품/제품 제외 안 함
-    // - 숫자 접두어 없이 "매출액"만 있는 경우만 하위 행 제외 적용
+    // 최상위 매출액 행: "I매출액", "1매출액", "매출액...", 기타 접두어 포함 형식 모두 허용
+    // 하위 항목(상품매출액·제품매출액)은 "상품"/"제품"으로 시작하므로 자동 제외됨
     revenue: (raw, norm) =>
       norm.startsWith("I매출액") || norm.startsWith("1매출액") ||
-      (norm === "매출액" && !raw.includes("상품") && !raw.includes("제품")),
-    // "II.매출원가" / "Ⅱ.매출원가" / "매출원가"
+      norm.startsWith("매출액") ||
+      (norm.includes("매출액") && !norm.startsWith("상품") && !norm.startsWith("제품")),
+    // "II.매출원가" / "Ⅱ.매출원가" / "매출원가(상품·제품)" 등
     cogs: (raw, norm) =>
-      norm.startsWith("II매출원가") || norm === "매출원가",
+      norm.startsWith("II매출원가") || norm.startsWith("매출원가"),
     // "IV.판매비와관리비" 등
     sga: (raw, norm) =>
       norm.startsWith("IV") && (norm.includes("판매비") || norm.includes("판관비")),
