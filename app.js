@@ -8511,15 +8511,30 @@ function renderPnlTab() {
         <button class="pnl-sub-btn${pnlSubTab==="report"?" active":""}" data-pnl-tab="report">📄 보고서</button>
         <button class="pnl-sub-btn${pnlSubTab==="dashboard"?" active":""}" data-pnl-tab="dashboard">📈 대시보드</button>
         <button class="pnl-sub-btn${pnlSubTab==="inventory"?" active":""}" data-pnl-tab="inventory">📦 재고</button>
+        <button class="pnl-sub-btn pnl-sync-btn" id="pnlSyncAll" title="로컬 데이터를 구글시트로 일괄 전송">☁️ 동기화</button>
       </div>
       <div id="pnl-sub-content"></div>
     </div>`;
 
-  sec.querySelectorAll(".pnl-sub-btn").forEach(btn => {
+  sec.querySelectorAll(".pnl-sub-btn[data-pnl-tab]").forEach(btn => {
     btn.addEventListener("click", () => {
       pnlSubTab = btn.dataset.pnlTab;
       renderPnlTab();
     });
+  });
+  document.getElementById("pnlSyncAll")?.addEventListener("click", async () => {
+    if (!pnlData.length) { pnlToast("동기화할 데이터가 없습니다"); return; }
+    const btn = document.getElementById("pnlSyncAll");
+    btn.textContent = "⏳ 전송중..."; btn.disabled = true;
+    try {
+      const rows = pnlData.map(e => ({ ...e, _key: `${e.year}_${String(e.month).padStart(2,"0")}` }));
+      await postSheetWebApp("savePnlData", { rows });
+      pnlToast(`구글시트 동기화 완료 (${rows.length}건)`);
+    } catch(e) {
+      pnlToast("동기화 실패: " + e.message);
+    } finally {
+      btn.textContent = "☁️ 동기화"; btn.disabled = false;
+    }
   });
 
   const content = document.getElementById("pnl-sub-content");
