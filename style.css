@@ -4612,15 +4612,25 @@ td {
 .pnl-chart-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 10px; }
 
 .pnl-dash-table-wrap { overflow-x: auto; margin-bottom: 12px; }
-.pnl-dash-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pnl-dash-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .pnl-dash-table th {
-  background: var(--pnl-navy); color: #fff; padding: 8px 12px;
+  background: var(--pnl-navy); color: #fff; padding: 6px 8px;
   text-align: right; font-weight: 600; white-space: nowrap;
 }
 .pnl-dash-table th:first-child { text-align: left; }
-.pnl-dash-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; text-align: right; font-family: 'DM Mono', monospace; }
+.pnl-dash-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: right; font-family: 'DM Mono', monospace; font-size: 11px; }
 .pnl-dash-table td:first-child { text-align: left; font-family: inherit; font-weight: 600; }
 .pnl-dash-table .pnl-tr-sub td { background: #eef3ff; }
+
+/* 보고서 탭 월간/분기 모드 토글 */
+.pnl-rpt-mode-tabs { display: flex; gap: 3px; }
+.pnl-mode-btn {
+  padding: 5px 12px; border: 1.5px solid #e2e8f0; border-radius: 16px;
+  background: #fff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer;
+  transition: all .15s;
+}
+.pnl-mode-btn.active { background: var(--pnl-navy); color: #fff; border-color: var(--pnl-navy); }
+.pnl-mode-btn:hover:not(.active) { background: #f8fafc; }
 
 /* 토스트 */
 .pnl-toast {
