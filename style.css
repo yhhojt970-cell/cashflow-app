@@ -4687,3 +4687,6 @@ td {
 .pnl-id-sel-cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 .pnl-id-calc-col { background: #eef2ff; color: #3730a3; font-weight: 600; }
+
+.pnl-inv-badge { font-size: 10px; font-weight: 600; color: #1d4ed8; background: #dbeafe; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+.pnl-field-inv { background: #eff6ff; border-color: #93c5fd; color: #1e40af; }

@@ -9023,6 +9023,7 @@ function renderPnlInput(el) {
     ceoDate:"", docNo:"", ceoComment:"",
   };
   const c = calcPnl(entry);
+  const hasManualInv = entry.beginInventory !== undefined && entry.endInventory !== undefined;
   const statusLabels = { draft:"작성중", 기안:"기안완료", 합의1:"합의①완료", 합의2:"합의②완료", 결재완료:"결재완료" };
   const statusColors = { draft:"#6b7280", 기안:"#2563eb", 합의1:"#7c3aed", 합의2:"#d97706", 결재완료:"#16a34a" };
   const st = entry.approvalStatus || "draft";
@@ -9033,12 +9034,14 @@ function renderPnlInput(el) {
     `<option value="${i+1}" ${i+1===pnlInputMonth?"selected":""}>${i+1}월</option>`).join("");
 
   const fields = [
-    { key:"revenue",       id:"pnlRev",    label:"매출액" },
-    { key:"targetRevenue", id:"pnlTgt",    label:"목표매출액" },
-    { key:"cogs",          id:"pnlCogs",   label:"상품매출원가" },
-    { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용" },
-    { key:"sga",           id:"pnlSga",    label:"판매관리비" },
-    { key:"interest",      id:"pnlInt",    label:"영업외비용" },
+    { key:"revenue",       id:"pnlRev",    label:"매출액",       displayVal: entry.revenue       },
+    { key:"targetRevenue", id:"pnlTgt",    label:"목표매출액",   displayVal: entry.targetRevenue  },
+    // 재고 탭 수동 입력 시: effectiveCogs(c.cogs) 표시 + 안내 뱃지
+    { key:"cogs",          id:"pnlCogs",   label:"상품매출원가", displayVal: c.cogs,
+      note: hasManualInv ? "📦 재고탭 적용중" : null },
+    { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용", displayVal: entry.mfg         },
+    { key:"sga",           id:"pnlSga",    label:"판매관리비",   displayVal: entry.sga           },
+    { key:"interest",      id:"pnlInt",    label:"영업외비용",   displayVal: entry.interest      },
   ];
 
   const incLabel = _pnlImportIncome ? "✅ 손익계산서" : "📊 손익계산서 업로드";
@@ -9070,8 +9073,8 @@ function renderPnlInput(el) {
           <div class="pnl-form-title">입력 항목</div>
           ${fields.map(f => `
             <div class="pnl-field-row">
-              <label class="pnl-field-label">${f.label}</label>
-              <input type="text" id="${f.id}" class="pnl-field-input" value="${entry[f.key]>0?_pf(entry[f.key]):""}" placeholder="0" inputmode="numeric" />
+              <label class="pnl-field-label">${f.label}${f.note ? `<span class="pnl-inv-badge">${f.note}</span>` : ""}</label>
+              <input type="text" id="${f.id}" class="pnl-field-input${f.note ? " pnl-field-inv" : ""}" value="${f.displayVal>0?_pf(f.displayVal):""}" placeholder="0" inputmode="numeric" />
               <span class="pnl-field-unit">원</span>
             </div>`).join("")}
         </div>
@@ -9118,7 +9121,8 @@ function renderPnlInput(el) {
     return v;
   }
   function refreshPreview() {
-    const cv = calcPnl(getVals());
+    // 저장 시와 동일하게 entry(beginInventory 등 포함)에 입력값 병합 후 계산
+    const cv = calcPnl({ ...entry, ...getVals() });
     const g = document.getElementById("prvGross");   if (g) { g.textContent = `${_ps(cv.gross)} 원`; g.className = _pc(cv.gross); }
     const gm = document.getElementById("prvGmRate"); if (gm) gm.textContent = `${cv.gmRate.toFixed(1)}%`;
     const tg = document.getElementById("prvTarget"); if (tg) {
