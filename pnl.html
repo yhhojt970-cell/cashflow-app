@@ -276,6 +276,7 @@ const STATUS_LABELS = { draft:"작성중", 기안:"기안완료", 합의1:"합�
 const STATUS_CLS    = { draft:"status-draft", 기안:"status-기안", 합의1:"status-합의1", 합의2:"status-합의2", 결재완료:"status-결재완료" };
 
 let pnlData  = [];
+let pnlQuarterlyRows = [];
 let viewMode = "report"; // "report" | "dashboard"
 let dashPeriod = "monthly";
 let dashCharts = {};
@@ -323,9 +324,10 @@ async function loadData() {
       throw new Error(`API 오류: ${body.error}`);
     }
     const rows = Array.isArray(body?.rows) ? body.rows : [];
-    pnlData = rows.map(r => ({
+    const allMapped = rows.map(r => ({
       year:           numOf(r.year),
       month:          numOf(r.month),
+      quarter:        numOf(r.quarter),
       revenue:        numOf(r.revenue),
       targetRevenue:  numOf(r.targetRevenue),
       cogs:           numOf(r.cogs),
@@ -339,8 +341,12 @@ async function loadData() {
       ceoDate:        r.ceoDate    || "",
       docNo:          r.docNo      || "",
       ceoComment:     r.ceoComment || "",
-    })).filter(r => r.year && r.month && r.approvalStatus !== "draft");
+      _key:           r._key       || "",
+    }));
+    pnlData = allMapped.filter(r => r.year && r.month && !r.quarter && r.approvalStatus !== "draft");
     pnlData.sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
+    pnlQuarterlyRows = allMapped.filter(r => r.year && r.quarter && r.approvalStatus !== "draft");
+    pnlQuarterlyRows.sort((a,b)=>a.year!==b.year?a.year-b.year:a.quarter-b.quarter);
     if (pnlData.length) {
       const latest = pnlData[pnlData.length - 1];
       document.getElementById("selYear").value = String(latest.year);
@@ -370,10 +376,14 @@ function renderReport() {
   document.getElementById("dashView").style.display = "none";
 
   if (mo === 0) {
-    // 전체 — 월 목록 표시
-    const months = pnlData.filter(d=>d.year===yr);
-    if (!months.length) { view.innerHTML='<div class="no-data">해당 연도 데이터가 없습니다.</div>'; return; }
-    view.innerHTML = months.map(d=>buildReportHtml(d, yr)).join("<hr style='margin:32px 0;border:none;border-top:2px dashed #e2e8f0'>");
+    // 전체 — 분기 + 월 목록 표시
+    const months   = pnlData.filter(d=>d.year===yr);
+    const quarters = pnlQuarterlyRows.filter(d=>d.year===yr);
+    if (!months.length && !quarters.length) { view.innerHTML='<div class="no-data">해당 연도 데이터가 없습니다.</div>'; return; }
+    const parts = [];
+    if (quarters.length) parts.push(quarters.map(q=>buildQuarterlyReportHtml(q)).join("<hr style='margin:24px 0;border:none;border-top:2px dashed #e2e8f0'>"));
+    if (months.length)   parts.push(months.map(d=>buildReportHtml(d, yr)).join("<hr style='margin:32px 0;border:none;border-top:2px dashed #e2e8f0'>"));
+    view.innerHTML = parts.join("<hr style='margin:32px 0;border:none;border-top:3px solid #cbd5e1'>");
     return;
   }
   const entry = getEntry(yr, mo);
@@ -515,6 +525,102 @@ function buildReportHtml(entry, yr) {
   </div>`;
 }
 
+// ── 분기 보고서 렌더 ──
+function buildQuarterlyReportHtml(qRow) {
+  const qi = STATUS_ORDER.indexOf(qRow.approvalStatus || "draft");
+  const qLabels = { 1:"1분기(Q1)", 2:"2분기(Q2)", 3:"3분기(Q3)", 4:"4분기(Q4)" };
+  const c = calc(qRow);
+
+  function apBoxQ(idx) {
+    const step = APPROVAL_STEPS[idx];
+    const isAgree = idx === 1 || idx === 2;
+    const done = isAgree ? !!qRow[step.dateKey] : qi > idx;
+    let canSign;
+    if (isAgree) {
+      canSign = viewerStepIdx === idx && qi >= 1 && !qRow[step.dateKey];
+    } else if (idx === 3) {
+      canSign = viewerStepIdx === idx && !!qRow.agree1Date && !!qRow.agree2Date && !qRow.ceoDate;
+    } else {
+      canSign = !done && viewerStepIdx === idx && qi === idx;
+    }
+    const date = qRow[step.dateKey] || "";
+    const stampCls = done ? step.stampCls : "stamp-empty";
+    const stampInner = done
+      ? "서명"
+      : canSign
+        ? `<button class="sign-btn" data-qkey="${qRow._key}" data-step="${idx}">서명<br>하기</button>`
+        : "";
+    return `<div class="ap-box">
+      <div class="ap-role">${step.role}</div>
+      <div class="ap-name">${step.name} ${step.title}</div>
+      <div class="ap-date">${done && date ? date : "&nbsp;"}</div>
+      <div class="stamp ${stampCls}">${stampInner}</div>
+    </div>`;
+  }
+
+  return `
+  <div style="margin-bottom:32px">
+    <div class="doc-header">
+      <div class="company-badge">MIRAE AUTOMATION CO., LTD</div>
+      <div class="doc-title">${qRow.year}년 ${qLabels[qRow.quarter] || qRow.quarter+"분기"} &mdash; 분기 경영손익 보고서
+        <span class="status-badge ${STATUS_CLS[qRow.approvalStatus]||"status-draft"}">${STATUS_LABELS[qRow.approvalStatus]||qRow.approvalStatus}</span>
+      </div>
+      <div class="doc-sub">관리기준 손익 및 경영이익 산출내역 (분기 합산)</div>
+      <div class="meta-row">
+        <div class="meta-item"><span class="meta-lbl">기안부서</span><span class="meta-val">${PNL_META.department}</span></div>
+        <div class="meta-item"><span class="meta-lbl">기안자</span><span class="meta-val">${PNL_META.author.name} ${PNL_META.author.title}</span></div>
+        <div class="meta-item"><span class="meta-lbl">기안일</span><span class="meta-val">${qRow.draftDate||"—"}</span></div>
+        <div class="meta-item"><span class="meta-lbl">문서번호</span><span class="meta-val">${qRow.docNo||"—"}</span></div>
+      </div>
+    </div>
+    <div class="doc-body">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출액</div>
+          <div class="kpi-val">${fmt(qRow.revenue)}</div>
+          <div class="kpi-unit">원</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출총이익</div>
+          <div class="kpi-val ${clsPN(c.gross)}">${fmtS(c.gross)}</div>
+          <div class="kpi-unit">원 / 총이익률 ${c.gmR.toFixed(1)}%</div>
+        </div>
+        <div class="kpi-card hl">
+          <div class="kpi-lbl">경영이익(손실)</div>
+          <div class="kpi-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)}</div>
+          <div class="kpi-unit">금융비용 반영 기준</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-title"><span class="sec-num" style="font-size:11px">✓</span>결재</div>
+        <div class="ap-grid">${APPROVAL_STEPS.map((_, i) => apBoxQ(i)).join("")}</div>
+      </div>
+    </div>
+    <div class="doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
+  </div>`;
+}
+
+async function signQuarterEntry(qKey, stepIdx, qRow) {
+  const step = APPROVAL_STEPS[stepIdx];
+  const today = new Date().toISOString().slice(0, 10);
+  let newStatus = step.nextStatus;
+  if (stepIdx === 1) newStatus = qRow.agree2Date ? "합의2" : "합의1";
+  else if (stepIdx === 2) newStatus = qRow.agree1Date ? "합의2" : "합의1";
+  const updated = { ...qRow, approvalStatus: newStatus, [step.dateKey]: today };
+  const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
+  const resp = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ token, action: "savePnlData", rows: [updated] }),
+  });
+  if (!resp.ok) throw new Error(resp.status);
+  const body = await resp.json();
+  if (body && body.error) throw new Error(body.error);
+  const i = pnlQuarterlyRows.findIndex(r => r._key === qKey);
+  if (i >= 0) Object.assign(pnlQuarterlyRows[i], { approvalStatus: newStatus, [step.dateKey]: today });
+  render();
+}
+
 // ── 대시보드 렌더 ──
 function aggregate(year, period) {
   const rows = pnlData.filter(d=>d.year===year);
@@ -588,9 +694,22 @@ function renderDashboard() {
 
   dv.querySelectorAll(".pt-btn").forEach(b=>b.addEventListener("click",()=>{dashPeriod=b.dataset.p;renderDashboard();}));
 
-  if (!agg.length) return;
+  if (!agg.length) {
+    dv.insertAdjacentHTML("beforeend", '<p style="text-align:center;color:#6b7280;padding:32px;font-size:14px">해당 연도에 데이터가 없습니다.<br><small>경영손익 탭에서 데이터를 입력하고 기안 서명 후 구글시트에 저장하면 표시됩니다.</small></p>');
+    return;
+  }
   const labels = agg.map(d=>d.label);
   ["dc1","dc2","dc3"].forEach(id=>{ if(dashCharts[id]){dashCharts[id].destroy();delete dashCharts[id];} });
+
+  if (typeof Chart === "undefined") {
+    ["dc1","dc2","dc3"].forEach(id => {
+      const cv = document.getElementById(id);
+      if (!cv) return;
+      cv.style.display = "none";
+      cv.insertAdjacentHTML("afterend", '<p style="color:#dc2626;font-size:12px;padding:16px;text-align:center;margin:0">차트 로드 실패<br><small>CDN이 차단됐거나 네트워크 오류입니다</small></p>');
+    });
+    return;
+  }
 
   dashCharts.dc1 = new Chart(document.getElementById("dc1"),{type:"bar",data:{labels,datasets:[
     {label:"매출액",data:agg.map(d=>d.revenue),backgroundColor:"#3b82f620",borderColor:"#3b82f6",borderWidth:2},
@@ -669,10 +788,30 @@ async function signEntry(year, month, stepIdx) {
 document.getElementById("reportView").addEventListener("click", async e => {
   const btn = e.target.closest(".sign-btn");
   if (!btn) return;
-  const year = +btn.dataset.year;
-  const month = +btn.dataset.month;
   const stepIdx = +btn.dataset.step;
   const step = APPROVAL_STEPS[stepIdx];
+
+  // 분기 서명
+  if (btn.dataset.qkey) {
+    const qKey = btn.dataset.qkey;
+    const qRow = pnlQuarterlyRows.find(r => r._key === qKey);
+    if (!qRow) return;
+    if (!confirm(`분기 보고서에 ${step.role}(${step.name} ${step.title})으로 서명하시겠습니까?`)) return;
+    btn.disabled = true;
+    btn.textContent = "처리중...";
+    try {
+      await signQuarterEntry(qKey, stepIdx, qRow);
+    } catch (err) {
+      alert("서명 처리 실패: " + err.message);
+      btn.disabled = false;
+      btn.innerHTML = "서명<br>하기";
+    }
+    return;
+  }
+
+  // 월별 서명
+  const year = +btn.dataset.year;
+  const month = +btn.dataset.month;
   if (!confirm(`${year}년 ${month}월 보고서에 ${step.role}(${step.name} ${step.title})으로 서명하시겠습니까?`)) return;
   btn.disabled = true;
   btn.textContent = "처리중...";

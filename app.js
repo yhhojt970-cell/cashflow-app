@@ -8399,6 +8399,30 @@ function savePnlQuarterApprovalLocal() {
   try { localStorage.setItem(PNL_Q_APPROVAL_KEY, JSON.stringify(pnlQuarterApproval)); } catch (_) {}
 }
 
+function _saveQtrToSheets(year, quarter, qKey, qApproval) {
+  const months = [1, 2, 3].map(m => m + (quarter - 1) * 3);
+  const fins = (pnlData || []).filter(d => d.year === year && months.includes(d.month))
+    .reduce((a, d) => ({
+      revenue:       a.revenue       + (d.revenue       || 0),
+      targetRevenue: a.targetRevenue + (d.targetRevenue || 0),
+      cogs:          a.cogs          + (d.cogs          || 0),
+      mfg:           a.mfg           + (d.mfg           || 0),
+      sga:           a.sga           + (d.sga           || 0),
+      interest:      a.interest      + (d.interest      || 0),
+    }), { revenue: 0, targetRevenue: 0, cogs: 0, mfg: 0, sga: 0, interest: 0 });
+  postSheetWebApp("savePnlData", [{
+    _key: qKey,
+    year, quarter, month: 0,
+    ...fins,
+    approvalStatus: qApproval.approvalStatus,
+    draftDate:      qApproval.draftDate  || "",
+    agree1Date:     qApproval.agree1Date || "",
+    agree2Date:     qApproval.agree2Date || "",
+    ceoDate:        qApproval.ceoDate    || "",
+    docNo:          qApproval.docNo      || "",
+  }]).catch(e => console.warn("[PNL-Q] Sheets 저장 실패:", e));
+}
+
 function getPnlEntry(year, month) {
   return pnlData.find(d => d.year === year && d.month === month) ?? null;
 }
@@ -9749,6 +9773,7 @@ function renderPnlQuarterlyReport(el) {
       }
       pnlQuarterApproval[qKey] = qApproval;
       savePnlQuarterApprovalLocal();
+      _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
       pnlToast(`${step.role} 서명 완료`);
       renderPnlReport(el);
     });
@@ -9767,6 +9792,7 @@ function renderPnlQuarterlyReport(el) {
       if (stepIdx === 0) qApproval.docNo = "";
       pnlQuarterApproval[qKey] = qApproval;
       savePnlQuarterApprovalLocal();
+      _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
       renderPnlReport(el);
     });
   });
