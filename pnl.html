@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>미래오토메이션(주) — 경영손익</title>
-<!-- v20260514j -->
+<!-- v20260514k -->
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -46,6 +46,14 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .toolbar .print-btn {
   background:var(--gold); color:var(--navy); border:none;
   padding:6px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;
+}
+.pending-badge {
+  background:#ef4444; color:#fff; border-radius:12px;
+  padding:3px 10px; font-size:11px; font-weight:700;
+  white-space:nowrap; animation:badgePulse 2s ease-in-out infinite;
+}
+@keyframes badgePulse {
+  0%,100% { opacity:1; } 50% { opacity:.65; }
 }
 
 /* 페이지 */
@@ -242,6 +250,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
   <label>연도</label>
   <input type="number" id="selYear" value="2026" min="2020" max="2035" style="width:72px" />
   <select id="selPeriod" style="min-width:72px"></select>
+  <span id="pendingBadge" class="pending-badge" style="display:none"></span>
   <div class="tab-btns">
     <button class="tab-btn active" id="btnReport">📄 보고서</button>
     <button class="tab-btn" id="btnDash">📈 대시보드</button>
@@ -321,6 +330,27 @@ function calc(d) {
 }
 function getEntry(y, m) { return pnlData.find(d=>d.year===y&&d.month===m)??null; }
 
+function needsViewerAction(entry) {
+  if (viewerStepIdx < 0 || !entry) return false;
+  const step = APPROVAL_STEPS[viewerStepIdx];
+  const si = STATUS_ORDER.indexOf(entry.approvalStatus || "draft");
+  if (viewerStepIdx === 0) return si === 0;
+  if (viewerStepIdx === 1 || viewerStepIdx === 2) return si >= 1 && !entry[step.dateKey];
+  if (viewerStepIdx === 3) return !!entry.agree1Date && !!entry.agree2Date && !entry.ceoDate;
+  return false;
+}
+
+function updatePendingBadge() {
+  const badge = document.getElementById("pendingBadge");
+  if (!badge) return;
+  if (viewerStepIdx < 0) { badge.style.display = "none"; return; }
+  const total = pnlData.filter(needsViewerAction).length
+              + pnlQuarterlyRows.filter(needsViewerAction).length;
+  if (total === 0) { badge.style.display = "none"; return; }
+  badge.style.display = "";
+  badge.textContent = `● ${total}건 서명 대기`;
+}
+
 function aggData(yr, months) {
   const rows = pnlData.filter(d => d.year === yr && months.includes(d.month));
   if (!rows.length) return null;
@@ -337,15 +367,23 @@ function aggData(yr, months) {
 function updatePeriodSelect() {
   const sel = document.getElementById("selPeriod");
   if (!sel) return;
+  const yr = +document.getElementById("selYear").value;
   if (reportMode === "monthly") {
-    sel.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}"${i+1===rptMonth?" selected":""}>${i+1}월</option>`).join("");
+    sel.innerHTML = Array.from({length:12},(_,i) => {
+      const m = i + 1;
+      const dot = needsViewerAction(getEntry(yr, m)) ? " ●" : "";
+      return `<option value="${m}"${m===rptMonth?" selected":""}>${m}월${dot}</option>`;
+    }).join("");
     sel.style.display = "";
   } else if (reportMode === "quarterly") {
-    const yr = +document.getElementById("selYear").value;
     const availQ = pnlQuarterlyRows.filter(r => r.year === yr).map(r => r.quarter).sort();
     if (!availQ.includes(rptQuarter) && availQ.length) rptQuarter = availQ[availQ.length - 1];
     sel.innerHTML = availQ.length
-      ? availQ.map(q=>`<option value="${q}"${q===rptQuarter?" selected":""}>${q}분기</option>`).join("")
+      ? availQ.map(q => {
+          const qRow = pnlQuarterlyRows.find(r => r.year === yr && r.quarter === q);
+          const dot = needsViewerAction(qRow) ? " ●" : "";
+          return `<option value="${q}"${q===rptQuarter?" selected":""}>${q}분기${dot}</option>`;
+        }).join("")
       : `<option value="">—</option>`;
     sel.style.display = "";
   } else if (reportMode === "halfyear") {
@@ -354,6 +392,7 @@ function updatePeriodSelect() {
   } else {
     sel.style.display = "none";
   }
+  updatePendingBadge();
 }
 
 // ── 데이터 로드 ──
