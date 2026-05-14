@@ -390,8 +390,19 @@ function buildReportHtml(entry, yr) {
 
   function apBox(idx) {
     const step = APPROVAL_STEPS[idx];
-    const done = si > idx;
-    const canSign = !done && viewerStepIdx === idx && si === idx;
+    const isAgree = idx === 1 || idx === 2;
+    // 합의 단계는 날짜 필드로 완료 여부 판단 (순서 무관)
+    const done = isAgree ? !!entry[step.dateKey] : si > idx;
+    let canSign;
+    if (isAgree) {
+      // 기안 완료 후(si>=1), 본인 서명 안 됐으면 서명 가능
+      canSign = viewerStepIdx === idx && si >= 1 && !entry[step.dateKey];
+    } else if (idx === 3) {
+      // 최종결재: 합의자 2명 모두 서명 완료 후
+      canSign = viewerStepIdx === idx && !!entry.agree1Date && !!entry.agree2Date && !entry.ceoDate;
+    } else {
+      canSign = !done && viewerStepIdx === idx && si === idx;
+    }
     const date = entry[step.dateKey]||"";
     const stampCls = done ? step.stampCls : "stamp-empty";
     const stampInner = done
@@ -627,9 +638,14 @@ async function signEntry(year, month, stepIdx) {
     ? `MA-PNL-${year}${String(month).padStart(2,"0")}-001`
     : entry.docNo;
 
+  // 합의 단계는 동시 서명 지원: 상대방이 이미 서명했으면 바로 합의2로
+  let newStatus = step.nextStatus;
+  if (stepIdx === 1) newStatus = entry.agree2Date ? "합의2" : "합의1";
+  else if (stepIdx === 2) newStatus = entry.agree1Date ? "합의2" : "합의1";
+
   const updated = {
     ...entry,
-    approvalStatus: step.nextStatus,
+    approvalStatus: newStatus,
     [step.dateKey]: today,
     _key: `${year}_${String(month).padStart(2, "0")}`,
     docNo: autoDocNo,
@@ -646,7 +662,7 @@ async function signEntry(year, month, stepIdx) {
   if (body && body.error) throw new Error(body.error);
 
   const i = pnlData.findIndex(d => d.year === year && d.month === month);
-  if (i >= 0) Object.assign(pnlData[i], { approvalStatus: step.nextStatus, [step.dateKey]: today, docNo: autoDocNo });
+  if (i >= 0) Object.assign(pnlData[i], { approvalStatus: newStatus, [step.dateKey]: today, docNo: autoDocNo });
   render();
 }
 
