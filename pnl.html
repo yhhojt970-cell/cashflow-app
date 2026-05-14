@@ -207,6 +207,16 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
   .page { margin-top:0; }
   body { background:#fff; }
   #dashView { display:none!important; }
+  /* 결재란을 페이지 하단으로 */
+  .doc-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 200mm;
+  }
+  .doc-body > .section:last-child {
+    margin-top: auto;
+    padding-top: 20px;
+  }
 }
 @media (max-width:600px) {
   .kpi-grid,.dash-kpis { grid-template-columns:1fr 1fr; }
