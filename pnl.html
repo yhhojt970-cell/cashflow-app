@@ -644,7 +644,7 @@ function renderDashboard() {
   const yr  = +document.getElementById("selYear").value;
   const dv  = document.getElementById("dashView");
   document.getElementById("reportView").style.display = "none";
-  dv.style.display = "";
+  dv.style.display = "block";
 
   const agg = aggregate(yr, dashPeriod);
   const tot = agg.reduce((a,d)=>{

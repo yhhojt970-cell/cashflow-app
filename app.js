@@ -8367,6 +8367,7 @@ let pnlDashYear = new Date().getFullYear();
 let pnlDashPeriod = "monthly";
 let pnlInvYear  = new Date().getFullYear();
 let _pnlCharts  = {};
+const _pnlQtrSyncedKeys = new Set(); // 세션 중 구글시트 동기화 완료한 분기 키
 let _pnlImportIncome = null;  // 손익계산서 파싱 결과 {month: {revenue,cogs,sga,interest}}
 let _pnlImportCost   = null;  // 원가명세서 파싱 결과 {month: {mfg}}
 let _pnlImportYear   = new Date().getFullYear();
@@ -9282,7 +9283,8 @@ function renderPnlInput(el) {
 function renderPnlReport(el) {
   if (pnlRptMode === "quarterly") { renderPnlQuarterlyReport(el); return; }
   const curY = new Date().getFullYear();
-  const yearOpts = Array.from({length: curY - 2023}, (_,i) => 2024+i).map(y =>
+  const maxYear = Math.max(curY + 1, pnlRptYear);
+  const yearOpts = Array.from({length: maxYear - 2023}, (_,i) => 2024+i).map(y =>
     `<option value="${y}" ${y===pnlRptYear?"selected":""}>${y}년</option>`).join("");
   const monOpts  = Array.from({length:12},(_,i) =>
     `<option value="${i+1}" ${i+1===pnlRptMonth?"selected":""}>${i+1}월</option>`).join("");
@@ -9547,7 +9549,8 @@ function _aggregateMonths(year, months) {
 // ── 분기 보고서 ───────────────────────────────────────────────
 function renderPnlQuarterlyReport(el) {
   const curY = new Date().getFullYear();
-  const yearOpts = Array.from({length: curY - 2023}, (_,i) => 2024+i).map(y =>
+  const maxYear = Math.max(curY + 1, pnlRptYear);
+  const yearOpts = Array.from({length: maxYear - 2023}, (_,i) => 2024+i).map(y =>
     `<option value="${y}" ${y===pnlRptYear?"selected":""}>${y}년</option>`).join("");
   const qOpts = [1,2,3,4].map(q =>
     `<option value="${q}" ${q===pnlRptQuarter?"selected":""}>${q}분기</option>`).join("");
@@ -9560,6 +9563,12 @@ function renderPnlQuarterlyReport(el) {
   const qKey = `${pnlRptYear}_Q${pnlRptQuarter}`;
   const qApproval = pnlQuarterApproval[qKey] || { approvalStatus:"draft", draftDate:"", agree1Date:"", agree2Date:"", ceoDate:"", docNo:"" };
   const qStatusIdx = _pnlStatusIdx(qApproval.approvalStatus);
+
+  // 기존 서명 데이터가 있으면 세션 중 1회 구글시트 자동 동기화
+  if (qApproval.approvalStatus !== "draft" && !_pnlQtrSyncedKeys.has(qKey)) {
+    _pnlQtrSyncedKeys.add(qKey);
+    _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
+  }
 
   function approvalBoxQ(stepIdx) {
     const step = PNL_APPROVAL_STEPS[stepIdx];
