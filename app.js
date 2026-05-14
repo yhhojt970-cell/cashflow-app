@@ -8370,6 +8370,8 @@ let _pnlCharts  = {};
 let _pnlImportIncome = null;  // 손익계산서 파싱 결과 {month: {revenue,cogs,sga,interest}}
 let _pnlImportCost   = null;  // 원가명세서 파싱 결과 {month: {mfg}}
 let _pnlImportYear   = new Date().getFullYear();
+const PNL_Q_APPROVAL_KEY = "cashflow-app.pnl-quarter-approval-v1";
+let pnlQuarterApproval = {};  // { "2026_Q1": { approvalStatus, draftDate, ... } }
 
 // ── 로컬 스토리지 ─────────────────────────────────────────────
 function loadPnlLocal() {
@@ -8381,10 +8383,20 @@ function loadPnlLocal() {
     pnlData = PNL_SEED.map(d => ({ ...d }));
     savePnlLocal();
   }
+  loadPnlQuarterApprovalLocal();
 }
 
 function savePnlLocal() {
   try { localStorage.setItem(PNL_LOCAL_KEY, JSON.stringify(pnlData)); } catch (_) {}
+}
+function loadPnlQuarterApprovalLocal() {
+  try {
+    const raw = localStorage.getItem(PNL_Q_APPROVAL_KEY);
+    pnlQuarterApproval = raw ? JSON.parse(raw) : {};
+  } catch (_) { pnlQuarterApproval = {}; }
+}
+function savePnlQuarterApprovalLocal() {
+  try { localStorage.setItem(PNL_Q_APPROVAL_KEY, JSON.stringify(pnlQuarterApproval)); } catch (_) {}
 }
 
 function getPnlEntry(year, month) {
@@ -9520,6 +9532,32 @@ function renderPnlQuarterlyReport(el) {
   const entry   = _aggregateMonths(pnlRptYear, months);
   const c       = entry ? calcPnl(entry) : null;
 
+  // 분기 결재 상태
+  const qKey = `${pnlRptYear}_Q${pnlRptQuarter}`;
+  const qApproval = pnlQuarterApproval[qKey] || { approvalStatus:"draft", draftDate:"", agree1Date:"", agree2Date:"", ceoDate:"", docNo:"" };
+  const qStatusIdx = _pnlStatusIdx(qApproval.approvalStatus);
+
+  function approvalBoxQ(stepIdx) {
+    const step = PNL_APPROVAL_STEPS[stepIdx];
+    const done    = qStatusIdx > stepIdx;
+    const current = qStatusIdx === stepIdx && !!entry;
+    const date    = qApproval[step.dateKey] || "";
+    return `
+      <div class="pnl-ap-box">
+        <div class="pnl-ap-role">${step.role}</div>
+        <div class="pnl-ap-name">${step.name} ${step.title}</div>
+        <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
+        ${done
+          ? `<div class="pnl-stamp ${step.stampCls}">서명
+               <button class="pnl-revoke-btn" data-step="${stepIdx}" title="결재 취소">↩</button>
+             </div>`
+          : current
+            ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
+            : `<div class="pnl-stamp pnl-stamp-empty"></div>`
+        }
+      </div>`;
+  }
+
   const prevQ   = pnlRptQuarter > 1 ? pnlRptQuarter - 1 : 4;
   const prevQY  = pnlRptQuarter > 1 ? pnlRptYear : pnlRptYear - 1;
   const prev    = _aggregateMonths(prevQY, _quarterMonths(prevQ));
@@ -9562,6 +9600,10 @@ function renderPnlQuarterlyReport(el) {
           <div class="pnl-meta-row">
             <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안부서</span><span class="pnl-meta-val">${PNL_META.department}</span></div>
             <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안자</span><span class="pnl-meta-val">${PNL_META.author.name} ${PNL_META.author.title}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안일</span><span class="pnl-meta-val">${qApproval.draftDate||"—"}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">문서번호</span>
+              <span class="pnl-meta-val" id="pnlQDocNoVal" contenteditable="${!!entry}" style="outline:none;cursor:${entry?"text":"default"}">${qApproval.docNo||"—"}</span>
+            </div>
           </div>
         </div>
 
@@ -9655,6 +9697,14 @@ function renderPnlQuarterlyReport(el) {
               </tbody>
             </table>
           </div>
+
+          <!-- 결재란 -->
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num" style="font-size:11px">✓</span>결재</div>
+            <div class="pnl-ap-grid">
+              ${PNL_APPROVAL_STEPS.map((_,i) => approvalBoxQ(i)).join("")}
+            </div>
+          </div>
           `}
         </div>
         <div class="pnl-doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
@@ -9675,6 +9725,51 @@ function renderPnlQuarterlyReport(el) {
   document.getElementById("pnlRptYear")?.addEventListener("change", e => { pnlRptYear = +e.target.value; renderPnlReport(el); });
   document.getElementById("pnlRptQtr")?.addEventListener("change",  e => { pnlRptQuarter = +e.target.value; renderPnlReport(el); });
   document.getElementById("pnlPrintBtn")?.addEventListener("click", () => window.print());
+
+  // 분기 문서번호 인라인 편집
+  document.getElementById("pnlQDocNoVal")?.addEventListener("blur", e => {
+    if (!entry) return;
+    const val = e.target.textContent.trim();
+    if (val === "—") return;
+    qApproval.docNo = val;
+    pnlQuarterApproval[qKey] = qApproval;
+    savePnlQuarterApprovalLocal();
+  });
+
+  // 분기 서명 버튼
+  el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const stepIdx = +btn.dataset.step;
+      const step = PNL_APPROVAL_STEPS[stepIdx];
+      if (!entry) return;
+      qApproval[step.dateKey] = _todayKor();
+      qApproval.approvalStatus = step.nextStatus;
+      if (stepIdx === 0 && (!qApproval.docNo || qApproval.docNo === "—")) {
+        qApproval.docNo = `MA-PNL-${pnlRptYear}Q${pnlRptQuarter}-001`;
+      }
+      pnlQuarterApproval[qKey] = qApproval;
+      savePnlQuarterApprovalLocal();
+      pnlToast(`${step.role} 서명 완료`);
+      renderPnlReport(el);
+    });
+  });
+
+  // 분기 취소(revoke) 버튼
+  el.querySelectorAll(".pnl-revoke-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (!confirm("결재를 취소하시겠습니까?")) return;
+      const stepIdx = +btn.dataset.step;
+      for (let i = stepIdx; i < PNL_APPROVAL_STEPS.length; i++) {
+        qApproval[PNL_APPROVAL_STEPS[i].dateKey] = "";
+      }
+      qApproval.approvalStatus = stepIdx > 0 ? PNL_APPROVAL_STEPS[stepIdx-1].nextStatus : "draft";
+      if (stepIdx === 0) qApproval.docNo = "";
+      pnlQuarterApproval[qKey] = qApproval;
+      savePnlQuarterApprovalLocal();
+      renderPnlReport(el);
+    });
+  });
 }
 
 // ── 대시보드 탭 ───────────────────────────────────────────────
@@ -9840,7 +9935,14 @@ async function renderPnlDashboard(el) {
   if (!agg.length) return;
   try {
     await _loadChartJs();
-  } catch (e) { console.warn("[손익] Chart.js 로드 실패:", e); return; }
+  } catch (e) {
+    console.warn("[손익] Chart.js 로드 실패:", e);
+    el.querySelectorAll(".pnl-chart-box canvas").forEach(cv => {
+      cv.insertAdjacentHTML("afterend", `<p style="color:#dc2626;font-size:12px;padding:16px;margin:0;text-align:center">차트 로드 실패<br><small>CDN 차단 또는 네트워크 오류</small></p>`);
+      cv.style.display = "none";
+    });
+    return;
+  }
 
   const labels = agg.map(d => d.label);
   const chartDefaults = { font: { family: "'Noto Sans KR', sans-serif", size: 11 } };
@@ -9851,7 +9953,14 @@ async function renderPnlDashboard(el) {
     if (_pnlCharts[id]) { _pnlCharts[id].destroy(); delete _pnlCharts[id]; }
   });
 
-  _pnlCharts.pnlChart1 = new Chart(document.getElementById("pnlChart1"), {
+  // canvas가 DOM에서 사라진 경우(탭 이동 중 race) 중단
+  const c1 = document.getElementById("pnlChart1");
+  const c2 = document.getElementById("pnlChart2");
+  const c3 = document.getElementById("pnlChart3");
+  if (!c1 || !c2 || !c3) return;
+
+  try {
+  _pnlCharts.pnlChart1 = new Chart(c1, {
     type: "bar",
     data: {
       labels,
@@ -9864,7 +9973,7 @@ async function renderPnlDashboard(el) {
     options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{y:{ticks:{callback:v=>_pf(v)+"원"}}} },
   });
 
-  _pnlCharts.pnlChart2 = new Chart(document.getElementById("pnlChart2"), {
+  _pnlCharts.pnlChart2 = new Chart(c2, {
     type: "line",
     data: {
       labels,
@@ -9877,7 +9986,7 @@ async function renderPnlDashboard(el) {
     options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{y:{ticks:{callback:v=>_pf(v)+"원"}}} },
   });
 
-  _pnlCharts.pnlChart3 = new Chart(document.getElementById("pnlChart3"), {
+  _pnlCharts.pnlChart3 = new Chart(c3, {
     type: "bar",
     data: {
       labels,
@@ -9889,6 +9998,7 @@ async function renderPnlDashboard(el) {
     },
     options: { responsive:true, plugins:{legend:{position:"top"}}, scales:{x:{stacked:true},y:{stacked:true,ticks:{callback:v=>_pf(v)+"원"}}} },
   });
+  } catch(e) { console.warn("[손익] 차트 생성 실패:", e); }
 }
 
 init();
