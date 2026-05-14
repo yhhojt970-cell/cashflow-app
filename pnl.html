@@ -339,7 +339,7 @@ async function loadData() {
       ceoDate:        r.ceoDate    || "",
       docNo:          r.docNo      || "",
       ceoComment:     r.ceoComment || "",
-    })).filter(r => r.year && r.month);
+    })).filter(r => r.year && r.month && r.approvalStatus !== "draft");
     pnlData.sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month);
     if (pnlData.length) {
       const latest = pnlData[pnlData.length - 1];
@@ -623,17 +623,22 @@ async function signEntry(year, month, stepIdx) {
   const entry = getEntry(year, month);
   if (!entry) throw new Error("데이터 없음");
 
+  const autoDocNo = (stepIdx === 0 && !entry.docNo)
+    ? `MA-PNL-${year}${String(month).padStart(2,"0")}-001`
+    : entry.docNo;
+
   const updated = {
     ...entry,
     approvalStatus: step.nextStatus,
     [step.dateKey]: today,
     _key: `${year}_${String(month).padStart(2, "0")}`,
+    docNo: autoDocNo,
   };
 
   const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
   const resp = await fetch(SCRIPT_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ token, action: "savePnlData", rows: [updated] }),
   });
   if (!resp.ok) throw new Error(resp.status);
@@ -641,7 +646,7 @@ async function signEntry(year, month, stepIdx) {
   if (body && body.error) throw new Error(body.error);
 
   const i = pnlData.findIndex(d => d.year === year && d.month === month);
-  if (i >= 0) Object.assign(pnlData[i], { approvalStatus: step.nextStatus, [step.dateKey]: today });
+  if (i >= 0) Object.assign(pnlData[i], { approvalStatus: step.nextStatus, [step.dateKey]: today, docNo: autoDocNo });
   render();
 }
 

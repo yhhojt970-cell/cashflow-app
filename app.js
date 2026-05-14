@@ -9085,6 +9085,13 @@ function renderPnlInput(el) {
         <span class="pnl-status-badge" style="background:${statusColors[st]}18;color:${statusColors[st]};border:1px solid ${statusColors[st]}40">${statusLabels[st]||st}</span>
       </div>
 
+      <div class="pnl-annual-dist-row no-print">
+        <span class="pnl-annual-dist-label">연간 목표 배분</span>
+        <input type="text" id="pnlAnnualTgt" class="pnl-annual-tgt-input" placeholder="연간 목표 총액 입력" inputmode="numeric" />
+        <span class="pnl-field-unit">원</span>
+        <button id="pnlAnnualDistBtn" class="pnl-btn pnl-btn-ghost pnl-annual-dist-btn">÷12 → 전월 배분</button>
+      </div>
+
       <div class="pnl-form-body">
         <div class="pnl-form-card">
           <div class="pnl-form-title">입력 항목</div>
@@ -9157,6 +9164,24 @@ function renderPnlInput(el) {
       e.target.value = raw ? _pf(raw) : "";
       refreshPreview();
     });
+  });
+
+  document.getElementById("pnlAnnualDistBtn")?.addEventListener("click", () => {
+    const annual = parseN(document.getElementById("pnlAnnualTgt")?.value || "");
+    if (!annual) { pnlToast("연간 목표 총액을 입력하세요"); return; }
+    const monthly = Math.round(annual / 12);
+    for (let m = 1; m <= 12; m++) {
+      const existing = getPnlEntry(pnlInputYear, m) || {
+        year: pnlInputYear, month: m, revenue: 0, targetRevenue: 0,
+        cogs: 0, mfg: 0, sga: 0, interest: 0,
+        approvalStatus: "draft", draftDate: "", agree1Date: "", agree2Date: "",
+        ceoDate: "", docNo: "", ceoComment: "",
+      };
+      upsertPnlEntry({ ...existing, targetRevenue: monthly });
+    }
+    const tgtEl = document.getElementById("pnlTgt");
+    if (tgtEl) { tgtEl.value = _pf(monthly); refreshPreview(); }
+    pnlToast(`${pnlInputYear}년 12개월 목표 배분 완료 (월 ${_pf(monthly)}원)`);
   });
 
   document.getElementById("pnlSaveBtn").addEventListener("click", () => {
@@ -9403,7 +9428,9 @@ function renderPnlReport(el) {
   // 문서번호 인라인 편집
   document.getElementById("pnlDocNoVal")?.addEventListener("blur", e => {
     if (!entry) return;
-    entry.docNo = e.target.textContent.trim();
+    const val = e.target.textContent.trim();
+    if (val === "—") return;
+    entry.docNo = val;
     upsertPnlEntry(entry);
   });
 
@@ -9417,10 +9444,14 @@ function renderPnlReport(el) {
   // 서명 버튼
   el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const step = PNL_APPROVAL_STEPS[+btn.dataset.step];
+      const stepIdx = +btn.dataset.step;
+      const step = PNL_APPROVAL_STEPS[stepIdx];
       if (!entry) return;
-      entry[step.dateKey]     = _todayKor();
-      entry.approvalStatus    = step.nextStatus;
+      entry[step.dateKey]  = _todayKor();
+      entry.approvalStatus = step.nextStatus;
+      if (stepIdx === 0 && (!entry.docNo || entry.docNo === "—")) {
+        entry.docNo = `MA-PNL-${entry.year}${String(entry.month).padStart(2,"0")}-001`;
+      }
       upsertPnlEntry(entry);
       pnlToast(`${step.role} 서명 완료`);
       renderPnlReport(el);
@@ -9438,6 +9469,7 @@ function renderPnlReport(el) {
         entry[PNL_APPROVAL_STEPS[i].dateKey] = "";
       }
       entry.approvalStatus = stepIdx > 0 ? PNL_APPROVAL_STEPS[stepIdx-1].nextStatus : "draft";
+      if (stepIdx === 0) entry.docNo = "";
       upsertPnlEntry(entry);
       renderPnlReport(el);
     });
