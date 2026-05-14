@@ -8412,7 +8412,7 @@ function _saveQtrToSheets(year, quarter, qKey, qApproval) {
       sga:           a.sga           + (d.sga           || 0),
       interest:      a.interest      + (d.interest      || 0),
     }), { revenue: 0, targetRevenue: 0, cogs: 0, mfg: 0, sga: 0, interest: 0 });
-  postSheetWebApp("savePnlData", [{
+  postSheetWebApp("savePnlData", { rows: [{
     _key: qKey,
     year, quarter, month: 0,
     ...fins,
@@ -8422,7 +8422,7 @@ function _saveQtrToSheets(year, quarter, qKey, qApproval) {
     agree2Date:     qApproval.agree2Date || "",
     ceoDate:        qApproval.ceoDate    || "",
     docNo:          qApproval.docNo      || "",
-  }]).catch(e => console.warn("[PNL-Q] Sheets 저장 실패:", e));
+  }]}).catch(e => console.warn("[PNL-Q] Sheets 저장 실패:", e));
 }
 
 function getPnlEntry(year, month) {
