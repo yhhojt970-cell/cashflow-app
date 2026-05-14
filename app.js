@@ -8361,8 +8361,9 @@ let pnlInputYear  = new Date().getFullYear();
 let pnlInputMonth = new Date().getMonth() + 1;
 let pnlRptYear    = new Date().getFullYear();
 let pnlRptMonth   = new Date().getMonth() + 1;
-let pnlRptMode    = "monthly";   // "monthly" | "quarterly"
+let pnlRptMode    = "monthly";   // "monthly" | "quarterly" | "halfyear" | "annual"
 let pnlRptQuarter = Math.ceil((new Date().getMonth() + 1) / 3);
+let pnlRptHalf    = new Date().getMonth() < 6 ? 1 : 2; // 반기 모드: 1=상반기, 2=하반기
 let pnlDashYear = new Date().getFullYear();
 let pnlDashPeriod = "monthly";
 let pnlInvYear  = new Date().getFullYear();
@@ -9292,6 +9293,8 @@ function renderPnlInput(el) {
 // ── 보고서 탭 ─────────────────────────────────────────────────
 function renderPnlReport(el) {
   if (pnlRptMode === "quarterly") { renderPnlQuarterlyReport(el); return; }
+  if (pnlRptMode === "halfyear")  { renderPnlHalfYearReport(el);  return; }
+  if (pnlRptMode === "annual")    { renderPnlAnnualReport(el);    return; }
   const curY = new Date().getFullYear();
   const maxYear = Math.max(curY + 1, pnlRptYear);
   const yearOpts = Array.from({length: maxYear - 2023}, (_,i) => 2024+i).map(y =>
@@ -9351,6 +9354,8 @@ function renderPnlReport(el) {
         <div class="pnl-rpt-mode-tabs">
           <button class="pnl-mode-btn active" data-rpt-mode="monthly">월간</button>
           <button class="pnl-mode-btn" data-rpt-mode="quarterly">분기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="halfyear">반기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="annual">연간</button>
         </div>
         <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
         <select id="pnlRptYear">${yearOpts}</select>
@@ -9627,6 +9632,8 @@ function renderPnlQuarterlyReport(el) {
         <div class="pnl-rpt-mode-tabs">
           <button class="pnl-mode-btn" data-rpt-mode="monthly">월간</button>
           <button class="pnl-mode-btn active" data-rpt-mode="quarterly">분기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="halfyear">반기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="annual">연간</button>
         </div>
         <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
         <select id="pnlRptYear">${yearOpts}</select>
@@ -9815,6 +9822,234 @@ function renderPnlQuarterlyReport(el) {
       renderPnlReport(el);
     });
   });
+}
+
+// ── 반기 / 연간 공통 흐름표 HTML 헬퍼 ────────────────────────
+function _pnlFlowHtml(entry, c) {
+  return `<div class="pnl-flow">
+    <div class="pnl-flow-row"><span class="pnl-flow-lbl"><span class="pnl-tag">ㄱ</span> 매출액</span><span class="pnl-flow-val">${_pf(entry.revenue)} 원</span></div>
+    <div class="pnl-flow-divider">차감</div>
+    <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄴ</span> 상품매출원가</span><span class="pnl-flow-val pnl-neg">(${_pf(c.cogs)}) 원</span></div>
+    <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span><span class="pnl-tag">ㄷ</span> 당기총제조비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.mfg)}) 원</span></div>
+    <div class="pnl-flow-row pnl-flow-sub"><span class="pnl-flow-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="pnl-flow-val ${_pc(c.gross)}">${_ps(c.gross)} 원</span></div>
+    <div class="pnl-flow-divider">차감</div>
+    <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 판매관리비</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.sga)}) 원</span></div>
+    <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">② 관리기준 영업이익 <small>[①−판관비]</small></span><span class="pnl-flow-val ${_pc(c.op)}">${_ps(c.op)} 원</span></div>
+  </div>`;
+}
+function _pnlMgmtFlowHtml(entry, c) {
+  return `<div class="pnl-flow">
+    <div class="pnl-flow-row"><span class="pnl-flow-lbl">관리기준 영업이익 (②)</span><span class="pnl-flow-val ${_pc(c.op)}">${_ps(c.op)} 원</span></div>
+    <div class="pnl-flow-divider">차감</div>
+    <div class="pnl-flow-row pnl-indent"><span class="pnl-flow-lbl"><span class="pnl-minus">−</span> 영업외비용</span><span class="pnl-flow-val pnl-neg">(${_pf(entry.interest)}) 원</span></div>
+    <div class="pnl-flow-row pnl-flow-total"><span class="pnl-flow-lbl">③ 경영이익(손실) <small>[②−영업외비용]</small></span><span class="pnl-flow-val ${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</span></div>
+  </div>`;
+}
+
+// ── 반기 / 연간 보고서 ────────────────────────────────────────
+function renderPnlHalfYearReport(el) {
+  const curY = new Date().getFullYear();
+  const maxYear = Math.max(curY + 1, pnlRptYear);
+  const yearOpts = Array.from({length: maxYear - 2023}, (_,i) => 2024+i)
+    .map(y => `<option value="${y}" ${y===pnlRptYear?"selected":""}>${y}년</option>`).join("");
+  const halfOpts = [1,2].map(h =>
+    `<option value="${h}" ${h===pnlRptHalf?"selected":""}>${h===1?"상반기":"하반기"}</option>`).join("");
+
+  const months  = pnlRptHalf === 1 ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+  const entry   = _aggregateMonths(pnlRptYear, months);
+  const c       = entry ? calcPnl(entry) : null;
+  const prevH   = _aggregateMonths(pnlRptYear - 1, months);
+  const pc      = prevH ? calcPnl(prevH) : null;
+  const halfLabel = pnlRptHalf === 1 ? "상반기" : "하반기";
+
+  function cmpRow(label, pv, cv, isSub) {
+    const diff = cv - pv;
+    const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
+    const rowCls = label.includes("경영이익") ? "pnl-cmp-total" : isSub ? "pnl-cmp-sub" : "";
+    return `<tr class="${rowCls}">
+      <td>${label}</td><td>${_ps(pv)}</td><td>${_ps(cv)}</td>
+      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</td>
+    </tr>`;
+  }
+
+  el.innerHTML = `
+    <div class="pnl-report-wrap">
+      <div class="pnl-report-toolbar no-print">
+        <div class="pnl-rpt-mode-tabs">
+          <button class="pnl-mode-btn" data-rpt-mode="monthly">월간</button>
+          <button class="pnl-mode-btn" data-rpt-mode="quarterly">분기</button>
+          <button class="pnl-mode-btn active" data-rpt-mode="halfyear">반기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="annual">연간</button>
+        </div>
+        <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
+        <select id="pnlRptYear">${yearOpts}</select>
+        <select id="pnlRptHalf">${halfOpts}</select>
+        <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+      </div>
+      <div class="pnl-page" id="pnlReportPage">
+        <div class="pnl-doc-header">
+          <div class="pnl-company-badge">MIRAE AUTOMATION CO., LTD</div>
+          <div class="pnl-doc-title">${pnlRptYear}년 ${halfLabel} &mdash; 반기 경영손익 보고서</div>
+          <div class="pnl-doc-sub">${months[0]}월 ~ ${months[months.length-1]}월 합산 관리기준 손익</div>
+        </div>
+        ${!entry ? `<div class="pnl-no-data">이 반기의 데이터가 없습니다. 월별 데이터를 먼저 저장해 주세요.</div>` : `
+        <div class="pnl-kpi-row">
+          <div class="pnl-kpi">
+            <div class="pnl-kpi-label">매출액</div>
+            <div class="pnl-kpi-value">${_pf(entry.revenue)} 원</div>
+            ${c.tgtA !== null ? `<div class="pnl-kpi-sub">달성률 ${c.tgtA.toFixed(1)}%</div>` : ""}
+          </div>
+          <div class="pnl-kpi">
+            <div class="pnl-kpi-label">매출총이익</div>
+            <div class="pnl-kpi-value ${c.gross>=0?"pnl-pos":"pnl-neg"}">${_ps(c.gross)} 원</div>
+            <div class="pnl-kpi-sub">총이익률 ${c.gmR.toFixed(1)}%</div>
+          </div>
+          <div class="pnl-kpi pnl-kpi-hl">
+            <div class="pnl-kpi-label">경영이익(손실)</div>
+            <div class="pnl-kpi-value ${c.mgmt>=0?"pnl-pos":"pnl-neg"}">${_ps(c.mgmt)} 원</div>
+            <div class="pnl-kpi-sub">영업이익률 ${c.opR.toFixed(1)}%</div>
+          </div>
+        </div>
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">1</span>관리기준 영업이익</div>
+          ${_pnlFlowHtml(entry, c)}
+        </div>
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">2</span>경영이익 <small>금융비용 반영</small></div>
+          ${_pnlMgmtFlowHtml(entry, c)}
+        </div>
+        ${prevH && pc ? `
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전년 동기 대비 <small>${pnlRptYear-1}년 ${halfLabel}</small></div>
+          <table class="pnl-cmp-table">
+            <thead><tr><th>항목</th><th>${pnlRptYear-1}년 ${halfLabel}</th><th>${pnlRptYear}년 ${halfLabel}</th><th>증감액</th></tr></thead>
+            <tbody>
+              ${cmpRow("매출액",            prevH.revenue,  entry.revenue,  false)}
+              ${cmpRow("상품매출원가",      prevH.cogs,     entry.cogs,     false)}
+              ${cmpRow("당기총제조비용",    prevH.mfg,      entry.mfg,      false)}
+              ${cmpRow("매출총이익",        pc.gross,       c.gross,        true)}
+              ${cmpRow("판관비",            prevH.sga,      entry.sga,      false)}
+              ${cmpRow("관리기준 영업이익", pc.op,          c.op,           true)}
+              ${cmpRow("영업외비용",         prevH.interest, entry.interest, false)}
+              ${cmpRow("경영이익(손실)",    pc.mgmt,        c.mgmt,         true)}
+            </tbody>
+          </table>
+        </div>` : ""}
+        `}
+      </div>
+    </div>`;
+
+  el.querySelectorAll("[data-rpt-mode]").forEach(btn => {
+    btn.addEventListener("click", () => { pnlRptMode = btn.dataset.rptMode; renderPnlReport(el); });
+  });
+  document.getElementById("pnlRptPrev")?.addEventListener("click", () => {
+    pnlRptHalf--; if (pnlRptHalf < 1) { pnlRptHalf = 2; pnlRptYear--; } renderPnlReport(el);
+  });
+  document.getElementById("pnlRptNext")?.addEventListener("click", () => {
+    pnlRptHalf++; if (pnlRptHalf > 2) { pnlRptHalf = 1; pnlRptYear++; } renderPnlReport(el);
+  });
+  document.getElementById("pnlRptYear")?.addEventListener("change", e => { pnlRptYear = +e.target.value; renderPnlReport(el); });
+  document.getElementById("pnlRptHalf")?.addEventListener("change", e => { pnlRptHalf = +e.target.value; renderPnlReport(el); });
+  document.getElementById("pnlPrintBtn")?.addEventListener("click", () => window.print());
+}
+
+function renderPnlAnnualReport(el) {
+  const curY = new Date().getFullYear();
+  const maxYear = Math.max(curY + 1, pnlRptYear);
+  const yearOpts = Array.from({length: maxYear - 2023}, (_,i) => 2024+i)
+    .map(y => `<option value="${y}" ${y===pnlRptYear?"selected":""}>${y}년</option>`).join("");
+
+  const months  = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const entry   = _aggregateMonths(pnlRptYear, months);
+  const c       = entry ? calcPnl(entry) : null;
+  const prevY   = _aggregateMonths(pnlRptYear - 1, months);
+  const pc      = prevY ? calcPnl(prevY) : null;
+
+  function cmpRow(label, pv, cv, isSub) {
+    const diff = cv - pv;
+    const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
+    const rowCls = label.includes("경영이익") ? "pnl-cmp-total" : isSub ? "pnl-cmp-sub" : "";
+    return `<tr class="${rowCls}">
+      <td>${label}</td><td>${_ps(pv)}</td><td>${_ps(cv)}</td>
+      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</td>
+    </tr>`;
+  }
+
+  el.innerHTML = `
+    <div class="pnl-report-wrap">
+      <div class="pnl-report-toolbar no-print">
+        <div class="pnl-rpt-mode-tabs">
+          <button class="pnl-mode-btn" data-rpt-mode="monthly">월간</button>
+          <button class="pnl-mode-btn" data-rpt-mode="quarterly">분기</button>
+          <button class="pnl-mode-btn" data-rpt-mode="halfyear">반기</button>
+          <button class="pnl-mode-btn active" data-rpt-mode="annual">연간</button>
+        </div>
+        <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
+        <select id="pnlRptYear">${yearOpts}</select>
+        <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+      </div>
+      <div class="pnl-page" id="pnlReportPage">
+        <div class="pnl-doc-header">
+          <div class="pnl-company-badge">MIRAE AUTOMATION CO., LTD</div>
+          <div class="pnl-doc-title">${pnlRptYear}년 &mdash; 연간 경영손익 보고서</div>
+          <div class="pnl-doc-sub">1월 ~ 12월 합산 관리기준 손익</div>
+        </div>
+        ${!entry ? `<div class="pnl-no-data">이 연도의 데이터가 없습니다. 월별 데이터를 먼저 저장해 주세요.</div>` : `
+        <div class="pnl-kpi-row">
+          <div class="pnl-kpi">
+            <div class="pnl-kpi-label">매출액</div>
+            <div class="pnl-kpi-value">${_pf(entry.revenue)} 원</div>
+            ${c.tgtA !== null ? `<div class="pnl-kpi-sub">달성률 ${c.tgtA.toFixed(1)}%</div>` : ""}
+          </div>
+          <div class="pnl-kpi">
+            <div class="pnl-kpi-label">매출총이익</div>
+            <div class="pnl-kpi-value ${c.gross>=0?"pnl-pos":"pnl-neg"}">${_ps(c.gross)} 원</div>
+            <div class="pnl-kpi-sub">총이익률 ${c.gmR.toFixed(1)}%</div>
+          </div>
+          <div class="pnl-kpi pnl-kpi-hl">
+            <div class="pnl-kpi-label">경영이익(손실)</div>
+            <div class="pnl-kpi-value ${c.mgmt>=0?"pnl-pos":"pnl-neg"}">${_ps(c.mgmt)} 원</div>
+            <div class="pnl-kpi-sub">영업이익률 ${c.opR.toFixed(1)}%</div>
+          </div>
+        </div>
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">1</span>관리기준 영업이익</div>
+          ${_pnlFlowHtml(entry, c)}
+        </div>
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">2</span>경영이익 <small>금융비용 반영</small></div>
+          ${_pnlMgmtFlowHtml(entry, c)}
+        </div>
+        ${prevY && pc ? `
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전년 대비 <small>${pnlRptYear-1}년 연간</small></div>
+          <table class="pnl-cmp-table">
+            <thead><tr><th>항목</th><th>${pnlRptYear-1}년 연간</th><th>${pnlRptYear}년 연간</th><th>증감액</th></tr></thead>
+            <tbody>
+              ${cmpRow("매출액",            prevY.revenue,  entry.revenue,  false)}
+              ${cmpRow("상품매출원가",      prevY.cogs,     entry.cogs,     false)}
+              ${cmpRow("당기총제조비용",    prevY.mfg,      entry.mfg,      false)}
+              ${cmpRow("매출총이익",        pc.gross,       c.gross,        true)}
+              ${cmpRow("판관비",            prevY.sga,      entry.sga,      false)}
+              ${cmpRow("관리기준 영업이익", pc.op,          c.op,           true)}
+              ${cmpRow("영업외비용",         prevY.interest, entry.interest, false)}
+              ${cmpRow("경영이익(손실)",    pc.mgmt,        c.mgmt,         true)}
+            </tbody>
+          </table>
+        </div>` : ""}
+        `}
+      </div>
+    </div>`;
+
+  el.querySelectorAll("[data-rpt-mode]").forEach(btn => {
+    btn.addEventListener("click", () => { pnlRptMode = btn.dataset.rptMode; renderPnlReport(el); });
+  });
+  document.getElementById("pnlRptPrev")?.addEventListener("click", () => { pnlRptYear--; renderPnlReport(el); });
+  document.getElementById("pnlRptNext")?.addEventListener("click", () => { pnlRptYear++; renderPnlReport(el); });
+  document.getElementById("pnlRptYear")?.addEventListener("change", e => { pnlRptYear = +e.target.value; renderPnlReport(el); });
+  document.getElementById("pnlPrintBtn")?.addEventListener("click", () => window.print());
 }
 
 // ── 대시보드 탭 ───────────────────────────────────────────────

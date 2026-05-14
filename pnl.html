@@ -232,16 +232,15 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 
 <div class="toolbar">
   <span class="toolbar-title">📊 경영손익 보고</span>
+  <div style="display:flex;gap:4px" id="rptModes">
+    <button class="tab-btn active" data-rmode="monthly">월간</button>
+    <button class="tab-btn" data-rmode="quarterly">분기</button>
+    <button class="tab-btn" data-rmode="halfyear">반기</button>
+    <button class="tab-btn" data-rmode="annual">연간</button>
+  </div>
   <label>연도</label>
   <input type="number" id="selYear" value="2026" min="2020" max="2035" style="width:72px" />
-  <label>월</label>
-  <select id="selMonth">
-    <option value="0">전체</option>
-    <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option>
-    <option value="4">4월</option><option value="5">5월</option><option value="6">6월</option>
-    <option value="7">7월</option><option value="8">8월</option><option value="9">9월</option>
-    <option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
-  </select>
+  <select id="selPeriod" style="min-width:72px"></select>
   <div class="tab-btns">
     <button class="tab-btn active" id="btnReport">📄 보고서</button>
     <button class="tab-btn" id="btnDash">📈 대시보드</button>
@@ -290,6 +289,10 @@ let pnlQuarterlyRows = [];
 let viewMode = "report"; // "report" | "dashboard"
 let dashPeriod = "monthly";
 let dashCharts = {};
+let reportMode = "monthly"; // "monthly"|"quarterly"|"halfyear"|"annual"
+let rptMonth   = new Date().getMonth() + 1;
+let rptQuarter = Math.ceil((new Date().getMonth() + 1) / 3);
+let rptHalf    = new Date().getMonth() < 6 ? 1 : 2;
 
 // ── 유틸 ──
 const fmt    = n => Math.abs(n).toLocaleString("ko-KR");
@@ -316,6 +319,36 @@ function calc(d) {
   return { gross, op, mgmt, gmR, opR, tgtA };
 }
 function getEntry(y, m) { return pnlData.find(d=>d.year===y&&d.month===m)??null; }
+
+function aggData(yr, months) {
+  const rows = pnlData.filter(d => d.year === yr && months.includes(d.month));
+  if (!rows.length) return null;
+  return rows.reduce((a, d) => ({
+    revenue:       a.revenue       + (d.revenue       || 0),
+    targetRevenue: a.targetRevenue + (d.targetRevenue || 0),
+    cogs:          a.cogs          + (d.cogs          || 0),
+    mfg:           a.mfg           + (d.mfg           || 0),
+    sga:           a.sga           + (d.sga           || 0),
+    interest:      a.interest      + (d.interest      || 0),
+  }), { revenue:0, targetRevenue:0, cogs:0, mfg:0, sga:0, interest:0 });
+}
+
+function updatePeriodSelect() {
+  const sel = document.getElementById("selPeriod");
+  if (!sel) return;
+  if (reportMode === "monthly") {
+    sel.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}"${i+1===rptMonth?" selected":""}>${i+1}월</option>`).join("");
+    sel.style.display = "";
+  } else if (reportMode === "quarterly") {
+    sel.innerHTML = [1,2,3,4].map(q=>`<option value="${q}"${q===rptQuarter?" selected":""}>${q}분기</option>`).join("");
+    sel.style.display = "";
+  } else if (reportMode === "halfyear") {
+    sel.innerHTML = `<option value="1"${rptHalf===1?" selected":""}>상반기</option><option value="2"${rptHalf===2?" selected":""}>하반기</option>`;
+    sel.style.display = "";
+  } else {
+    sel.style.display = "none";
+  }
+}
 
 // ── 데이터 로드 ──
 async function loadData() {
@@ -360,7 +393,7 @@ async function loadData() {
     if (pnlData.length) {
       const latest = pnlData[pnlData.length - 1];
       document.getElementById("selYear").value = String(latest.year);
-      document.getElementById("selMonth").value = String(latest.month);
+      rptMonth = latest.month;
     }
   } catch (e) {
     console.warn("[pnl] 로드 실패:", e);
@@ -380,24 +413,27 @@ function render() {
 // ── 보고서 렌더 ──
 function renderReport() {
   const yr = +document.getElementById("selYear").value;
-  const mo = +document.getElementById("selMonth").value;
   const view = document.getElementById("reportView");
   view.style.display = "";
   document.getElementById("dashView").style.display = "none";
+  updatePeriodSelect();
 
-  if (mo === 0) {
-    // 전체 — 분기 + 월 목록 표시
-    const months   = pnlData.filter(d=>d.year===yr);
-    const quarters = pnlQuarterlyRows.filter(d=>d.year===yr);
-    if (!months.length && !quarters.length) { view.innerHTML='<div class="no-data">해당 연도 데이터가 없습니다.</div>'; return; }
-    const parts = [];
-    if (quarters.length) parts.push(quarters.map(q=>buildQuarterlyReportHtml(q)).join("<hr style='margin:24px 0;border:none;border-top:2px dashed #e2e8f0'>"));
-    if (months.length)   parts.push(months.map(d=>buildReportHtml(d, yr)).join("<hr style='margin:32px 0;border:none;border-top:2px dashed #e2e8f0'>"));
-    view.innerHTML = parts.join("<hr style='margin:32px 0;border:none;border-top:3px solid #cbd5e1'>");
-    return;
+  if (reportMode === "monthly") {
+    const entry = getEntry(yr, rptMonth);
+    view.innerHTML = entry
+      ? buildReportHtml(entry, yr)
+      : '<div class="no-data">해당 월 데이터가 없습니다.</div>';
+  } else if (reportMode === "quarterly") {
+    const qKey = `${yr}_Q${rptQuarter}`;
+    const qRow = pnlQuarterlyRows.find(r => r._key === qKey);
+    view.innerHTML = qRow
+      ? buildQuarterlyReportHtml(qRow)
+      : '<div class="no-data">해당 분기 데이터가 없습니다.<br><small>경영손익 앱 → 경영손익 탭 열기 → 기안 서명 후 구글시트에 저장하면 표시됩니다.</small></div>';
+  } else if (reportMode === "halfyear") {
+    view.innerHTML = buildHalfYearReportHtml(yr, rptHalf);
+  } else {
+    view.innerHTML = buildAnnualReportHtml(yr);
   }
-  const entry = getEntry(yr, mo);
-  view.innerHTML = entry ? buildReportHtml(entry, yr) : '<div class="no-data">해당 월 데이터가 없습니다.</div>';
 }
 
 function buildReportHtml(entry, yr) {
@@ -610,6 +646,101 @@ function buildQuarterlyReportHtml(qRow) {
   </div>`;
 }
 
+// ── 반기 / 연간 집계 보고서 (결재란 없음) ──
+function buildAggReportHtml(yr, label, months, prevYr, prevLabel, prevMonths) {
+  const d = aggData(yr, months);
+  if (!d) return `<div class="no-data">${yr}년 ${label} 데이터가 없습니다.<br><small>월간 보고서 데이터가 있어야 집계됩니다.</small></div>`;
+  const c = calc(d);
+  const prevD = aggData(prevYr, prevMonths);
+  const pc = prevD ? calc(prevD) : null;
+
+  function cmpRow(lbl, pv, cv, isSub) {
+    const diff = cv - pv;
+    const dc = diff > 0 ? "pos" : diff < 0 ? "neg" : "";
+    const tc = lbl.includes("경영이익") ? "tr-total" : isSub ? "tr-sub" : "";
+    return `<tr class="${tc}"><td>${lbl}</td><td>${fmtS(pv)}</td><td>${fmtS(cv)}</td>
+      <td class="${dc}">${diff >= 0 ? "▲ " : "▼ "}${fmt(diff)}</td></tr>`;
+  }
+
+  return `
+  <div style="margin-bottom:32px">
+    <div class="doc-header">
+      <div class="company-badge">MIRAE AUTOMATION CO., LTD</div>
+      <div class="doc-title">${yr}년 ${label} — 경영손익 보고서</div>
+      <div class="doc-sub">관리기준 손익 및 경영이익 산출내역 · ${label} 합산 집계</div>
+    </div>
+    <div class="doc-body">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출액</div>
+          <div class="kpi-val">${fmt(d.revenue)}</div>
+          <div class="kpi-unit">원${c.tgtA !== null ? ` · 달성률 ${c.tgtA.toFixed(1)}%` : ""}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-lbl">매출총이익</div>
+          <div class="kpi-val ${clsPN(c.gross)}">${fmtS(c.gross)}</div>
+          <div class="kpi-unit">총이익률 ${c.gmR.toFixed(1)}%</div>
+        </div>
+        <div class="kpi-card hl">
+          <div class="kpi-lbl">경영이익(손실)</div>
+          <div class="kpi-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)}</div>
+          <div class="kpi-unit">영업이익률 ${c.opR.toFixed(1)}%</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익</div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl">매출액 (①)</span><span class="fr-val">${fmt(d.revenue)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가</span><span class="fr-val neg">(${fmt(d.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용</span><span class="fr-val neg">(${fmt(d.mfg)}) 원</span></div>
+          <div class="fr fr-sub"><span class="fr-lbl">매출총이익 [①−원가]</span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판관비</span><span class="fr-val neg">(${fmt(d.sga)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">② 관리기준 영업이익</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">2</span>경영이익</div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용</span><span class="fr-val neg">(${fmt(d.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실)</span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
+        </div>
+      </div>
+      ${prevD && pc ? `
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">3</span>전년 동기 대비 <small>${prevYr}년 ${prevLabel}</small></div>
+        <table class="cmp-tbl">
+          <thead><tr><th>항목</th><th>${prevYr}년 ${prevLabel}</th><th>${yr}년 ${label}</th><th>증감액</th></tr></thead>
+          <tbody>
+            ${cmpRow("매출액",            prevD.revenue,  d.revenue,  false)}
+            ${cmpRow("상품매출원가",      prevD.cogs,     d.cogs,     false)}
+            ${cmpRow("당기총제조비용",    prevD.mfg,      d.mfg,      false)}
+            ${cmpRow("매출총이익",        pc.gross,       c.gross,    true)}
+            ${cmpRow("판관비",            prevD.sga,      d.sga,      false)}
+            ${cmpRow("관리기준 영업이익", pc.op,          c.op,       true)}
+            ${cmpRow("영업외비용",         prevD.interest, d.interest, false)}
+            ${cmpRow("경영이익(손실)",    pc.mgmt,        c.mgmt,     true)}
+          </tbody>
+        </table>
+      </div>` : ""}
+    </div>
+    <div class="doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비 · ${yr}년 ${label} 집계본</div>
+  </div>`;
+}
+
+function buildHalfYearReportHtml(yr, half) {
+  const months = half === 1 ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+  const label  = half === 1 ? "상반기" : "하반기";
+  return buildAggReportHtml(yr, label, months, yr - 1, label, months);
+}
+
+function buildAnnualReportHtml(yr) {
+  return buildAggReportHtml(yr, "연간", [1,2,3,4,5,6,7,8,9,10,11,12], yr - 1, "연간", [1,2,3,4,5,6,7,8,9,10,11,12]);
+}
+
 async function signQuarterEntry(qKey, stepIdx, qRow) {
   const step = APPROVAL_STEPS[stepIdx];
   const today = new Date().toISOString().slice(0, 10);
@@ -741,8 +872,21 @@ function renderDashboard() {
 }
 
 // ── 이벤트 ──
-document.getElementById("selYear").addEventListener("change",  render);
-document.getElementById("selMonth").addEventListener("change", render);
+document.getElementById("selYear").addEventListener("change", render);
+document.getElementById("selPeriod").addEventListener("change", e => {
+  const v = +e.target.value;
+  if      (reportMode === "monthly")   rptMonth   = v;
+  else if (reportMode === "quarterly") rptQuarter = v;
+  else if (reportMode === "halfyear")  rptHalf    = v;
+  render();
+});
+document.getElementById("rptModes").addEventListener("click", e => {
+  const btn = e.target.closest("[data-rmode]");
+  if (!btn) return;
+  reportMode = btn.dataset.rmode;
+  document.querySelectorAll("#rptModes .tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+  render();
+});
 document.getElementById("btnReport").addEventListener("click", () => {
   viewMode = "report";
   document.getElementById("btnReport").classList.add("active");
@@ -834,9 +978,7 @@ document.getElementById("reportView").addEventListener("click", async e => {
   }
 });
 
-// ── 초기 월 선택 (현재월) ──
-document.getElementById("selMonth").value = new Date().getMonth() + 1;
-
+updatePeriodSelect();
 loadData();
 </script>
 </body>
