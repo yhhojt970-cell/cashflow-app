@@ -8489,6 +8489,16 @@ async function loadPnlRemote() {
     pnlData.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
     savePnlLocal();
     renderPnlTab();
+
+    // localStorage에만 있는 분기 서명 데이터를 구글시트에 동기화 (세션당 1회)
+    Object.entries(pnlQuarterApproval).forEach(([qKey, qApproval]) => {
+      if (qApproval.approvalStatus === "draft") return;
+      if (_pnlQtrSyncedKeys.has(qKey)) return;
+      const m = qKey.match(/^(\d{4})_Q([1-4])$/);
+      if (!m) return;
+      _pnlQtrSyncedKeys.add(qKey);
+      _saveQtrToSheets(+m[1], +m[2], qKey, qApproval);
+    });
   } catch (e) { console.warn("[손익] 원격 로드 실패:", e); }
 }
 
