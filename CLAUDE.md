@@ -251,6 +251,100 @@ availableFunds = {
 
 ## 버그 수정 이력
 
+---
+
+### 2026-05-14 (5): pnl.html 서명 대기 뱃지 + 기간 옵션 마커
+
+**기능 추가:**
+- `needsViewerAction(entry)` — URL `?email=` 파라미터 기반으로 현재 접속자의 서명 가능 여부 판단
+- `updatePendingBadge()` — 서명 대기 건수 계산, 툴바에 빨간 "● N건 서명 대기" 뱃지 표시
+- `selPeriod` 옵션에 서명 필요 기간은 "● " 마커 표시
+- `render()` → `updatePeriodSelect()` → `updatePendingBadge()` 흐름으로 서명 후 자동 갱신
+
+**수정 파일:** `pnl.html`  
+**커밋:** `2696a50`
+
+---
+
+### 2026-05-14 (4): pnl.html 분기 드롭다운 — 기안완료 이상 분기만 표시
+
+**변경:** 분기 모드 `selPeriod`가 1~4분기 전부 표시 → 구글시트에 저장된(기안완료+) 분기만 표시  
+- `pnlQuarterlyRows` 기준으로 해당 연도 유효 분기만 옵션 생성
+- 현재 선택 분기에 데이터 없으면 마지막 유효 분기로 자동 이동
+- 데이터 없는 연도는 "—" 표시
+
+**수정 파일:** `pnl.html`  
+**커밋:** `6acc418`
+
+---
+
+### 2026-05-14 (3): pnl.html 분기 보고서 상세 섹션 추가
+
+**변경:** 분기 보고서(`buildQuarterlyReportHtml`)가 KPI + 결재란만 표시 → 월간 보고서 수준으로 보완
+
+추가된 섹션:
+- **섹션 1** — 관리기준 영업이익 흐름 (매출 → 원가/제조 차감 → 매출총이익 → 판관비 → 영업이익)
+- **섹션 2** — 경영이익 흐름 (영업이익 → 영업외비용 차감 → 경영이익)
+- **섹션 3** — 전분기 대비 손익 비교표 (`aggData(prevQY, prevQMonths)` 집계, 월간 데이터 있을 때만 표시)
+- KPI 카드에 목표 매출액 달성률 추가
+
+전분기 계산: `prevQ = quarter > 1 ? quarter - 1 : 4` / `prevQY = quarter > 1 ? year : year - 1`
+
+**수정 파일:** `pnl.html`  
+**커밋:** `0f09f63`
+
+---
+
+### 2026-05-14 (2): 분기 보고서 구글시트 저장 안 되는 버그 수정
+
+**증상:** 기안 서명 후 pnl.html에서 분기 보고서가 "데이터 없음"으로 표시됨
+
+**원인:** `_saveQtrToSheets`에서 `postSheetWebApp("savePnlData", [{...}])` — 배열을 payload로 직접 넘김.  
+`postSheetWebApp` 내부에서 `...payload` 스프레드 시 `{ 0: {...} }` 형태가 돼 `body.rows = undefined` → 저장 0건.
+
+**수정 (`app.js`, `_saveQtrToSheets`):**
+```javascript
+// 수정 전 (잘못됨)
+postSheetWebApp("savePnlData", [{...}])
+
+// 수정 후
+postSheetWebApp("savePnlData", { rows: [{...}] })
+```
+
+**수정 파일:** `app.js`  
+**커밋:** `d5dd52c`
+
+---
+
+### 2026-05-14 (1): 경영손익 보고서 반기/연간 모드 추가
+
+**기능 추가 (`app.js`):**
+- `pnlRptHalf` 상태 변수 (1=상반기, 2=하반기)
+- `_pnlFlowHtml(entry, c)` / `_pnlMgmtFlowHtml(entry, c)` — 손익 흐름표 HTML 헬퍼
+- `renderPnlHalfYearReport(el)` — 상/하반기 집계 + 전년 동기 비교
+- `renderPnlAnnualReport(el)` — 연간 12개월 집계 + 전년 비교
+- `renderPnlReport()` 분기 추가: `halfyear` / `annual` 분기
+- 모드 버튼 HTML에 반기/연간 추가 (월간·분기·반기·연간 4개)
+
+**연도 nav 버그 수정 (`app.js`):**  
+`Array.from({length: curY - 2023}, ...)` 로 연도 옵션 생성 시 현재 보는 연도(`pnlRptYear`)가 범위 밖이면 브라우저가 첫 번째(2024)를 선택.  
+→ `Math.max(curY + 1, pnlRptYear)`를 maxYear로 사용해 항상 현재 연도가 옵션 안에 포함되게 수정.
+
+**기능 추가 (`pnl.html`):**
+- `reportMode`: `"monthly" | "quarterly" | "halfyear" | "annual"`
+- `rptHalf` 상태 변수
+- 툴바: 월간/분기/반기/연간 버튼 + `selPeriod` 동적 select (연간 모드는 숨김)
+- `aggData(yr, months)` — 지정 월 목록 합산 집계
+- `updatePeriodSelect()` — 모드별 옵션 자동 전환
+- `buildAggReportHtml(yr, label, months, prevYr, prevLabel, prevMonths)` — 반기·연간 공용 렌더러
+- `buildHalfYearReportHtml(yr, half)` / `buildAnnualReportHtml(yr)` — 각각 호출
+
+**수정 파일:** `app.js`, `pnl.html`, `index.html` (버전 쿼리 `?v=20260514g`)  
+**커밋:** `136dfe4`  
+**백업:** `app.js.backup.20260514b.txt`, `pnl.html.backup.20260514.txt`
+
+---
+
 ### 2026-05-12 (2): 대사 탭 데이터 로드 속도 개선
 
 **증상:** 대사 탭 "데이터 불러오기" 클릭 시 응답이 느림
