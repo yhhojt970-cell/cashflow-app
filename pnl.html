@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>미래오토메이션(주) — 경영손익</title>
-<!-- v20260514i -->
+<!-- v20260514j -->
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -341,7 +341,12 @@ function updatePeriodSelect() {
     sel.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}"${i+1===rptMonth?" selected":""}>${i+1}월</option>`).join("");
     sel.style.display = "";
   } else if (reportMode === "quarterly") {
-    sel.innerHTML = [1,2,3,4].map(q=>`<option value="${q}"${q===rptQuarter?" selected":""}>${q}분기</option>`).join("");
+    const yr = +document.getElementById("selYear").value;
+    const availQ = pnlQuarterlyRows.filter(r => r.year === yr).map(r => r.quarter).sort();
+    if (!availQ.includes(rptQuarter) && availQ.length) rptQuarter = availQ[availQ.length - 1];
+    sel.innerHTML = availQ.length
+      ? availQ.map(q=>`<option value="${q}"${q===rptQuarter?" selected":""}>${q}분기</option>`).join("")
+      : `<option value="">—</option>`;
     sel.style.display = "";
   } else if (reportMode === "halfyear") {
     sel.innerHTML = `<option value="1"${rptHalf===1?" selected":""}>상반기</option><option value="2"${rptHalf===2?" selected":""}>하반기</option>`;
