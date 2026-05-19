@@ -7664,6 +7664,12 @@ function renderDaesaTab() {
       if (!v.months[ym]) return false;
       if (!q) return true;
       return v.name.toLowerCase().includes(q) || code.toLowerCase().includes(q);
+    })
+    .filter(([, v]) => {
+      // 세금계산서·계정별원장·영업현황 모두 0원이면 숨김
+      const d = v.months[ym];
+      return d.taxSales !== 0 || d.ledgerSales !== 0 || d.bizSales !== 0 ||
+             d.taxPurchase !== 0 || (d.ledgerBuy + (d.ledgerPayable || 0)) !== 0 || d.bizPurchase !== 0;
     });
 
   // 마스터 미등록 업체 감지
@@ -7788,6 +7794,8 @@ function renderDaesaTab() {
       <select id="daesaYearFilter">${yearOpts}</select>
       <select id="daesaMonthFilter">${monthOpts}</select>
       <button class="daesa-reload-btn">↺ 새로고침</button>
+      <button class="daesa-expand-all-btn">전체 펼치기</button>
+      <button class="daesa-collapse-all-btn">전체 접기</button>
       <span class="daesa-count muted">${vendorEntries.length}개 업체 표시중 ${q ? `(검색: ${q})` : ""}</span>
     </div>
     <div class="table-responsive">
@@ -7850,6 +7858,14 @@ function renderDaesaTab() {
       daesaCategoryCollapsed[cat] = !daesaCategoryCollapsed[cat];
       renderDaesaTab();
     });
+  });
+  section.querySelector(".daesa-expand-all-btn")?.addEventListener("click", () => {
+    sortedCats.forEach(cat => { daesaCategoryCollapsed[cat] = false; });
+    renderDaesaTab();
+  });
+  section.querySelector(".daesa-collapse-all-btn")?.addEventListener("click", () => {
+    sortedCats.forEach(cat => { daesaCategoryCollapsed[cat] = true; });
+    renderDaesaTab();
   });
 }
 
