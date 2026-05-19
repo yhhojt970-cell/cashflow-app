@@ -213,6 +213,9 @@ function getPayableEffectivePaid(item) {
 }
 
 function getPayableOutstanding(item) {
+  // 앱 내 결제 기록이 없으면 ERP 잔액(balance)을 신뢰, 있으면 합계-paidOverride로 계산
+  const appPaymentApplied = Number(item.paidOverride || 0) > Number(item.paid || 0);
+  if (!appPaymentApplied && item.balance > 0) return item.balance;
   return Math.max(0, Number(item.purchase || 0) - getPayableEffectivePaid(item));
 }
 
@@ -3649,10 +3652,10 @@ function applyFundsPaste(sectionId) {
 
 function buildCashflowTimeline() {
   const map = {};
-  const ensure = d => { if (!map[d]) map[d] = { rcv: 0, pay: 0, fixed: 0 }; };
+  const ensure = d => { if (!map[d]) map[d] = { rcv: 0, rcvOverdue: 0, pay: 0, payHeld: 0, fixed: 0 }; };
   const today = new Date().toISOString().slice(0, 10);
 
-  // 납기 경과 미수금은 별도 합산 후 가장 가까운 미래 수금일로 이월
+  // 미수금: 납기 경과분은 합계 제외, rcvOverdue로 참고 표시
   let overdueRcv = 0;
   receivables.forEach(r => {
     if (!r.dueDate || !(r.balance > 0)) return;
@@ -3666,22 +3669,32 @@ function buildCashflowTimeline() {
   if (overdueRcv > 0) {
     const nearestFuture = Object.keys(map).filter(d => d >= today && map[d].rcv > 0).sort()[0] || today;
     ensure(nearestFuture);
-    map[nearestFuture].rcv += overdueRcv;
+    map[nearestFuture].rcvOverdue += overdueRcv;
   }
 
+  // 미지급: 보류/제외는 합계 제외, payHeld로 참고 표시
+  let heldPay = 0;
   payables.forEach(p => {
     const outstanding = getPayableOutstanding(p);
     if (outstanding <= 0) return;
     const plan = p.paymentPlan || "";
-    if (plan === "보류" || plan === "제외" || p.completionStatus === "보류") return;
-    // 수동 설정 날짜 우선, 없으면 납기 기준 자동 계산
+    const isHeld = plan === "보류" || plan === "제외" || p.completionStatus === "보류";
     const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(plan)
       ? plan
       : calcPayableDueDate(p.year, p.month, getDueGroup(p));
     if (!dueDate) return;
-    ensure(dueDate);
-    map[dueDate].pay += outstanding;
+    if (isHeld) {
+      heldPay += outstanding;
+    } else {
+      ensure(dueDate);
+      map[dueDate].pay += outstanding;
+    }
   });
+  if (heldPay > 0) {
+    const nearestFuturePay = Object.keys(map).filter(d => d >= today && map[d].pay > 0).sort()[0] || today;
+    ensure(nearestFuturePay);
+    map[nearestFuturePay].payHeld += heldPay;
+  }
 
   fixedExpenses.forEach(f => {
     if (!f.year || !f.month || !f.day || !(f.amount > 0)) return;
@@ -3703,8 +3716,8 @@ function buildCashflowTimelineHtml(mode) {
   let rows;
   if (mode === "daily") {
     rows = allDates.map(d => {
-      const { rcv, pay, fixed } = dateMap[d];
-      return { label: d.slice(5).replace("-", "/"), dateFrom: d, rcv, pay, fixed, net: rcv - pay - fixed };
+      const { rcv, rcvOverdue, pay, payHeld, fixed } = dateMap[d];
+      return { label: d.slice(5).replace("-", "/"), dateFrom: d, rcv, rcvOverdue: rcvOverdue || 0, pay, payHeld: payHeld || 0, fixed, net: rcv - pay - fixed };
     });
   } else {
     const weekMap = {};
@@ -3716,15 +3729,17 @@ function buildCashflowTimelineHtml(mode) {
       const wk = mon.toISOString().slice(0, 10);
       if (!weekMap[wk]) {
         const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-        weekMap[wk] = { rcv: 0, pay: 0, fixed: 0, end: sun.toISOString().slice(0, 10) };
+        weekMap[wk] = { rcv: 0, rcvOverdue: 0, pay: 0, payHeld: 0, fixed: 0, end: sun.toISOString().slice(0, 10) };
       }
       weekMap[wk].rcv += dateMap[dateStr].rcv;
+      weekMap[wk].rcvOverdue += (dateMap[dateStr].rcvOverdue || 0);
       weekMap[wk].pay += dateMap[dateStr].pay;
+      weekMap[wk].payHeld += (dateMap[dateStr].payHeld || 0);
       weekMap[wk].fixed += dateMap[dateStr].fixed;
     });
     rows = Object.keys(weekMap).sort().map(wk => {
-      const { rcv, pay, fixed, end } = weekMap[wk];
-      return { label: `${wk.slice(5).replace("-","/")}~${end.slice(5).replace("-","/")}`, dateFrom: wk, rcv, pay, fixed, net: rcv - pay - fixed };
+      const { rcv, rcvOverdue, pay, payHeld, fixed, end } = weekMap[wk];
+      return { label: `${wk.slice(5).replace("-","/")}~${end.slice(5).replace("-","/")}`, dateFrom: wk, rcv, rcvOverdue: rcvOverdue || 0, pay, payHeld: payHeld || 0, fixed, net: rcv - pay - fixed };
     });
   }
 
@@ -3732,6 +3747,7 @@ function buildCashflowTimelineHtml(mode) {
   const TDsty = "padding:8px 14px;border-bottom:1px solid #f0f0f0;";
   const rowHtml = rows.map((r, i) => {
     const isPast = r.dateFrom < today;
+    const hasExtra = r.rcvOverdue > 0 || r.payHeld > 0;
     const rowBg = isPast ? "background:#fafafa;" : (i % 2 === 1 ? "background:#f8fbff;" : "");
     const labelStyle = isPast ? "color:#9ca3af;" : "font-weight:600;color:#1f2937;";
     const netStyle = r.net > 0 ? "color:#16a34a;font-weight:bold;" : r.net < 0 ? "color:#dc2626;font-weight:bold;" : "color:#9ca3af;";
@@ -3739,13 +3755,27 @@ function buildCashflowTimelineHtml(mode) {
     const rcvCell = r.rcv > 0 ? `<span style="color:#1565c0;font-weight:500;">${formatNumber(r.rcv)}</span>` : `<span style="color:#d1d5db;">-</span>`;
     const payCell = r.pay > 0 ? `<span style="color:#b71c1c;font-weight:500;">${formatNumber(r.pay)}</span>` : `<span style="color:#d1d5db;">-</span>`;
     const fixedCell = r.fixed > 0 ? `<span style="color:#9a3412;font-weight:500;">${formatNumber(r.fixed)}</span>` : `<span style="color:#d1d5db;">-</span>`;
-    return `<tr style="${rowBg}${isPast ? "opacity:0.65;" : ""}">
-      <td style="${TDsty}${labelStyle}white-space:nowrap;">${r.label}</td>
+    const extraIcon = hasExtra ? `<span style="margin-left:5px;font-size:10px;color:#9ca3af;">▾</span>` : "";
+
+    const detailParts = [];
+    if (r.rcv > 0) detailParts.push(`<span style="color:#1565c0;">수금 예정 <b>${formatNumber(r.rcv)}</b>원</span>`);
+    if (r.rcvOverdue > 0) detailParts.push(`<span style="color:#b45309;">🕐 이월 연체(참고) <b>${formatNumber(r.rcvOverdue)}</b>원</span>`);
+    if (r.pay > 0) detailParts.push(`<span style="color:#b71c1c;">지급 예정 <b>${formatNumber(r.pay)}</b>원</span>`);
+    if (r.payHeld > 0) detailParts.push(`<span style="color:#6b7280;">⏸ 보류·제외(참고) <b>${formatNumber(r.payHeld)}</b>원</span>`);
+    if (r.fixed > 0) detailParts.push(`<span style="color:#9a3412;">고정지출 <b>${formatNumber(r.fixed)}</b>원</span>`);
+    const detailRow = hasExtra ? `<tr id="tl-detail-${i}" style="display:none;">
+      <td colspan="5" style="padding:5px 22px 8px;border-bottom:1px solid #f0f0f0;background:#fffbf0;">
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;">${detailParts.join("")}</div>
+      </td>
+    </tr>` : "";
+
+    return `<tr data-tl-idx="${i}" style="${rowBg}${isPast ? "opacity:0.65;" : ""}${hasExtra ? "cursor:pointer;" : ""}">
+      <td style="${TDsty}${labelStyle}white-space:nowrap;">${r.label}${extraIcon}</td>
       <td style="${TDsty}text-align:right;">${rcvCell}</td>
       <td style="${TDsty}text-align:right;">${payCell}</td>
       <td style="${TDsty}text-align:right;">${fixedCell}</td>
       <td style="${TDsty}text-align:right;${netStyle}">${netStr}</td>
-    </tr>`;
+    </tr>${detailRow}`;
   }).join("");
 
   const dayActive = mode === "daily" ? "background:#2563eb;color:white;" : "background:#f3f4f6;color:#374151;";
@@ -3761,7 +3791,7 @@ function buildCashflowTimelineHtml(mode) {
         </div>
       </div>
       <div style="max-height:420px;overflow-y:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <table class="tl-table" style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead>
             <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
               <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:left;font-size:12px;color:#6b7280;font-weight:600;">날짜</th>
@@ -3846,6 +3876,16 @@ function renderDashboard() {
       renderDashboard();
     });
   });
+  const tlTable = homeSection.querySelector(".tl-table");
+  if (tlTable) {
+    tlTable.addEventListener("click", e => {
+      const tr = e.target.closest("tr[data-tl-idx]");
+      if (!tr) return;
+      const detail = document.getElementById(`tl-detail-${tr.dataset.tlIdx}`);
+      if (!detail) return;
+      detail.style.display = detail.style.display === "none" ? "" : "none";
+    });
+  }
 }
 
 function switchTab(tabId) {
