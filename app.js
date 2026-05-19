@@ -697,6 +697,7 @@ async function loadSheetPayables() {
       applyPaymentHistoryRows(remoteHistoryRows);
       ensureAutoPaymentPlans();
       enrichPayablesWithVendorMaster();
+      enrichPayablesWithManagerDays();
       persistPayablesState();
       appendUpdateHistory("payables", diff);
       renderPartnerFilter();
@@ -1303,19 +1304,21 @@ function setManagerMasterRows(rows) {
 
   receivableManagerState.rows = rows;
   receivableManagerState.map = new Map();
-  const codeKey = allKeys.find(k => /코드|code/i.test(k)) || "";
-  const mgrKey = allKeys.find(k => /담당자|manager/i.test(k)) || "";
+  const codeKey  = allKeys.find(k => /코드|code/i.test(k)) || "";
+  const mgrKey   = allKeys.find(k => /담당자|manager/i.test(k)) || "";
   const emailKey = allKeys.find(k => /이메일|email/i.test(k)) || "";
-  console.log("[담당자] 사용 컬럼 — 코드:", codeKey, "담당자:", mgrKey, "이메일:", emailKey);
+  const daysKey  = allKeys.find(k => /^일$|수금조건|납기$/i.test(k)) || "";
+  console.log("[담당자] 사용 컬럼 — 코드:", codeKey, "담당자:", mgrKey, "이메일:", emailKey, "일:", daysKey);
   const samples = [];
   rows.forEach((row, idx) => {
-    const rawVal = codeKey ? (row[codeKey] ?? "") : "";
-    const code = normalizeVendorCode(String(rawVal).trim());
-    const manager = String(mgrKey ? (row[mgrKey] ?? "") : "").trim();
-    const email = String(emailKey ? (row[emailKey] ?? "") : "").trim()
+    const rawVal  = codeKey ? (row[codeKey] ?? "") : "";
+    const code    = normalizeVendorCode(String(rawVal).trim());
+    const manager = String(mgrKey   ? (row[mgrKey]   ?? "") : "").trim();
+    const email   = String(emailKey ? (row[emailKey] ?? "") : "").trim()
       || RECEIVABLE_MANAGER_EMAIL_MAP[manager] || "";
+    const days    = String(daysKey  ? (row[daysKey]  ?? "") : "").trim();
     if (code && manager) {
-      receivableManagerState.map.set(code, { manager, email });
+      receivableManagerState.map.set(code, { manager, email, days });
       if (samples.length < 5) samples.push({ raw: rawVal, norm: code });
     }
   });
@@ -1332,17 +1335,46 @@ function enrichReceivablesWithManager() {
       sampleMatch: receivableManagerState.map.get(sample.code)
     });
   }
+  const todayRcv = new Date(); todayRcv.setHours(0, 0, 0, 0);
   receivables.forEach(item => {
     const mgr = receivableManagerState.map.get(item.code);
     if (mgr) {
-      item.manager = mgr.manager || "미지정";
-      item.managerEmail = mgr.email || "";
+      item.manager     = mgr.manager || "미지정";
+      item.managerEmail = mgr.email  || "";
+      item.managerDays  = mgr.days   || "";
     } else {
-      item.manager = "미지정";
+      item.manager      = "미지정";
       item.managerEmail = "";
+      item.managerDays  = "";
+    }
+    // 담당자 마스터 '일' 값이 있으면 수금조건·납기일 재계산 (우선 적용)
+    if (item.managerDays) {
+      item.condition = item.managerDays;
+      const d = calcReceivableDueDate(item.year, item.month, item.memo, item.managerDays);
+      item.dueDate = d ? d.toISOString().slice(0, 10) : item.dueDate;
+      item.elapsed = item.dueDate
+        ? Math.floor((todayRcv - new Date(item.dueDate + "T00:00:00")) / 86400000)
+        : null;
     }
   });
   console.log("[담당자 매칭] 완료", receivables.filter(r => r.manager !== "미지정").length, "건 매칭됨");
+  enrichPayablesWithManagerDays();
+}
+
+function enrichPayablesWithManagerDays() {
+  if (!payables.length) return;
+  payables = payables.map(item => {
+    const mgr = receivableManagerState.map.get(item.code || item.codeNormalized);
+    const mgrDays = mgr?.days || "";
+    if (!mgrDays) return { ...item, managerDays: "" };
+    // 미지급은 ERP 납기값 우선, 없거나 기타일 때만 담당자 '일' 적용
+    const cur = item.dueCategory || "";
+    return {
+      ...item,
+      managerDays: mgrDays,
+      dueCategory: (!cur || cur === "기타") ? mgrDays : cur,
+    };
+  });
 }
 
 function applyPaymentHistoryRows(rows) {
@@ -2523,6 +2555,7 @@ async function saveVendorMasterRows() {
       ...targetRows,
     ]);
     enrichPayablesWithVendorMaster();
+    enrichPayablesWithManagerDays();
     vendorMasterState.lastMessage = `${total}건을 업체마스터에 반영했습니다.`;
   } catch (error) {
     vendorMasterState.lastMessage = `저장 실패: ${error.message}`;
@@ -4318,6 +4351,20 @@ function renderReceivables() {
 
   const chipsHtml = buildGroupChipsHtml(allCondLabels, rcvGroupState.filter, "rcv-chip");
 
+  // 담당자 마스터 '일' 미설정 업체 안내
+  const noDaysVendors = [...new Set(
+    receivables.filter(r => r.balance > 0 && !r.managerDays).map(r => r.name)
+  )].sort();
+  const rcvMgrDaysBanner = noDaysVendors.length
+    ? `<div style="margin:4px 0 6px;padding:7px 12px;background:#fffbeb;border:1px solid #fbbf24;border-radius:6px;font-size:12px;color:#92400e;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <span style="flex-shrink:0;">⚠</span>
+        <span>담당자 마스터 <strong>"일"</strong> 컬럼 미설정:
+          ${noDaysVendors.slice(0, 8).map(n => `<em>${escapeHtml(n)}</em>`).join(", ")}${noDaysVendors.length > 8 ? ` 외 ${noDaysVendors.length - 8}건` : ""}
+          <span style="color:#b45309;margin-left:6px;">→ 담당자 마스터 시트에 <strong>"일"</strong> 컬럼을 추가하면 수금조건·납기일이 자동 적용됩니다.</span>
+        </span>
+      </div>`
+    : "";
+
   const yearHeaders = years.map(y => {
     const count = yearsMap.get(y).length;
     return `<th class="year-header" colspan="${count}">
@@ -4347,6 +4394,7 @@ function renderReceivables() {
           </div>
         </div>
       </div>
+      ${rcvMgrDaysBanner}
       <div class="rcv-group-chips chips-orderable" id="rcvGroupChips">
         <button type="button" class="group-manage-link chip-select-all">전체 선택</button>
         <button type="button" class="group-manage-link chip-clear-all">전체 해제</button>
@@ -4949,6 +4997,21 @@ function groupPayablesByDue(filteredPayables) {
 function renderPayables() {
   ensureAutoPaymentPlans();
   renderGroupFilterControls();
+
+  // 담당자 마스터 '일' 미설정 미지급 업체 안내
+  const payNoDaysVendors = [...new Set(
+    payables.filter(p => getPayableOutstanding(p) > 0 && !p.managerDays).map(p => p.name)
+  )].sort();
+  const payMgrDaysBanner = payNoDaysVendors.length
+    ? `<div style="margin:4px 0 6px;padding:7px 12px;background:#fffbeb;border:1px solid #fbbf24;border-radius:6px;font-size:12px;color:#92400e;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <span style="flex-shrink:0;">⚠</span>
+        <span>담당자 마스터 <strong>"일"</strong> 컬럼 미설정:
+          ${payNoDaysVendors.slice(0, 8).map(n => `<em>${escapeHtml(n)}</em>`).join(", ")}${payNoDaysVendors.length > 8 ? ` 외 ${payNoDaysVendors.length - 8}건` : ""}
+          <span style="color:#b45309;margin-left:6px;">→ 담당자 마스터 시트의 <strong>"일"</strong> 컬럼이 없으면 ERP 납기 원본값을 사용합니다.</span>
+        </span>
+      </div>`
+    : "";
+
   const filteredPayables = getFilteredItems(payables, "payables");
   const matchedVendorCount = [...new Set(filteredPayables.filter(item => item.vendorMatched).map(item => getPartnerGroupKey(item)))].length;
   const unmatchedVendorCount = [...new Set(filteredPayables.filter(item => !item.vendorMatched).map(item => getPartnerGroupKey(item)))].length;
@@ -5164,6 +5227,7 @@ function renderPayables() {
           </div>
         </div>
       </div>
+      ${payMgrDaysBanner}
       <div class="payment-plan-summary-grid">
         ${paymentPlanSummary.map(item => {
     const encodedKey = encodeURIComponent(item.key);
