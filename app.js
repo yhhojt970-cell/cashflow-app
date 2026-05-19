@@ -2898,12 +2898,14 @@ function applySavedPayablesState(items) {
       ? rawPaid  // raw 지급합을 초과한 저장값은 이중계산이므로 raw로 리셋
       : (savedPO ?? item.paidOverride);
     const resetByRaw = prevWasComplete && rawIsStillOpen;
-    // 보류/완료/부분결제가 아닌 항목에서 ERP 잔액이 변경됐으면 저장값 무시 → raw 잔액으로
     const isProtectedStatus = effectiveStatus === "보류" || effectiveStatus === "완료" || effectiveStatus === "부분결제";
     const erpBalanceChanged = item.balance > 0 && saved.decisionAmount != null && Number(saved.decisionAmount) !== item.balance;
     const noPayment = rawPaid === 0 && (effectivePO == null || effectivePO === 0);
-    const shouldResetDA = !resetByRaw && !isProtectedStatus &&
-      saved.decisionAmount != null && (noPayment || erpBalanceChanged) && Number(saved.decisionAmount) !== item.decisionAmount;
+    // ERP 잔액이 달라진 경우: 완료만 보호 (보류·부분결제도 ERP 잔액으로 갱신)
+    const shouldResetDA = !resetByRaw && saved.decisionAmount != null && (
+      (!isProtectedStatus && noPayment && Number(saved.decisionAmount) !== item.decisionAmount) ||
+      (effectiveStatus !== "완료" && erpBalanceChanged)
+    );
     return {
       ...item,
       sourceKey,
