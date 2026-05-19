@@ -670,6 +670,8 @@ async function loadSheetPayables() {
       SHEET_APP_SCRIPT_URL ? fetchSheetWebApp() : fetchPublicSheet(),
     ]);
     setVendorMasterRows(vendorRows);
+    // 담당자 마스터가 이미 로드된 경우, 업체마스터 기반 이름→코드 재매핑
+    if (receivableManagerState.rows.length) setManagerMasterRows(receivableManagerState.rows);
     if (!rows || !rows.length) {
       elements.payables.innerHTML = `
         <div class="panel">
@@ -1305,21 +1307,35 @@ function setManagerMasterRows(rows) {
   receivableManagerState.rows = rows;
   receivableManagerState.map = new Map();
   const codeKey  = allKeys.find(k => /코드|code/i.test(k)) || "";
+  const nameKey  = allKeys.find(k => /^거래처명$|^업체명$/i.test(k)) || "";
   const mgrKey   = allKeys.find(k => /담당자|manager/i.test(k)) || "";
   const emailKey = allKeys.find(k => /이메일|email/i.test(k)) || "";
   const daysKey  = allKeys.find(k => /^일$|수금조건|납기$/i.test(k)) || "";
-  console.log("[담당자] 사용 컬럼 — 코드:", codeKey, "담당자:", mgrKey, "이메일:", emailKey, "일:", daysKey);
+  console.log("[담당자] 사용 컬럼 — 코드:", codeKey, "거래처명:", nameKey, "담당자:", mgrKey, "이메일:", emailKey, "일:", daysKey);
+
+  // 업체마스터에서 거래처명 → 코드 역조회 맵 (코드 컬럼 없을 때 fallback)
+  const nameToCode = new Map();
+  vendorMasterState.rows.forEach(r => {
+    const n = String(r["거래처명"] || "").trim().toLowerCase();
+    if (n && r["거래처코드_norm"]) nameToCode.set(n, r["거래처코드_norm"]);
+  });
+
   const samples = [];
-  rows.forEach((row, idx) => {
+  rows.forEach((row) => {
     const rawVal  = codeKey ? (row[codeKey] ?? "") : "";
-    const code    = normalizeVendorCode(String(rawVal).trim());
+    let code      = normalizeVendorCode(String(rawVal).trim());
+    const nameVal = nameKey ? String(row[nameKey] ?? "").trim() : "";
+    if (!code && nameVal) {
+      // 업체마스터에서 이름으로 코드 조회, 없으면 이름 자체를 키로 사용
+      code = nameToCode.get(nameVal.toLowerCase()) || ("__name__" + nameVal.toLowerCase());
+    }
     const manager = String(mgrKey   ? (row[mgrKey]   ?? "") : "").trim();
     const email   = String(emailKey ? (row[emailKey] ?? "") : "").trim()
       || RECEIVABLE_MANAGER_EMAIL_MAP[manager] || "";
     const days    = String(daysKey  ? (row[daysKey]  ?? "") : "").trim();
     if (code && manager) {
       receivableManagerState.map.set(code, { manager, email, days });
-      if (samples.length < 5) samples.push({ raw: rawVal, norm: code });
+      if (samples.length < 5) samples.push({ name: nameVal, code });
     }
   });
   console.log(`[담당자] 마스터 로드: ${receivableManagerState.map.size}건`, "샘플:", JSON.stringify(samples));
@@ -1337,7 +1353,8 @@ function enrichReceivablesWithManager() {
   }
   const todayRcv = new Date(); todayRcv.setHours(0, 0, 0, 0);
   receivables.forEach(item => {
-    const mgr = receivableManagerState.map.get(item.code);
+    const mgr = receivableManagerState.map.get(item.code)
+      || receivableManagerState.map.get("__name__" + String(item.name || "").trim().toLowerCase());
     if (mgr) {
       item.manager     = mgr.manager || "미지정";
       item.managerEmail = mgr.email  || "";
@@ -1364,7 +1381,8 @@ function enrichReceivablesWithManager() {
 function enrichPayablesWithManagerDays() {
   if (!payables.length) return;
   payables = payables.map(item => {
-    const mgr = receivableManagerState.map.get(item.code || item.codeNormalized);
+    const mgr = receivableManagerState.map.get(item.code || item.codeNormalized)
+      || receivableManagerState.map.get("__name__" + String(item.name || "").trim().toLowerCase());
     const mgrDays = mgr?.days || "";
     if (!mgrDays) return { ...item, managerDays: "" };
     // 미지급은 ERP 납기값 우선, 없거나 기타일 때만 담당자 '일' 적용
