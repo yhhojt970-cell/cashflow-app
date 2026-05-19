@@ -3051,12 +3051,13 @@ function getDueGroup(item) {
 
 function getDueGroupRank(group) {
   const ranks = {
-    "즉시": 1, "바로": 2, "60일": 3,
+    "60일": 3,
     "당말일": 10, "말일": 11,
     "당05일": 20, "05일": 21,
     "당10일": 30, "10일": 31,
     "당15일": 40, "15일": 41,
     "당25일": 50, "25일": 51,
+    "즉시": 80, "바로": 81,
     "기타": 99,
   };
   return ranks[group] || 90;
@@ -4409,7 +4410,7 @@ function renderReceivables() {
     <div class="panel">
       <div class="panel-title-row">
         <div class="panel-title-inline">
-          <h3>미수금 목록 (피벗)</h3>
+          <h3>미수금 목록</h3>
           ${filtered.length ? `<span class="rcv-summary-text">${filtered.length}건 · ${formatNumber(totalBalance)}원</span>` : ""}
           <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">📧 메일 발송</button>
         </div>
