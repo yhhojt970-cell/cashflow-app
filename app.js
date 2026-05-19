@@ -7881,6 +7881,9 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
     const ledgerBuyTotal = d.ledgerBuy + d.ledgerPayable;
     const ledgerPayTotal = d.ledgerPay + d.ledgerPayablePay;
     const netoffAmt = isNetOff ? Math.min(d.taxSales, d.taxPurchase) : 0;
+    // 잔액 기준: 세금계산서 → 원장 → 영업 순 fallback
+    const effSales = d.taxSales || d.ledgerSales || d.bizSales;
+    const effBuy   = d.taxPurchase || ledgerBuyTotal || d.bizPurchase;
     acc.taxSales += d.taxSales;
     acc.ledgerSales += d.ledgerSales;
     acc.bizSales += d.bizSales;
@@ -7890,8 +7893,10 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
     acc.ledgerBuy += ledgerBuyTotal;
     acc.bizBuy += d.bizPurchase;
     acc.pay += ledgerPayTotal || d.bizPay;
+    acc.balanceSales += effSales - netoffAmt - (d.ledgerCollect || d.bizCollect);
+    acc.balanceBuy   += effBuy  - netoffAmt - (ledgerPayTotal || d.bizPay);
     return acc;
-  }, { taxSales: 0, ledgerSales: 0, bizSales: 0, collect: 0, netoff: 0, taxBuy: 0, ledgerBuy: 0, bizBuy: 0, pay: 0 });
+  }, { taxSales: 0, ledgerSales: 0, bizSales: 0, collect: 0, netoff: 0, taxBuy: 0, ledgerBuy: 0, bizBuy: 0, pay: 0, balanceSales: 0, balanceBuy: 0 });
 
   const showSales = (totals.taxSales || totals.ledgerSales || totals.bizSales || totals.collect);
   const showBuy = (totals.taxBuy || totals.ledgerBuy || totals.bizBuy || totals.pay);
@@ -8012,13 +8017,15 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
         </tr>`;
     }
 
+    const effSalesRow = d.taxSales || d.ledgerSales || d.bizSales;
+    const effBuyRow   = d.taxPurchase || ledgerBuyTotal || d.bizPurchase;
     const salesCols = showSales ? `
       <td class="num">${formatNumber(d.taxSales)}</td>
       <td class="num">${formatNumber(d.ledgerSales)}</td>
       <td class="num">${formatNumber(d.bizSales)}</td>
       <td class="num daesa-collect">${formatNumber(d.ledgerCollect || d.bizCollect)}</td>
       ${isNetOff ? `<td class="num daesa-netoff-amt">${formatNumber(netoffAmt)}</td>` : ""}
-      <td class="num daesa-balance">${formatNumber(netSales - (d.ledgerCollect || d.bizCollect))}</td>
+      <td class="num daesa-balance">${formatNumber(effSalesRow - netoffAmt - (d.ledgerCollect || d.bizCollect))}</td>
     ` : "";
 
     const buyCols = showBuy ? `
@@ -8027,7 +8034,7 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
       <td class="num">${formatNumber(d.bizPurchase)}</td>
       <td class="num daesa-pay">${formatNumber(ledgerPayTotal || d.bizPay)}</td>
       ${isNetOff ? `<td class="num daesa-netoff-amt">${formatNumber(netoffAmt)}</td>` : ""}
-      <td class="num daesa-balance">${formatNumber(netBuy - (ledgerPayTotal || d.bizPay))}</td>
+      <td class="num daesa-balance">${formatNumber(effBuyRow - netoffAmt - (ledgerPayTotal || d.bizPay))}</td>
     ` : "";
 
     return `
@@ -8075,7 +8082,7 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
                   <td class="num">${formatNumber(totals.bizSales)}</td>
                   <td class="num daesa-collect">${formatNumber(totals.collect)}</td>
                   ${isNetOff ? `<td class="num daesa-netoff-amt">${formatNumber(totals.netoff)}</td>` : ""}
-                  <td class="num daesa-balance">${formatNumber(netSalesTotal - totals.collect)}</td>
+                  <td class="num daesa-balance">${formatNumber(totals.balanceSales)}</td>
                 ` : ""}
                 ${showBuy ? `
                   <td class="num">${formatNumber(totals.taxBuy)}</td>
@@ -8083,7 +8090,7 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
                   <td class="num">${formatNumber(totals.bizBuy)}</td>
                   <td class="num daesa-pay">${formatNumber(totals.pay)}</td>
                   ${isNetOff ? `<td class="num daesa-netoff-amt">${formatNumber(totals.netoff)}</td>` : ""}
-                  <td class="num daesa-balance">${formatNumber(netBuyTotal - totals.pay)}</td>
+                  <td class="num daesa-balance">${formatNumber(totals.balanceBuy)}</td>
                 ` : ""}
               </tr>
             </tfoot>
@@ -8112,26 +8119,81 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
   );
   overlay.addEventListener("mousedown", e => { if (e.target === overlay) overlay.remove(); });
   overlay.querySelector(".daesa-modal-print")?.addEventListener("click", () => {
+    // 업체마스터에서 기본정보 조회
+    const vmRow = vendorMasterState.rows.find(v =>
+      String(v["거래처코드_norm"] || v["거래처코드_raw"] || "").trim() === code
+    );
+    const bizNo    = vmRow ? String(vmRow["사업자번호"] || "").trim() : "";
+    const category = vmRow ? String(vmRow["거래처구분"] || "").trim() : "";
+    const bank     = vmRow ? String(vmRow["은행"] || "").trim() : "";
+    const account  = vmRow ? String(vmRow["계좌번호"] || "").trim() : "";
+
+    // 미수금에서 담당자 조회
+    const rcvItem = receivables.find(r =>
+      (r.code === code || r.codeNormalized === code) && r.manager && r.manager !== "미지정"
+    );
+    const managerName = rcvItem?.manager || "";
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일`;
+
     const printWin = window.open("", "_blank", "width=1100,height=750");
     const tableHtml = overlay.querySelector("table").cloneNode(true);
     tableHtml.querySelectorAll(".daesa-modal-detail-row").forEach(r => r.classList.remove("hidden"));
 
+    const infoItems = [
+      ["거래처명", name],
+      ["거래처코드", code],
+      bizNo    ? ["사업자번호", bizNo]    : null,
+      category ? ["거래처구분", category] : null,
+      bank     ? ["은행",     bank]       : null,
+      account  ? ["계좌번호", account]    : null,
+      managerName ? ["담당자", managerName] : null,
+    ].filter(Boolean);
+
+    const infoHtml = infoItems.map(([label, val]) =>
+      `<div class="vi-item"><span class="vi-label">${label}</span>${escapeHtml(String(val))}</div>`
+    ).join("");
+
     printWin.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <title>${name} 대사 현황</title>
+      <title>${escapeHtml(name)} 대사 현황</title>
       <style>
-        body{font-family:'맑은 고딕',sans-serif;font-size:11px;margin:16px;}
-        table{border-collapse:collapse;width:100%;}
-        th,td{border:1px solid #ccc;padding:4px 6px;text-align:right;}
-        th{background:#f1f5f9;text-align:center;}
-        .num{text-align:right;}
-        .daesa-modal-detail-row { background: #fafafa; }
-        .daesa-modal-detail-cell { padding: 4px 12px; text-align: left; }
-        tfoot tr{background:#f0f4ff;font-weight:bold;}
-        h2{margin:0 0 12px;}
-        .daesa-expand-icon { display: none; }
+        *{box-sizing:border-box;}
+        body{font-family:'맑은 고딕',sans-serif;font-size:11px;margin:18px 22px;color:#1a1a1a;}
+        .rpt-header{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:10px;border-bottom:2px solid #1e3a5f;margin-bottom:12px;}
+        .rpt-title{font-size:15px;font-weight:bold;color:#1e3a5f;}
+        .rpt-company{font-size:9px;color:#6b7280;margin-bottom:3px;}
+        .rpt-date{font-size:10px;color:#6b7280;text-align:right;}
+        .vi-box{display:flex;flex-wrap:wrap;gap:4px 20px;padding:9px 14px;border:1px solid #d1d5db;border-radius:4px;background:#f8fafc;margin-bottom:14px;font-size:10px;}
+        .vi-item{white-space:nowrap;}
+        .vi-label{font-weight:600;color:#374151;margin-right:4px;}
+        table{border-collapse:collapse;width:100%;font-size:10px;}
+        th,td{border:1px solid #d1d5db;padding:4px 7px;text-align:right;}
+        th{background:#f1f5f9;text-align:center;font-weight:600;}
+        td:first-child{text-align:center;white-space:nowrap;}
+        .daesa-th-group{font-size:11px;}
+        .daesa-th-sales{background:#dbeafe;}
+        .daesa-th-purchase{background:#fee2e2;}
+        .daesa-balance{background:#fef9c3;font-weight:600;}
+        .daesa-collect{color:#1565c0;}
+        .daesa-pay{color:#b71c1c;}
+        .daesa-modal-detail-row{background:#fafafa;}
+        .daesa-modal-detail-cell{text-align:left;padding:4px 12px;}
+        tfoot tr{background:#e8edf8;font-weight:bold;}
+        .daesa-expand-icon{display:none;}
+        .rpt-footer{margin-top:16px;padding-top:6px;border-top:1px solid #e5e7eb;font-size:9px;color:#9ca3af;text-align:center;}
+        @media print{@page{margin:12mm 10mm;}}
       </style></head><body>
-      <h2>${escapeHtml(name)}${isNetOff ? " (상계업체)" : ""} — 누적 대사 현황</h2>
+      <div class="rpt-header">
+        <div>
+          <div class="rpt-company">미래오토메이션(주)</div>
+          <div class="rpt-title">거래처 대사 현황 보고서${isNetOff ? " · 상계 업체" : ""}</div>
+        </div>
+        <div class="rpt-date">기준일: ${dateStr}</div>
+      </div>
+      <div class="vi-box">${infoHtml}</div>
       ${tableHtml.outerHTML}
+      <div class="rpt-footer">미래오토메이션(주) · 출력일: ${dateStr}</div>
       </body></html>`);
     printWin.document.close();
     printWin.focus();
