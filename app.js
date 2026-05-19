@@ -3660,7 +3660,12 @@ function buildCashflowTimeline() {
   payables.forEach(p => {
     const outstanding = getPayableOutstanding(p);
     if (outstanding <= 0) return;
-    const dueDate = calcPayableDueDate(p.year, p.month, getDueGroup(p));
+    const plan = p.paymentPlan || "";
+    if (plan === "보류" || plan === "제외" || p.completionStatus === "보류") return;
+    // 수동 설정 날짜 우선, 없으면 납기 기준 자동 계산
+    const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(plan)
+      ? plan
+      : calcPayableDueDate(p.year, p.month, getDueGroup(p));
     if (!dueDate) return;
     ensure(dueDate);
     map[dueDate].pay += outstanding;
