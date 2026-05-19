@@ -4944,9 +4944,17 @@ function ensureAutoPaymentPlans() {
     const auto = getItemAutoPayDate(item);
     if (!auto) return; // 계산 불가한 항목은 건드리지 않음
     const status = (item.completionStatus || "").trim();
+    // 구 버그: 당N일이 N일로 분류돼 month+2로 계산됐던 날짜 감지 → 자동값으로 재계산
+    const group = getDueGroup(item);
+    const buggyM = group.match(/^당(\d+)일$/);
+    const oldBuggyAuto = buggyM
+      ? calcPayableDueDate(Number(item.year), Number(item.month), buggyM[1] + "일")
+      : null;
+    const isOldBuggyPlan = oldBuggyAuto && item.paymentPlan === oldBuggyAuto;
     // 보류/완료/미정 은 항상 보호. 예정이라도 사용자가 자동값과 다른 날짜를 직접 지정했으면 보호.
+    // 단, 구 버그로 계산된 날짜는 수동 설정으로 보지 않음.
     const isManuallySet = status === "보류" || status === "완료" || status === "미정" ||
-      (item.paymentPlan && item.paymentPlan !== auto);
+      (!isOldBuggyPlan && item.paymentPlan && item.paymentPlan !== auto);
     if (!isManuallySet) {
       item.paymentPlan = auto;
     }
