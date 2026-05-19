@@ -3650,12 +3650,24 @@ function applyFundsPaste(sectionId) {
 function buildCashflowTimeline() {
   const map = {};
   const ensure = d => { if (!map[d]) map[d] = { rcv: 0, pay: 0, fixed: 0 }; };
+  const today = new Date().toISOString().slice(0, 10);
 
+  // 납기 경과 미수금은 별도 합산 후 가장 가까운 미래 수금일로 이월
+  let overdueRcv = 0;
   receivables.forEach(r => {
     if (!r.dueDate || !(r.balance > 0)) return;
-    ensure(r.dueDate);
-    map[r.dueDate].rcv += r.balance;
+    if (r.dueDate < today) {
+      overdueRcv += r.balance;
+    } else {
+      ensure(r.dueDate);
+      map[r.dueDate].rcv += r.balance;
+    }
   });
+  if (overdueRcv > 0) {
+    const nearestFuture = Object.keys(map).filter(d => d >= today && map[d].rcv > 0).sort()[0] || today;
+    ensure(nearestFuture);
+    map[nearestFuture].rcv += overdueRcv;
+  }
 
   payables.forEach(p => {
     const outstanding = getPayableOutstanding(p);
