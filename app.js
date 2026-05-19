@@ -8259,30 +8259,30 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
       <title>${escapeHtml(name)} 대사 현황</title>
       <style>
         *{box-sizing:border-box;}
-        body{font-family:'맑은 고딕',sans-serif;font-size:11px;margin:18px 22px;color:#1a1a1a;}
+        body{font-family:'맑은 고딕',sans-serif;font-size:13px;margin:18px 22px;color:#1a1a1a;}
         .rpt-header{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:10px;border-bottom:2px solid #1e3a5f;margin-bottom:12px;}
-        .rpt-title{font-size:15px;font-weight:bold;color:#1e3a5f;}
-        .rpt-company{font-size:9px;color:#6b7280;margin-bottom:3px;}
-        .rpt-date{font-size:10px;color:#6b7280;text-align:right;}
-        .vi-box{display:flex;flex-wrap:wrap;gap:4px 20px;padding:9px 14px;border:1px solid #d1d5db;border-radius:4px;background:#f8fafc;margin-bottom:14px;font-size:10px;}
+        .rpt-title{font-size:17px;font-weight:bold;color:#1e3a5f;}
+        .rpt-company{font-size:11px;color:#6b7280;margin-bottom:3px;}
+        .rpt-date{font-size:12px;color:#6b7280;text-align:right;}
+        .vi-box{display:flex;flex-wrap:wrap;gap:4px 20px;padding:9px 14px;border:1px solid #d1d5db;border-radius:4px;background:#f8fafc;margin-bottom:14px;font-size:12px;}
         .vi-item{white-space:nowrap;}
         .vi-label{font-weight:600;color:#374151;margin-right:4px;}
-        table{border-collapse:collapse;width:100%;font-size:10px;}
-        th,td{border:1px solid #d1d5db;padding:4px 7px;text-align:right;}
+        table{border-collapse:collapse;width:100%;font-size:12px;}
+        th,td{border:1px solid #d1d5db;padding:5px 8px;text-align:right;}
         th{background:#f1f5f9;text-align:center;font-weight:600;}
         td:first-child{text-align:center;white-space:nowrap;}
-        .daesa-th-group{font-size:11px;}
+        .daesa-th-group{font-size:13px;}
         .daesa-th-sales{background:#dbeafe;}
         .daesa-th-purchase{background:#fee2e2;}
         .daesa-balance{background:#fef9c3;font-weight:600;}
         .daesa-collect{color:#1565c0;}
         .daesa-pay{color:#b71c1c;}
         .daesa-modal-detail-row{background:#fafafa;}
-        .daesa-modal-detail-cell{text-align:left;padding:4px 12px;}
+        .daesa-modal-detail-cell{text-align:left;padding:5px 12px;}
         tfoot tr{background:#e8edf8;font-weight:bold;}
         .daesa-expand-icon{display:none;}
-        .rpt-footer{margin-top:16px;padding-top:6px;border-top:1px solid #e5e7eb;font-size:9px;color:#9ca3af;text-align:center;}
-        @media print{@page{margin:12mm 10mm;}}
+        .rpt-footer{margin-top:16px;padding-top:6px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center;}
+        @media print{@page{size:A4 landscape;margin:10mm 8mm;}}
       </style></head><body>
       <div class="rpt-header">
         <div>
