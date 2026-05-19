@@ -2279,8 +2279,12 @@ function openPaymentReportModal(planKey = "__total__", triggerElement = null) {
             tableResponsive.scrollTop + (rowRect.top - containerRect.top) - tableResponsive.clientHeight / 3
           );
         }
-        row.classList.add("report-nav-highlight");
-        setTimeout(() => row.classList.remove("report-nav-highlight"), 1500);
+        const tds = Array.from(row.querySelectorAll("td"));
+        tds.forEach(td => { td.style.backgroundColor = "#fef08a"; td.style.transition = "background-color 1s ease"; });
+        setTimeout(() => {
+          tds.forEach(td => { td.style.backgroundColor = ""; });
+          setTimeout(() => { tds.forEach(td => { td.style.transition = ""; }); }, 1000);
+        }, 4000);
       });
     });
   });
@@ -3032,7 +3036,7 @@ function parsePayableRow(row) {
 
 function extractDueCategory(payDate, memo) {
   const text = String(payDate || memo || "").trim();
-  const groups = ["60일", "말일", "당말일", "05일", "당05일", "10일", "당10일", "15일", "당15일", "25일", "바로", "즉시"];
+  const groups = ["60일", "당말일", "말일", "당05일", "05일", "당10일", "10일", "당15일", "15일", "당25일", "25일", "바로", "즉시"];
   const match = groups.find(group => text.includes(group));
   return match || text || "기타";
 }
@@ -3061,8 +3065,10 @@ function calcPayableDueDate(year, month, group) {
   let targetMonth = Number(month);
   let day = 0;
 
-  if (group === "당말일" || group === "당05일" || group === "당10일" || group === "당15일" || group === "당25일") {
-    // 당월 기준 — 월 변경 없음
+  if (group === "당말일") {
+    // 당월 말일 — 월 변경 없음
+  } else if (group === "당05일" || group === "당10일" || group === "당15일" || group === "당25일") {
+    targetMonth += 1;  // 익월 N일
   } else if (group === "60일") {
     targetMonth += 2;  // 익익월
   } else if (group === "말일") {
@@ -5193,7 +5199,7 @@ function renderPayables() {
           const titleAttr = payTooltip ? ` title="${payTooltip.replace(/"/g, "&quot;")}"` : "";
           return `<span class="partner-name-button ${(entry.memo || hasVMemo) ? "has-memo" : ""}" ${entry.items[0]?.vendorMatched ? "data-vendor-matched=\"true\"" : "data-vendor-matched=\"false\""} ${titleAttr}>${entry.name}</span>
               <button type="button" class="vendor-memo-btn" data-code="${escapeHtml(pCode)}" data-name="${escapeHtml(entry.name)}" title="업체 메모 편집">✎</button>
-              <span class="vendor-match-chip ${entry.items[0]?.vendorMatched ? "matched" : "unmatched"}">${entry.items[0]?.vendorMatched ? "계좌연결" : "계좌확인"}</span>`;
+              ${entry.items[0]?.vendorMatched ? "" : '<span class="vendor-match-chip unmatched">계좌확인</span>'}`;
         })()}
             </div>
           </td>

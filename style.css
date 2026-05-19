@@ -836,10 +836,10 @@ body {
 /* 결제 보고서에서 이동했을 때 하이라이트 */
 @keyframes report-nav-flash {
   0%   { background: #fef08a; }
-  70%  { background: #fef08a; }
+  80%  { background: #fef08a; }
   100% { background: transparent; }
 }
-.report-nav-highlight { animation: report-nav-flash 1.5s ease forwards; }
+.report-nav-highlight td { animation: report-nav-flash 5s ease forwards; }
 
 /* 결제 보고서 예금주 불일치 표시 */
 .report-holder-mismatch {
