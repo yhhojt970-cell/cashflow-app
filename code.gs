@@ -514,27 +514,78 @@ function handleSendReceivableEmails(params) {
       <br><p>감사합니다.<br>${senderLine}</p></div>`;
   }
 
+  function _elBadge(el) {
+    if (el===null||el===undefined) return `<span style="color:#bbb;">-</span>`;
+    if (el<0)   return `<span style="display:inline-block;padding:2px 8px;background:#e3f2fd;color:#1565c0;border-radius:3px;font-size:12px;font-weight:bold;">D${el}</span>`;
+    if (el>=60) return `<span style="display:inline-block;padding:2px 8px;background:#ffebee;color:#c62828;border-radius:3px;font-size:12px;font-weight:bold;">🔴 ${el}일</span>`;
+    if (el>=30) return `<span style="display:inline-block;padding:2px 8px;background:#fff8e1;color:#e65100;border-radius:3px;font-size:12px;font-weight:bold;">⚠️ ${el}일</span>`;
+    return `<span style="color:#444;">${el}일</span>`;
+  }
+  function _rowBg(el, i) {
+    if (el>=60) return "background:#fff5f5;";
+    if (el>=30) return "background:#fffdf0;";
+    return i%2===1 ? "background:#f8f9fc;" : "background:#ffffff;";
+  }
+
   function buildTableRows(rowList, showManager) {
     let html="", total=0;
-    rowList.forEach(r => {
+    rowList.forEach((r, i) => {
       const el=r.elapsed;
-      let bg="", elStyle="color:#333;";
-      if      (el>=60){bg="background:#fff0f0;";elStyle="color:#d32f2f;font-weight:bold;";}
-      else if (el>=30){bg="background:#fffde7;";elStyle="color:#f57f17;font-weight:bold;";}
-      const elLabel = el<0
-        ? `<span style="color:#1565c0;">D${el}</span>`
-        : `<span style="${elStyle}">${el}일</span>`;
       total += r.balance;
-      html += `<tr style="${bg}">
-        <td style="${TD}text-align:center;">${r.ym}</td>
-        ${showManager ? `<td style="${TD}text-align:center;">${r.manager}</td>` : ""}
-        <td style="${TD}">${r.name}</td>
-        <td style="${TD}text-align:center;">${r.condition}</td>
-        <td style="${TD}text-align:center;">${r.dueDate||"-"}</td>
-        <td style="${TD}text-align:center;">${elLabel}</td>
-        <td style="${TD}text-align:right;">${r.balance.toLocaleString()}원</td>
-        <td style="${TD}font-size:12px;color:#666;">${r.memo}</td>
+      html += `<tr style="${_rowBg(el,i)}">
+        <td style="${TD}text-align:center;color:#777;">${r.ym}</td>
+        ${showManager ? `<td style="${TD}font-weight:500;">${r.manager}</td>` : ""}
+        <td style="${TD}font-weight:500;">${r.name}</td>
+        <td style="${TD}text-align:center;color:#555;">${r.condition}</td>
+        <td style="${TD}text-align:center;">${r.dueDate||"<span style='color:#ccc;'>-</span>"}</td>
+        <td style="${TD}text-align:center;">${_elBadge(el)}</td>
+        <td style="${TD}text-align:right;font-weight:600;">${r.balance.toLocaleString()}원</td>
+        <td style="${TD}font-size:12px;color:#999;">${r.memo}</td>
       </tr>`;
+    });
+    return { html, total };
+  }
+
+  // 거래처별 소계 포함 행 생성 (수금예정일 → 거래처명 순 정렬)
+  function buildGroupedClientRows(rowList, showManager) {
+    const clientMap = {};
+    rowList.forEach(r => {
+      if (!clientMap[r.name]) clientMap[r.name] = [];
+      clientMap[r.name].push(r);
+    });
+    const clientNames = Object.keys(clientMap).sort((a, b) => {
+      const da = clientMap[a].reduce((m,r)=>(r.dueDate&&r.dueDate<m)?r.dueDate:m, "9999");
+      const db = clientMap[b].reduce((m,r)=>(r.dueDate&&r.dueDate<m)?r.dueDate:m, "9999");
+      return da.localeCompare(db);
+    });
+    let html="", total=0, rowIdx=0;
+    clientNames.forEach(clientName => {
+      const rows = clientMap[clientName].sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
+      let clientTotal=0;
+      rows.forEach((r, i) => {
+        const el=r.elapsed;
+        clientTotal += r.balance;
+        html += `<tr style="${_rowBg(el, rowIdx+i)}">
+          <td style="${TD}text-align:center;color:#777;">${r.ym}</td>
+          ${showManager ? `<td style="${TD}font-weight:500;">${r.manager}</td>` : ""}
+          <td style="${TD}font-weight:500;">${r.name}</td>
+          <td style="${TD}text-align:center;color:#555;">${r.condition}</td>
+          <td style="${TD}text-align:center;">${r.dueDate||"<span style='color:#ccc;'>-</span>"}</td>
+          <td style="${TD}text-align:center;">${_elBadge(el)}</td>
+          <td style="${TD}text-align:right;font-weight:600;">${r.balance.toLocaleString()}원</td>
+          <td style="${TD}font-size:12px;color:#999;">${r.memo}</td>
+        </tr>`;
+      });
+      rowIdx += rows.length;
+      if (rows.length > 1) {
+        const cs = showManager ? 6 : 5;
+        html += `<tr style="background:#eef2fb;">
+          <td colspan="${cs}" style="padding:5px 10px;border:1px solid #c5cae9;text-align:right;font-size:12px;color:#3949ab;">↳ <em>${clientName}</em> 소계</td>
+          <td style="padding:5px 10px;border:1px solid #c5cae9;text-align:right;font-size:12px;font-weight:bold;color:#1a237e;">${clientTotal.toLocaleString()}원</td>
+          <td style="padding:5px 10px;border:1px solid #c5cae9;"></td>
+        </tr>`;
+      }
+      total += clientTotal;
     });
     return { html, total };
   }
@@ -561,22 +612,28 @@ function handleSendReceivableEmails(params) {
   managers.filter(m=>!m.absent).forEach(({ manager }) => {
     const group = groups[manager];
     if (!group?.rows.length) return;
-    const { html, total } = buildTableRows(group.rows, false);
     const to = testMode ? testTo : (group.email || RCV_MANAGER_EMAIL_MAP[manager] || "");
     if (!to) return;
+    const { html, total } = buildGroupedClientRows(group.rows, false);
     const subject = (testMode?"[테스트] ":"") + `[미래오토메이션] ${manager} 담당자 미수금 현황 안내`;
     fireEmail("mgr_"+manager, to, subject, `
-      <p>${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
-      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
+      <h2 style="color:#0d47a1;margin-bottom:4px;font-size:17px;">미수금 현황 안내</h2>
+      <p style="color:#555;font-size:13px;margin-top:0;">${dateStr} 기준 담당 미수금 현황을 안내드립니다.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:8px;border-top:3px solid #1565c0;">
         <thead><tr style="background:#1565c0;color:white;">
-          <th style="${TH}">매출연월</th><th style="${TH}text-align:left;">거래처명</th>
-          <th style="${TH}">수금조건</th><th style="${TH}">수금예정일</th>
-          <th style="${TH}">경과일수</th><th style="${TH}">잔액</th><th style="${TH}">메모</th>
-        </tr></thead><tbody>${html}</tbody>
-        <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-          <td colspan="5" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">합 계</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+          <th style="${TH}text-align:center;">매출연월</th>
+          <th style="${TH}text-align:left;">거래처명</th>
+          <th style="${TH}text-align:center;">수금조건</th>
+          <th style="${TH}text-align:center;">수금예정일</th>
+          <th style="${TH}text-align:center;">경과일수</th>
+          <th style="${TH}text-align:right;">잔액</th>
+          <th style="${TH}text-align:left;">메모</th>
+        </tr></thead>
+        <tbody>${html}</tbody>
+        <tfoot><tr style="background:#0d47a1;color:white;font-weight:bold;">
+          <td colspan="5" style="padding:9px 12px;border:1px solid #0d47a1;text-align:right;">합 계</td>
+          <td style="padding:9px 12px;border:1px solid #0d47a1;text-align:right;font-size:14px;">${total.toLocaleString()}원</td>
+          <td style="padding:9px 12px;border:1px solid #0d47a1;"></td>
         </tr></tfoot>
       </table>`);
   });
@@ -588,19 +645,26 @@ function handleSendReceivableEmails(params) {
     let combinedHtml="", combinedTotal=0;
     absentMgrs.forEach(({ manager }) => {
       if (!groups[manager]?.rows.length) return;
-      const { html, total } = buildTableRows(groups[manager].rows, true);
+      const { html, total } = buildGroupedClientRows(groups[manager].rows, false);
       combinedHtml += `
-        <h4 style="margin-top:20px;margin-bottom:8px;color:#1565c0;border-bottom:2px solid #1565c0;padding-bottom:4px;font-size:14px;">👤 담당자: ${manager}</h4>
-        <table style="border-collapse:collapse;width:100%;font-size:13px;">
-          <thead><tr style="background:#1565c0;color:white;">
-            <th style="${TH}">매출연월</th><th style="${TH}">담당자</th><th style="${TH}text-align:left;">거래처명</th>
-            <th style="${TH}">수금조건</th><th style="${TH}">수금예정일</th>
-            <th style="${TH}">경과일수</th><th style="${TH}">잔액</th><th style="${TH}">메모</th>
+        <div style="margin-top:24px;border-left:4px solid #7b1fa2;padding:8px 14px;background:#f9f0ff;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:15px;font-weight:bold;color:#6a1b9a;">👤 ${manager}</span>
+          <span style="font-size:13px;color:#7b1fa2;font-weight:bold;">${total.toLocaleString()}원</span>
+        </div>
+        <table style="border-collapse:collapse;width:100%;font-size:13px;border-top:3px solid #7b1fa2;">
+          <thead><tr style="background:#7b1fa2;color:white;">
+            <th style="${TH}text-align:center;">매출연월</th>
+            <th style="${TH}text-align:left;">거래처명</th>
+            <th style="${TH}text-align:center;">수금조건</th>
+            <th style="${TH}text-align:center;">수금예정일</th>
+            <th style="${TH}text-align:center;">경과일수</th>
+            <th style="${TH}text-align:right;">잔액</th>
+            <th style="${TH}text-align:left;">메모</th>
           </tr></thead><tbody>${html}</tbody>
-          <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-            <td colspan="6" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${manager} 합계</td>
-            <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
-            <td style="padding:8px 10px;border:1px solid #ddd;"></td>
+          <tfoot><tr style="background:#6a1b9a;color:white;font-weight:bold;">
+            <td colspan="5" style="padding:8px 12px;border:1px solid #6a1b9a;text-align:right;">${manager} 합계</td>
+            <td style="padding:8px 12px;border:1px solid #6a1b9a;text-align:right;font-size:14px;">${total.toLocaleString()}원</td>
+            <td style="padding:8px 12px;border:1px solid #6a1b9a;"></td>
           </tr></tfoot>
         </table>`;
       combinedTotal += total;
@@ -621,29 +685,85 @@ function handleSendReceivableEmails(params) {
     }
   }
 
-  // 전체 현황 보고서
+  // 전체 현황 보고서 (담당자 섹션 → 거래처 소계)
   if (sendSummary) {
-    const allRows  = Object.values(groups).flatMap(g=>g.rows);
-    const filtered = excludeMinus ? allRows.filter(r=>(r.elapsed||0)>=0) : allRows;
-    filtered.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
-    const { html, total } = buildTableRows(filtered, true);
-    const note    = excludeMinus ? " (D- 제외)" : "";
-    const toList  = testMode ? [testTo] : (params.summaryRecipients || [RCV_DEPT_HEAD.email, RCV_CEO.email]);
+    const note   = excludeMinus ? " (D- 제외)" : "";
+    const toList = testMode ? [testTo] : (params.summaryRecipients || [RCV_DEPT_HEAD.email, RCV_CEO.email]);
+
+    const mgrKeys = Object.keys(groups).sort();
+    let detailHtml="", grandTotal=0;
+    const mgrSummary=[];
+
+    mgrKeys.forEach(mgrName => {
+      const rows = excludeMinus
+        ? groups[mgrName].rows.filter(r=>(r.elapsed||0)>=0)
+        : groups[mgrName].rows;
+      if (!rows.length) return;
+      const { html, total } = buildGroupedClientRows(rows, false);
+      mgrSummary.push({ name:mgrName, count:rows.length, total });
+      grandTotal += total;
+      detailHtml += `
+        <div style="margin-top:28px;">
+          <div style="border-left:4px solid #1565c0;padding:8px 16px;background:#f0f4ff;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:15px;font-weight:bold;color:#0d47a1;">👤 ${mgrName}</span>
+            <span style="font-size:13px;color:#1565c0;font-weight:bold;">${rows.length}건 · ${total.toLocaleString()}원</span>
+          </div>
+          <table style="border-collapse:collapse;width:100%;font-size:13px;border-top:3px solid #1565c0;">
+            <thead><tr style="background:#1565c0;color:white;">
+              <th style="${TH}text-align:center;">매출연월</th>
+              <th style="${TH}text-align:left;">거래처명</th>
+              <th style="${TH}text-align:center;">수금조건</th>
+              <th style="${TH}text-align:center;">수금예정일</th>
+              <th style="${TH}text-align:center;">경과일수</th>
+              <th style="${TH}text-align:right;">잔액</th>
+              <th style="${TH}text-align:left;">메모</th>
+            </tr></thead>
+            <tbody>${html}</tbody>
+            <tfoot><tr style="background:#0d47a1;color:white;font-weight:bold;">
+              <td colspan="5" style="padding:9px 12px;border:1px solid #0d47a1;text-align:right;">📋 ${mgrName} 합계</td>
+              <td style="padding:9px 12px;border:1px solid #0d47a1;text-align:right;font-size:14px;">${total.toLocaleString()}원</td>
+              <td style="padding:9px 12px;border:1px solid #0d47a1;"></td>
+            </tr></tfoot>
+          </table>
+        </div>`;
+    });
+
+    // 상단 담당자별 요약표
+    const sumRows = mgrSummary.map((r,i)=>{
+      const bg = i%2===1 ? "#f5f5f5" : "#fafafa";
+      return `<tr style="background:${bg};">
+        <td style="padding:7px 16px;border:1px solid #ddd;font-weight:500;">${r.name}</td>
+        <td style="padding:7px 16px;border:1px solid #ddd;text-align:center;color:#555;">${r.count}건</td>
+        <td style="padding:7px 20px;border:1px solid #ddd;text-align:right;font-weight:500;">${r.total.toLocaleString()}원</td>
+      </tr>`;
+    }).join("");
+    const totalCount = mgrSummary.reduce((s,r)=>s+r.count,0);
+    const summaryTableHtml = `
+      <table style="border-collapse:collapse;font-size:13px;margin-top:10px;margin-bottom:4px;">
+        <thead><tr style="background:#37474f;color:white;">
+          <th style="padding:8px 16px;border:1px solid #455a64;text-align:left;">담당자</th>
+          <th style="padding:8px 16px;border:1px solid #455a64;text-align:center;">건수</th>
+          <th style="padding:8px 20px;border:1px solid #455a64;text-align:right;">잔액 합계</th>
+        </tr></thead>
+        <tbody>${sumRows}</tbody>
+        <tfoot><tr style="background:#263238;color:white;font-weight:bold;">
+          <td style="padding:9px 16px;border:1px solid #263238;">합 계</td>
+          <td style="padding:9px 16px;border:1px solid #263238;text-align:center;">${totalCount}건</td>
+          <td style="padding:9px 20px;border:1px solid #263238;text-align:right;font-size:14px;">${grandTotal.toLocaleString()}원</td>
+        </tr></tfoot>
+      </table>`;
+
     fireEmail("summary", toList,
       (testMode?"[테스트] ":"") + "[미래오토메이션] 미수금 현황 보고",
-      `<p>${dateStr} 기준 전체 미수금 현황을 보고드립니다.${note}</p>
-      <table style="border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;">
-        <thead><tr style="background:#1565c0;color:white;">
-          <th style="${TH}">매출연월</th><th style="${TH}">담당자</th><th style="${TH}text-align:left;">거래처명</th>
-          <th style="${TH}">수금조건</th><th style="${TH}">수금예정일</th>
-          <th style="${TH}">경과일수</th><th style="${TH}">잔액</th><th style="${TH}">메모</th>
-        </tr></thead><tbody>${html}</tbody>
-        <tfoot><tr style="background:#e3f2fd;font-weight:bold;">
-          <td colspan="6" style="padding:8px 10px;border:1px solid #ddd;text-align:right;">총 합계${note}</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;">${total.toLocaleString()}원</td>
-          <td style="padding:8px 10px;border:1px solid #ddd;"></td>
-        </tr></tfoot>
-      </table>`);
+      `<h2 style="color:#0d47a1;margin-bottom:4px;font-size:18px;">미수금 현황 보고서${note}</h2>
+      <p style="color:#666;font-size:13px;margin-top:0;">${dateStr} 기준</p>
+      <h3 style="font-size:14px;color:#37474f;margin-bottom:4px;border-bottom:1px solid #ccc;padding-bottom:4px;">▶ 담당자별 요약</h3>
+      ${summaryTableHtml}
+      <h3 style="font-size:14px;color:#37474f;margin-top:28px;margin-bottom:4px;border-bottom:1px solid #ccc;padding-bottom:4px;">▶ 담당자·거래처별 상세</h3>
+      ${detailHtml}
+      <div style="margin-top:24px;padding:14px 20px;background:#0d47a1;color:white;font-weight:bold;font-size:16px;text-align:right;border-radius:6px;">
+        💰 총 합계${note}: ${grandTotal.toLocaleString()}원
+      </div>`);
   }
 
   return previewMode ? { ok:true, previews:previewsOut } : { ok:true, sentCount };

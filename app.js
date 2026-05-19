@@ -52,6 +52,7 @@ const RECEIVABLE_DEPT_HEAD = { name: "김도연", email: "kdy@mauto.co.kr" };
 const RECEIVABLE_CEO = { name: "장운기", email: "jug@mauto.co.kr" };
 
 let fixedExpenses = [];
+let cashflowTimelineMode = "daily";
 const AVAILABLE_FUNDS_LOCAL_KEY = "cashflow-app.available-funds-v2";
 const FIXED_LOCAL_KEY = "cashflow-app.fixed-v1";
 const B2B_TOTAL_LIMIT = 500000000; // 총대출액 5억 고정
@@ -3646,6 +3647,119 @@ function applyFundsPaste(sectionId) {
   renderDashboard();
 }
 
+function buildCashflowTimeline() {
+  const map = {};
+  const ensure = d => { if (!map[d]) map[d] = { rcv: 0, pay: 0, fixed: 0 }; };
+
+  receivables.forEach(r => {
+    if (!r.dueDate || !(r.balance > 0)) return;
+    ensure(r.dueDate);
+    map[r.dueDate].rcv += r.balance;
+  });
+
+  payables.forEach(p => {
+    const outstanding = getPayableOutstanding(p);
+    if (outstanding <= 0) return;
+    const dueDate = calcPayableDueDate(p.year, p.month, getDueGroup(p));
+    if (!dueDate) return;
+    ensure(dueDate);
+    map[dueDate].pay += outstanding;
+  });
+
+  fixedExpenses.forEach(f => {
+    if (!f.year || !f.month || !f.day || !(f.amount > 0)) return;
+    const d = `${f.year}-${String(f.month).padStart(2,"0")}-${String(f.day).padStart(2,"0")}`;
+    ensure(d);
+    map[d].fixed += f.amount;
+  });
+
+  return map;
+}
+
+function buildCashflowTimelineHtml(mode) {
+  const dateMap = buildCashflowTimeline();
+  const allDates = Object.keys(dateMap).sort();
+  if (!allDates.length) {
+    return `<div style="margin-top:20px;padding:20px;background:#f9fafb;border-radius:10px;border:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-size:13px;">현금흐름 데이터가 없습니다.</div>`;
+  }
+
+  let rows;
+  if (mode === "daily") {
+    rows = allDates.map(d => {
+      const { rcv, pay, fixed } = dateMap[d];
+      return { label: d.slice(5).replace("-", "/"), dateFrom: d, rcv, pay, fixed, net: rcv - pay - fixed };
+    });
+  } else {
+    const weekMap = {};
+    allDates.forEach(dateStr => {
+      const d = new Date(dateStr + "T00:00:00");
+      const dow = d.getDay();
+      const mon = new Date(d);
+      mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+      const wk = mon.toISOString().slice(0, 10);
+      if (!weekMap[wk]) {
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+        weekMap[wk] = { rcv: 0, pay: 0, fixed: 0, end: sun.toISOString().slice(0, 10) };
+      }
+      weekMap[wk].rcv += dateMap[dateStr].rcv;
+      weekMap[wk].pay += dateMap[dateStr].pay;
+      weekMap[wk].fixed += dateMap[dateStr].fixed;
+    });
+    rows = Object.keys(weekMap).sort().map(wk => {
+      const { rcv, pay, fixed, end } = weekMap[wk];
+      return { label: `${wk.slice(5).replace("-","/")}~${end.slice(5).replace("-","/")}`, dateFrom: wk, rcv, pay, fixed, net: rcv - pay - fixed };
+    });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const TDsty = "padding:8px 14px;border-bottom:1px solid #f0f0f0;";
+  const rowHtml = rows.map((r, i) => {
+    const isPast = r.dateFrom < today;
+    const rowBg = isPast ? "background:#fafafa;" : (i % 2 === 1 ? "background:#f8fbff;" : "");
+    const labelStyle = isPast ? "color:#9ca3af;" : "font-weight:600;color:#1f2937;";
+    const netStyle = r.net > 0 ? "color:#16a34a;font-weight:bold;" : r.net < 0 ? "color:#dc2626;font-weight:bold;" : "color:#9ca3af;";
+    const netStr = r.net === 0 ? "-" : (r.net > 0 ? "+" : "") + formatNumber(r.net);
+    const rcvCell = r.rcv > 0 ? `<span style="color:#1565c0;font-weight:500;">${formatNumber(r.rcv)}</span>` : `<span style="color:#d1d5db;">-</span>`;
+    const payCell = r.pay > 0 ? `<span style="color:#b71c1c;font-weight:500;">${formatNumber(r.pay)}</span>` : `<span style="color:#d1d5db;">-</span>`;
+    const fixedCell = r.fixed > 0 ? `<span style="color:#9a3412;font-weight:500;">${formatNumber(r.fixed)}</span>` : `<span style="color:#d1d5db;">-</span>`;
+    return `<tr style="${rowBg}${isPast ? "opacity:0.65;" : ""}">
+      <td style="${TDsty}${labelStyle}white-space:nowrap;">${r.label}</td>
+      <td style="${TDsty}text-align:right;">${rcvCell}</td>
+      <td style="${TDsty}text-align:right;">${payCell}</td>
+      <td style="${TDsty}text-align:right;">${fixedCell}</td>
+      <td style="${TDsty}text-align:right;${netStyle}">${netStr}</td>
+    </tr>`;
+  }).join("");
+
+  const dayActive = mode === "daily" ? "background:#2563eb;color:white;" : "background:#f3f4f6;color:#374151;";
+  const wkActive  = mode === "weekly" ? "background:#2563eb;color:white;" : "background:#f3f4f6;color:#374151;";
+
+  return `
+    <div style="margin-top:20px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid #e5e7eb;background:#f8fafc;">
+        <h3 style="margin:0;font-size:14px;font-weight:700;color:#1f2937;">현금흐름 일정</h3>
+        <div style="display:flex;gap:3px;">
+          <button class="tl-mode-btn" data-mode="daily" style="padding:4px 13px;border-radius:4px;border:none;cursor:pointer;font-size:12px;${dayActive}">일별</button>
+          <button class="tl-mode-btn" data-mode="weekly" style="padding:4px 13px;border-radius:4px;border:none;cursor:pointer;font-size:12px;${wkActive}">주별</button>
+        </div>
+      </div>
+      <div style="max-height:420px;overflow-y:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
+              <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:left;font-size:12px;color:#6b7280;font-weight:600;">날짜</th>
+              <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:right;font-size:12px;color:#1565c0;font-weight:600;">미수금 (+)</th>
+              <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:right;font-size:12px;color:#b71c1c;font-weight:600;">미지급 (-)</th>
+              <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:right;font-size:12px;color:#9a3412;font-weight:600;">고정지출 (-)</th>
+              <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:right;font-size:12px;color:#374151;font-weight:600;">증감</th>
+            </tr>
+          </thead>
+          <tbody>${rowHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderDashboard() {
   recalcAvailableFundsSummary();
   const summary = calculateSummary();
@@ -3702,11 +3816,18 @@ function renderDashboard() {
         </div>
       </div>
 
+      ${buildCashflowTimelineHtml(cashflowTimelineMode)}
     </div>
   `;
 
   homeSection.querySelectorAll(".dashboard-card[data-tab]").forEach(card => {
     card.addEventListener("click", () => switchTab(card.dataset.tab));
+  });
+  homeSection.querySelectorAll(".tl-mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      cashflowTimelineMode = btn.dataset.mode;
+      renderDashboard();
+    });
   });
 }
 
