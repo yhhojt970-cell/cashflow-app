@@ -253,6 +253,59 @@ availableFunds = {
 
 ---
 
+### 2026-06-11 (3): 계정별원장 거래처코드 앞자리 0 소실 수정
+
+**증상:** 계정별원장 업로드 시 `05959` → `5959`로 저장됨. 정산표에서 코드 오표시.
+
+**원인:** `parseXlsToRows`에서 `XLSX.utils.sheet_to_json` 기본값(`raw: true`)이 숫자처럼 보이는 셀을 숫자로 변환.
+
+**수정 (`app.js`, `parseXlsToRows`):**  
+숫자 셀 읽을 때 `XLSX.utils.encode_cell`로 원본 셀 접근 → `cell.w`(서식 텍스트)가 `0`으로 시작하면 숫자 대신 서식 텍스트 사용.
+```javascript
+if (typeof val === "number") {
+  const cell = ws[XLSX.utils.encode_cell({ r: i, c: j })];
+  if (cell && cell.w && /^0\d/.test(cell.w)) val = cell.w;
+}
+```
+적용 범위: `parseLedgerFile`, `parseTaxInvoiceFile`, `parseDailySalesFile` 공통 파서.  
+⚠️ 이미 업로드된 데이터는 재업로드 필요.
+
+**수정 파일:** `app.js`  
+**커밋:** `780f29b`
+
+---
+
+### 2026-06-11 (2): 분류규칙 관리 패널 Excel 일괄 가져오기 버튼 추가
+
+**기능 추가 (`app.js`):**
+- `importRulesFromExcel(file)` — XLSX 파싱 → `upsertRules` 일괄 POST
+- 분류규칙 관리 툴바에 `📂 Excel 가져오기` 파일 선택 버튼 추가
+- seed 파일: `docs/분류규칙_seed_엠오토.xlsx` (73건)
+
+**수정 파일:** `app.js`, `index.html`  
+**커밋:** `ca65df1`
+
+---
+
+### 2026-06-11 (1): Phase 0 + Phase 1 — 분류규칙 관리 UI + 원장 정산표
+
+**Phase 0 — 분류규칙 관리 (`code.gs`, `app.js`, `index.html`):**
+- `분류규칙` 시트 (없으면 자동 생성), `_rule_key` = `사업체||매칭방식||매칭키`
+- Apps Script: `getRules` (GET) / `upsertRules` / `deleteRule` (POST)
+- 마스터 관리 드롭다운 → "분류규칙 관리" 패널 (`rulesPanel`) — 사업체 필터, 추가/편집/삭제
+
+**Phase 1 — 미래 원장 정산표 (`app.js`, `style.css`):**
+- `parseYearMonthCode(적요)`: 귀속연월 추출 (yy-mm / yymm / yymmdd 패턴)
+- `buildLedgerSettlement(rows, 구분)`: 거래처×귀속연월 집계
+  - 매출(108): 차변=발생합계, 대변=충당액
+  - 매입(251): 대변=발생합계, 차변=충당액
+- 대사 탭 "📊 정산표" 버튼 → `renderSettlementView()` (거래처별 소계/총계 + 확인필요 섹션)
+
+**수정 파일:** `code.gs`, `app.js`, `style.css`, `index.html`  
+**커밋:** `bfb0911`
+
+---
+
 ### 2026-05-14 (5): pnl.html 서명 대기 뱃지 + 기간 옵션 마커
 
 **기능 추가:**
@@ -521,12 +574,10 @@ sheet.getRange(...).setNumberFormat("@");
 ## ⚠️ 미해결 이슈
 
 ### 거래처코드 앞자리 0 소실 문제
-- Excel 파싱 시 `00101` → `101`로 저장됨
-- **원인**: XLSX.js가 숫자처럼 보이는 셀을 number 타입으로 파싱 → 앞자리 0 소실
-- **영향 범위**: `matchVendorEntry()` 코드 매칭, 미수금/미지급/대사 탭 거래처 연결 전반
-- **수정 방향**: 파서에서 코드 컬럼은 `String(val).padStart(원본길이)` 또는 `{t:'s'}` 강제 적용
-- **다음 작업**: `parseLedgerFile`, `parseTaxInvoiceFile`, `parseVendorMasterFile` 내 코드 컬럼 파싱 수정
-- **부분 수정 완료 (2026-05-12)**: code.gs `upsertVendorMasterRows` 서버측 — `setNumberFormat("@")` 적용 대상을 `거래처코드_norm`, `거래처코드_raw`, `vendor_id`, **`사업자번호`, `계좌번호`**까지 확장. 단, app.js 파서측(`parseLedgerFile` 등)은 미수정
+- ~~Excel 파싱 시 `00101` → `101`로 저장됨~~
+- **2026-06-11 수정 완료**: `parseXlsToRows`에서 `cell.w` 체크로 서식 텍스트 보존 (커밋 `780f29b`)
+- **⚠️ 이미 업로드된 계정별원장 데이터는 재업로드 필요**
+- code.gs 서버측 `setNumberFormat("@")` 적용은 2026-05-12 완료 상태 유지
 
 ### 업체마스터 중복 문제
 - Google Sheets `업체마스터` 시트에 동일 업체가 중복으로 쌓이고 있음
