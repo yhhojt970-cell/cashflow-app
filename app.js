@@ -7302,6 +7302,10 @@ const daesaState = {
   dailySales: [],
   filterYear: new Date().getFullYear(),
   filterMonth: new Date().getMonth() + 1,
+  // 정산표 뷰 상태
+  settlementView: false,        // true = 정산표 모드
+  settlementDiv: "매출",        // "매출" | "매입" | "미지급"
+  settlementFilterYear: null,   // null = 전체
 };
 
 // 대사 탭 정렬 상태
@@ -7379,6 +7383,103 @@ async function loadDaesaData() {
     daesaState.loading = false;
     renderDaesaTab();
   }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Phase 1 — 미래 원장 정산 (거래처×귀속연월 집계)
+// ════════════════════════════════════════════════════════════
+
+// 계정별원장 적요에서 귀속연월 추출
+// 반환: { 연도, 월, status:"ok"|"확인필요", 원본 }
+// 못 알아보면 status="확인필요"로 살림 (절대 null로 버리지 않음)
+function parseYearMonthCode(raw) {
+  const 원본 = raw == null ? "" : String(raw);
+  const s = 원본.trim();
+  if (!s) return { 연도: null, 월: null, status: "확인필요", 원본 };
+
+  const ok  = (y, mo, st) => ({ 연도: 2000 + y, 월: mo, status: st, 원본 });
+  const okY = (y, mo, st) => ({ 연도: y,         월: mo, status: st, 원본 });
+  const valid = mo => mo >= 1 && mo <= 12;
+  let m;
+
+  // 1) 4자리연도 yyyy-mm (희귀 → 확인필요)
+  if ((m = s.match(/\b(20\d{2})[-/.](\d{1,2})\b/)) && valid(+m[2]))
+    return okY(+m[1], +m[2], "확인필요");
+  // 2) 슬래시 yy/mm (희귀 → 확인필요)
+  if ((m = s.match(/\b(\d{2})\/(\d{1,2})\b/)) && valid(+m[2]))
+    return ok(+m[1], +m[2], "확인필요");
+  // 3) 표준 yy-mm / yy-m
+  if ((m = s.match(/\b(\d{2})-(\d{1,2})\b/)) && valid(+m[2]))
+    return ok(+m[1], +m[2], "ok");
+  // 4) 구분자 없는 숫자런: yymm(4) / yymmdd(6~8). 앞 4자리가 yymm
+  if ((m = s.match(/\b(\d{4,8})\b/))) {
+    const d = m[1], mo = +d.slice(2, 4);
+    if ((d.length === 4 || d.length >= 6) && valid(mo))
+      return ok(+d.slice(0, 2), mo, "ok");
+  }
+  // 5) 인식 실패 → 확인필요로 살림
+  return { 연도: null, 월: null, status: "확인필요", 원본 };
+}
+
+// 원장 행 배열 → 거래처×귀속연월 정산 레코드 집계
+// 구분: "매출"(108 외상매출금) | "매입"(251 외상매입금) | "미지급"(미지급금)
+//   매출: 차변=발생, 대변=충당
+//   매입/미지급: 대변=발생, 차변=충당
+function buildLedgerSettlement(ledgerRows, 구분, 사업체 = "미래") {
+  const groups = new Map();
+  const 확인필요 = [];
+
+  for (const row of ledgerRows) {
+    const 거래처코드 = String(row["거래처코드"] ?? "").trim();
+    const 거래처명  = String(row["거래처명"]   ?? "").trim();
+    const 차변 = Number(String(row["차변"] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    const 대변 = Number(String(row["대변"] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    const ym = parseYearMonthCode(row["적요"]);
+
+    if (ym.status === "확인필요") {
+      if (차변 || 대변) {
+        확인필요.push({ 거래처코드, 거래처명, 적요: ym.원본, 차변, 대변, 일자: row["일자"] ?? "" });
+      }
+      continue;
+    }
+
+    const key = `${거래처코드}|${ym.연도}|${ym.월}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        사업체, 구분, 거래처코드, 거래처명,
+        귀속연도: ym.연도, 귀속월: ym.월,
+        발생합계: 0, 충당액: 0, 잔액: 0,
+      });
+    }
+    const g = groups.get(key);
+    if (구분 === "매출") {
+      g.발생합계 += 차변;
+      g.충당액   += 대변;
+    } else {
+      g.발생합계 += 대변;
+      g.충당액   += 차변;
+    }
+  }
+
+  const records = [...groups.values()].map(g => ({ ...g, 잔액: g.발생합계 - g.충당액 }));
+  return { records, 확인필요 };
+}
+
+// 정산 레코드를 거래처×귀속연월로 집계 (여러 구분 합산 시 사용)
+function aggregateSettlement(records) {
+  const map = new Map();
+  for (const r of records) {
+    const key = `${r.거래처코드}|${r.귀속연도}|${r.귀속월}|${r.구분}`;
+    if (!map.has(key)) {
+      map.set(key, { ...r });
+    } else {
+      const g = map.get(key);
+      g.발생합계 += r.발생합계;
+      g.충당액   += r.충당액;
+      g.잔액     += r.잔액;
+    }
+  }
+  return [...map.values()];
 }
 
 function parseAmt(val) {
@@ -7897,7 +7998,10 @@ function renderDaesaTab() {
       <button class="daesa-expand-all-btn">전체 펼치기</button>
       <button class="daesa-collapse-all-btn">전체 접기</button>
       <span class="daesa-count muted">${vendorEntries.length}개 업체 표시중 ${q ? `(검색: ${q})` : ""}</span>
+      <span class="daesa-toolbar-sep"></span>
+      <button class="daesa-settlement-btn${daesaState.settlementView ? " active" : ""}">📊 정산표</button>
     </div>
+    ${daesaState.settlementView ? renderSettlementView() : ""}
     <div class="table-responsive">
       <table class="daesa-table">
         <thead>
@@ -7967,6 +8071,156 @@ function renderDaesaTab() {
     sortedCats.forEach(cat => { daesaCategoryCollapsed[cat] = true; });
     renderDaesaTab();
   });
+  section.querySelector(".daesa-settlement-btn")?.addEventListener("click", () => {
+    daesaState.settlementView = !daesaState.settlementView;
+    renderDaesaTab();
+  });
+  // 정산표 내부 이벤트
+  section.querySelector("#settlementDivFilter")?.addEventListener("change", e => {
+    daesaState.settlementDiv = e.target.value;
+    renderDaesaTab();
+  });
+  section.querySelector("#settlementYearFilter")?.addEventListener("change", e => {
+    daesaState.settlementFilterYear = e.target.value === "" ? null : Number(e.target.value);
+    renderDaesaTab();
+  });
+}
+
+// ────────────────────────────────────────────────────────────
+//  정산표 뷰 (Phase 1 — 미래 원장 기반 거래처×귀속연월)
+// ────────────────────────────────────────────────────────────
+function renderSettlementView() {
+  const div = daesaState.settlementDiv;   // "매출" | "매입" | "미지급"
+  const filterYear = daesaState.settlementFilterYear;
+
+  // 원장 선택
+  const ledgerMap = { 매출: daesaState.ledgerSales, 매입: daesaState.ledgerPurchase, 미지급: daesaState.ledgerPayable };
+  const rows = ledgerMap[div] || [];
+
+  const { records, 확인필요 } = buildLedgerSettlement(rows, div, "미래");
+
+  // 연도 필터 옵션 생성
+  const years = [...new Set(records.map(r => r.귀속연도).filter(Boolean))].sort((a, b) => b - a);
+  const yearOpts = [
+    `<option value="">전체</option>`,
+    ...years.map(y => `<option value="${y}" ${y === filterYear ? "selected" : ""}>${y}년</option>`),
+  ].join("");
+
+  // 필터 적용
+  const filtered = filterYear ? records.filter(r => r.귀속연도 === filterYear) : records;
+
+  // 검색어 필터
+  const q = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  const searched = q
+    ? filtered.filter(r => r.거래처명.toLowerCase().includes(q) || r.거래처코드.includes(q))
+    : filtered;
+
+  // 정렬: 거래처명 → 귀속연도 → 귀속월
+  searched.sort((a, b) => {
+    if (a.거래처명 !== b.거래처명) return a.거래처명.localeCompare(b.거래처명, "ko");
+    if (a.귀속연도 !== b.귀속연도) return a.귀속연도 - b.귀속연도;
+    return a.귀속월 - b.귀속월;
+  });
+
+  // 잔액 소계 행 (거래처별)
+  const clientGroups = new Map();
+  for (const r of searched) {
+    if (!clientGroups.has(r.거래처명)) clientGroups.set(r.거래처명, []);
+    clientGroups.get(r.거래처명).push(r);
+  }
+
+  let rowsHtml = "";
+  let grandDev = 0, grandChung = 0, grandJan = 0;
+
+  for (const [name, grp] of clientGroups) {
+    const subDev   = grp.reduce((s, r) => s + r.발생합계, 0);
+    const subChung = grp.reduce((s, r) => s + r.충당액,   0);
+    const subJan   = grp.reduce((s, r) => s + r.잔액,     0);
+    grandDev   += subDev;
+    grandChung += subChung;
+    grandJan   += subJan;
+
+    grp.forEach((r, i) => {
+      rowsHtml += `<tr class="stl-row${i === 0 ? " stl-first-in-group" : ""}">
+        <td class="stl-name">${i === 0 ? escapeHtml(name) : ""}</td>
+        <td class="stl-code">${i === 0 ? escapeHtml(r.거래처코드) : ""}</td>
+        <td class="stl-ym">${r.귀속연도}-${String(r.귀속월).padStart(2, "0")}</td>
+        <td class="num stl-dev">${formatNumber(r.발생합계)}</td>
+        <td class="num stl-chung">${formatNumber(r.충당액)}</td>
+        <td class="num stl-jan ${r.잔액 > 0 ? "stl-jan-pos" : r.잔액 < 0 ? "stl-jan-neg" : ""}">${formatNumber(r.잔액)}</td>
+      </tr>`;
+    });
+
+    if (grp.length > 1) {
+      rowsHtml += `<tr class="stl-subtotal">
+        <td colspan="3" style="text-align:right;font-size:12px;color:#374151;">↳ ${escapeHtml(name)} 소계</td>
+        <td class="num">${formatNumber(subDev)}</td>
+        <td class="num">${formatNumber(subChung)}</td>
+        <td class="num ${subJan > 0 ? "stl-jan-pos" : subJan < 0 ? "stl-jan-neg" : ""}">${formatNumber(subJan)}</td>
+      </tr>`;
+    }
+  }
+
+  const emptyRow = `<tr><td colspan="6" style="text-align:center;padding:20px;color:#9ca3af;">데이터 없음</td></tr>`;
+
+  // 확인필요 섹션
+  const needsBadge = 확인필요.length
+    ? `<span class="stl-need-badge">확인 필요 ${확인필요.length}건</span>` : "";
+
+  const needsHtml = 확인필요.length ? `
+    <details class="stl-needs-wrap">
+      <summary class="stl-needs-summary">⚠ 확인 필요 ${확인필요.length}건 — 적요에서 귀속연월을 인식하지 못한 행</summary>
+      <table class="stl-needs-table">
+        <thead><tr><th>거래처명</th><th>거래처코드</th><th>적요 원본</th><th class="num">차변</th><th class="num">대변</th><th>일자</th></tr></thead>
+        <tbody>${확인필요.map(r => `<tr>
+          <td>${escapeHtml(r.거래처명)}</td>
+          <td>${escapeHtml(r.거래처코드)}</td>
+          <td class="stl-raw">${escapeHtml(r.적요)}</td>
+          <td class="num">${formatNumber(r.차변)}</td>
+          <td class="num">${formatNumber(r.대변)}</td>
+          <td>${escapeHtml(String(r.일자))}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </details>` : "";
+
+  return `
+    <div class="stl-wrap">
+      <div class="stl-toolbar">
+        <strong>미래 원장 정산표</strong>
+        <select id="settlementDivFilter">
+          <option value="매출" ${div === "매출" ? "selected" : ""}>매출 (외상매출금 108)</option>
+          <option value="매입" ${div === "매입" ? "selected" : ""}>매입 (외상매입금 251)</option>
+          <option value="미지급" ${div === "미지급" ? "selected" : ""}>미지급금</option>
+        </select>
+        <select id="settlementYearFilter">${yearOpts}</select>
+        <span class="stl-count muted">${searched.length}건 ${needsBadge}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="stl-table">
+          <thead>
+            <tr>
+              <th class="stl-th-name">거래처명</th>
+              <th class="stl-th-code">코드</th>
+              <th class="stl-th-ym">귀속연월</th>
+              <th class="stl-th-num">발생합계</th>
+              <th class="stl-th-num">충당액</th>
+              <th class="stl-th-num">잔액</th>
+            </tr>
+          </thead>
+          <tbody>${searched.length ? rowsHtml : emptyRow}</tbody>
+          ${searched.length ? `
+          <tfoot>
+            <tr class="stl-grand">
+              <td colspan="3" style="text-align:right;font-weight:700;">합 계</td>
+              <td class="num">${formatNumber(grandDev)}</td>
+              <td class="num">${formatNumber(grandChung)}</td>
+              <td class="num ${grandJan > 0 ? "stl-jan-pos" : grandJan < 0 ? "stl-jan-neg" : ""}">${formatNumber(grandJan)}</td>
+            </tr>
+          </tfoot>` : ""}
+        </table>
+      </div>
+      ${needsHtml}
+    </div>`;
 }
 
 function openVendorDaesaModal(code, name, daesaMap, netOffSet) {

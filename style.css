@@ -4743,3 +4743,44 @@ td {
 .rules-edit-btn { color: #2563eb; background: #eff6ff; border-color: #bfdbfe; margin-right: 4px; }
 .rules-del-btn { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
 .rules-close-btn { color: #6b7280; background: #f9fafb; border-color: #d1d5db; }
+
+/* ── 대사 탭 정산표 버튼 ─────────────────────────────────── */
+.daesa-toolbar-sep { display: inline-block; width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px; vertical-align: middle; }
+.daesa-settlement-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+.daesa-settlement-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.daesa-settlement-btn:hover { background: #dbeafe; }
+.daesa-settlement-btn.active:hover { background: #1e40af; }
+
+/* ── Phase 1 정산표 ──────────────────────────────────────── */
+.stl-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.stl-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.stl-toolbar strong { font-size: 14px; color: #1e293b; }
+.stl-toolbar select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+.stl-count { font-size: 12px; }
+.stl-need-badge { display: inline-block; padding: 2px 8px; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.stl-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.stl-table th { background: #1e40af; color: #fff; padding: 7px 10px; text-align: left; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.stl-th-num { text-align: right !important; }
+.stl-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.stl-table tbody tr:hover { background: #f8faff; }
+.stl-row.stl-first-in-group td { border-top: 2px solid #e2e8f0; }
+.stl-name { font-weight: 500; min-width: 160px; }
+.stl-code { color: #6b7280; font-size: 12px; }
+.stl-ym  { color: #374151; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stl-dev, .stl-chung { color: #374151; }
+.stl-jan-pos { color: #dc2626; font-weight: 600; }
+.stl-jan-neg { color: #2563eb; font-weight: 600; }
+.stl-subtotal td { background: #f0f4ff; font-size: 12px; }
+.stl-grand td { background: #1e40af; color: #fff; font-weight: 700; padding: 7px 10px; }
+.stl-grand .stl-jan-pos { color: #fca5a5; }
+.stl-grand .stl-jan-neg { color: #bfdbfe; }
+
+/* 확인필요 섹션 */
+.stl-needs-wrap { margin: 0; border-top: 1px solid #e2e8f0; }
+.stl-needs-summary { padding: 10px 14px; cursor: pointer; font-size: 13px; color: #b45309; background: #fffbeb; font-weight: 600; }
+.stl-needs-summary:hover { background: #fef3c7; }
+.stl-needs-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.stl-needs-table th { background: #92400e; color: #fff; padding: 6px 10px; text-align: left; }
+.stl-needs-table td { padding: 5px 10px; border-bottom: 1px solid #fef3c7; }
+.stl-needs-table tbody tr:nth-child(even) { background: #fffbeb; }
+.stl-raw { font-family: monospace; color: #6b7280; }
