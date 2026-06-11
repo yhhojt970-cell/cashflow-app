@@ -8366,6 +8366,270 @@ function setupMasterMenu() {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  분류규칙 관리 (Phase 0)
+// ════════════════════════════════════════════════════════════
+
+const rulesState = {
+  rows: [],           // 로드된 규칙 배열
+  loading: false,
+  saving: false,
+  msg: "",
+  bizFilter: "전체",  // "전체" | "엠오토" | "미래"
+  editKey: null,      // 현재 편집 중인 _rule_key (null=신규 추가 폼)
+  addingNew: false,   // 신규 추가 폼 표시 여부
+};
+
+function buildRuleKey(사업체, 매칭방식, 매칭키) {
+  return `${String(사업체||"").trim()}||${String(매칭방식||"").trim()}||${String(매칭키||"").trim()}`;
+}
+
+async function fetchRulesFromApi(bizFilter) {
+  if (!SHEET_APP_SCRIPT_URL) throw new Error("Apps Script URL 없음");
+  const url = new URL(SHEET_APP_SCRIPT_URL);
+  url.searchParams.set("action", "getRules");
+  const token = getApiToken();
+  if (token) url.searchParams.set("token", token);
+  if (bizFilter && bizFilter !== "전체") url.searchParams.set("사업체", bizFilter);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`분류규칙 조회 실패: ${res.status}`);
+  const body = await res.json();
+  return Array.isArray(body.rows) ? body.rows : [];
+}
+
+async function loadRules() {
+  rulesState.loading = true;
+  rulesState.msg = "불러오는 중…";
+  renderRulesPanel();
+  try {
+    rulesState.rows = await fetchRulesFromApi(rulesState.bizFilter);
+    rulesState.msg = `${rulesState.rows.length}건 로드됨`;
+  } catch (e) {
+    rulesState.msg = `조회 실패: ${e.message}`;
+  } finally {
+    rulesState.loading = false;
+    renderRulesPanel();
+  }
+}
+
+async function saveRule(ruleObj) {
+  rulesState.saving = true;
+  rulesState.msg = "저장 중…";
+  renderRulesPanel();
+  try {
+    const key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
+    const row = { ...ruleObj, _rule_key: key };
+    await postSheetWebApp("upsertRules", { rows: [row] });
+    // 로컬 상태 갱신
+    const idx = rulesState.rows.findIndex(r => r["_rule_key"] === key);
+    if (idx >= 0) rulesState.rows[idx] = row;
+    else rulesState.rows.push(row);
+    rulesState.msg = "저장 완료";
+    rulesState.editKey = null;
+    rulesState.addingNew = false;
+  } catch (e) {
+    rulesState.msg = `저장 실패: ${e.message}`;
+  } finally {
+    rulesState.saving = false;
+    renderRulesPanel();
+  }
+}
+
+async function deleteRule(key) {
+  if (!confirm(`규칙을 삭제하시겠습니까?\n${key}`)) return;
+  rulesState.saving = true;
+  rulesState.msg = "삭제 중…";
+  renderRulesPanel();
+  try {
+    await postSheetWebApp("deleteRule", { key });
+    rulesState.rows = rulesState.rows.filter(r => r["_rule_key"] !== key);
+    rulesState.msg = "삭제 완료";
+    rulesState.editKey = null;
+  } catch (e) {
+    rulesState.msg = `삭제 실패: ${e.message}`;
+  } finally {
+    rulesState.saving = false;
+    renderRulesPanel();
+  }
+}
+
+function renderRulesPanel() {
+  const panel = document.getElementById("rulesPanel");
+  if (!panel) return;
+
+  const BIZ_OPTIONS = ["전체", "엠오토", "미래"];
+  const METHOD_OPTIONS = ["계좌", "키워드", "거래처명"];
+  const DIV_OPTIONS = ["매출", "매입"];
+
+  const filtered = rulesState.bizFilter === "전체"
+    ? rulesState.rows
+    : rulesState.rows.filter(r => String(r["사업체"] || "").trim() === rulesState.bizFilter);
+
+  // 인라인 편집 폼 HTML
+  function editForm(data = {}) {
+    const dis = rulesState.saving ? "disabled" : "";
+    const sKey = data["_rule_key"] || "";
+    return `
+      <tr class="rules-edit-row" data-edit-key="${escapeAttr(sKey)}">
+        <td><select class="rules-inp" name="사업체" ${dis}>
+          ${["엠오토","미래"].map(v => `<option${data["사업체"]===v?" selected":""}>${v}</option>`).join("")}
+        </select></td>
+        <td><select class="rules-inp" name="매칭방식" ${dis}>
+          ${METHOD_OPTIONS.map(v => `<option${data["매칭방식"]===v?" selected":""}>${v}</option>`).join("")}
+        </select></td>
+        <td><input class="rules-inp" name="매칭키" value="${escapeAttr(data["매칭키"]||"")}" placeholder="계좌번호 또는 키워드" ${dis} /></td>
+        <td><input class="rules-inp" name="거래처명" value="${escapeAttr(data["거래처명"]||"")}" placeholder="거래처명" ${dis} /></td>
+        <td><select class="rules-inp" name="구분" ${dis}>
+          ${DIV_OPTIONS.map(v => `<option${data["구분"]===v?" selected":""}>${v}</option>`).join("")}
+        </select></td>
+        <td><input class="rules-inp rules-inp-sm" name="우선순위" type="number" min="1" value="${escapeAttr(String(data["우선순위"]||"10"))}" ${dis} /></td>
+        <td>
+          <button class="rules-btn rules-save-btn" data-key="${escapeAttr(sKey)}" ${dis}>저장</button>
+          <button class="rules-btn rules-cancel-btn" data-key="${escapeAttr(sKey)}" ${dis}>취소</button>
+        </td>
+      </tr>`;
+  }
+
+  function escapeAttr(v) {
+    return String(v).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+  }
+
+  const rowsHtml = filtered.map(r => {
+    const key = r["_rule_key"] || buildRuleKey(r["사업체"],r["매칭방식"],r["매칭키"]);
+    if (rulesState.editKey === key) return editForm({ ...r, _rule_key: key });
+    const dis = rulesState.saving ? "disabled" : "";
+    return `
+      <tr>
+        <td>${escapeAttr(r["사업체"]||"")}</td>
+        <td>${escapeAttr(r["매칭방식"]||"")}</td>
+        <td class="rules-key-cell" title="${escapeAttr(r["매칭키"]||"")}">${escapeAttr(r["매칭키"]||"")}</td>
+        <td>${escapeAttr(r["거래처명"]||"")}</td>
+        <td>${escapeAttr(r["구분"]||"")}</td>
+        <td style="text-align:right;">${escapeAttr(String(r["우선순위"]||""))}</td>
+        <td>
+          <button class="rules-btn rules-edit-btn" data-key="${escapeAttr(key)}" ${dis}>수정</button>
+          <button class="rules-btn rules-del-btn" data-key="${escapeAttr(key)}" ${dis}>삭제</button>
+        </td>
+      </tr>`;
+  }).join("");
+
+  const newRowHtml = rulesState.addingNew ? editForm({}) : "";
+
+  panel.innerHTML = `
+    <div class="rules-panel-inner">
+      <div class="rules-toolbar">
+        <strong style="font-size:14px;">📐 분류규칙 관리</strong>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${BIZ_OPTIONS.map(b =>
+            `<button class="rules-biz-btn${rulesState.bizFilter===b?" active":""}" data-biz="${b}">${b}</button>`
+          ).join("")}
+          <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
+          <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
+          <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
+        </div>
+      </div>
+      ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
+      ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
+      <div class="rules-table-wrap">
+        <table class="rules-table">
+          <thead><tr>
+            <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
+          </tr></thead>
+          <tbody>
+            ${rowsHtml}
+            ${newRowHtml}
+            ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+          </tbody>
+        </table>
+      </div>`}
+    </div>`;
+
+  // 이벤트 바인딩
+  panel.querySelector("#rulesPanelClose")?.addEventListener("click", () => {
+    panel.classList.add("hidden");
+    rulesState.editKey = null;
+    rulesState.addingNew = false;
+  });
+
+  panel.querySelector("#rulesReloadBtn")?.addEventListener("click", loadRules);
+
+  panel.querySelector("#rulesAddBtn")?.addEventListener("click", () => {
+    rulesState.addingNew = true;
+    rulesState.editKey = null;
+    renderRulesPanel();
+    panel.querySelector(".rules-edit-row input")?.focus();
+  });
+
+  panel.querySelectorAll(".rules-biz-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      rulesState.bizFilter = btn.dataset.biz;
+      renderRulesPanel();
+    });
+  });
+
+  panel.querySelectorAll(".rules-edit-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      rulesState.editKey = btn.dataset.key;
+      rulesState.addingNew = false;
+      renderRulesPanel();
+      panel.querySelector(".rules-edit-row input")?.focus();
+    });
+  });
+
+  panel.querySelectorAll(".rules-del-btn").forEach(btn => {
+    btn.addEventListener("click", () => deleteRule(btn.dataset.key));
+  });
+
+  panel.querySelectorAll(".rules-cancel-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      rulesState.editKey = null;
+      rulesState.addingNew = false;
+      renderRulesPanel();
+    });
+  });
+
+  panel.querySelectorAll(".rules-save-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest("tr.rules-edit-row");
+      if (!row) return;
+      const get = name => row.querySelector(`[name="${name}"]`)?.value?.trim() || "";
+      const ruleObj = {
+        사업체: get("사업체"),
+        매칭방식: get("매칭방식"),
+        매칭키: get("매칭키"),
+        거래처명: get("거래처명"),
+        구분: get("구분"),
+        우선순위: get("우선순위") || "10",
+      };
+      if (!ruleObj.매칭키) { alert("매칭키를 입력해주세요."); return; }
+      if (!ruleObj.거래처명) { alert("거래처명을 입력해주세요."); return; }
+      saveRule(ruleObj);
+    });
+  });
+}
+
+function setupRulesPanel() {
+  const btn = document.getElementById("rulesManageButton");
+  const menu = document.getElementById("masterDropdownMenu");
+  const panel = document.getElementById("rulesPanel");
+  if (!btn || !panel) return;
+
+  btn.addEventListener("click", () => {
+    menu?.classList.remove("visible");
+    const isOpen = !panel.classList.contains("hidden");
+    if (isOpen) {
+      panel.classList.add("hidden");
+    } else {
+      panel.classList.remove("hidden");
+      if (!rulesState.rows.length && !rulesState.loading) {
+        loadRules();
+      } else {
+        renderRulesPanel();
+      }
+    }
+  });
+}
+
 function formatExcelDateToStr(val) {
   if (val instanceof Date && !isNaN(val)) {
     const y = val.getFullYear();
@@ -8651,6 +8915,7 @@ async function init() {
   setupLedgerVendorImport();
   setupBankImport();
   setupDataImport();
+  setupRulesPanel();
   setupApiTokenButton();
 
   const sheetLinkBtn = document.getElementById("sheetLinkButton");

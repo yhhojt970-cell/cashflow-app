@@ -23,13 +23,14 @@ const DAILY_SALES_SHEET    = "영업현황_raw";
 const BIZ_DIVISION_SHEET   = "사업부문마스터";
 const FIXED_SHEET          = "고정지출";
 const PNL_SHEET            = "경영손익_data";
+const RULES_SHEET          = "분류규칙";
 
 // ── 미수금 이메일 설정 ───────────────────────────────────────
 const RCV_MANAGER_EMAIL_MAP = {
   "장운기":"jug@mauto.co.kr", "여희정":"yhj@mauto.co.kr", "김도연":"kdy@mauto.co.kr",
   "남예린":"nyr@mauto.co.kr", "오성철":"osc@mauto.co.kr", "장재영":"jjy@mauto.co.kr",
   "김태홍":"kth@mauto.co.kr", "박희선":"phs@mauto.co.kr", "구예솔":"kys@mauto.co.kr",
-  "배지혜":"bjh@mauto.co.kr", "임연하":"lyh@mauto.co.kr",
+  "임연하":"lyh@mauto.co.kr",
 };
 const RCV_ABSENCE_CHAIN = [
   { name:"박희선", email:"phs@mauto.co.kr" },
@@ -83,6 +84,14 @@ function doGet(e) {
       dailySales:     getSheetRows(DAILY_SALES_SHEET,  ss),
       bizDivision:    getSheetRows(BIZ_DIVISION_SHEET, ss),
     });
+  }
+
+  // 분류규칙 (사업체 필터 지원)
+  if (action === "getRules") {
+    const bizFilter = String(params["사업체"] || "").trim();
+    let rows = getSheetRows(RULES_SHEET);
+    if (bizFilter) rows = rows.filter(r => String(r["사업체"] || "").trim() === bizFilter);
+    return jsonOutput({ rows });
   }
 
   // 엠오토 JSON (단일 셀)
@@ -180,6 +189,16 @@ function doPost(e) {
     if (!sh) sh = ss.insertSheet("가용자금_json");
     sh.getRange("A1").setValue(body.updatedAt || new Date().toISOString());
     sh.getRange("B1").setValue(JSON.stringify(body.data));
+    return jsonOutput({ ok: true });
+  }
+
+  // ── 분류규칙 ──
+  if (action === "upsertRules") {
+    upsertRowsByKey(RULES_SHEET, "_rule_key", rows);
+    return jsonOutput({ ok: true, count: rows.length });
+  }
+  if (action === "deleteRule") {
+    deleteRowByKey(RULES_SHEET, "_rule_key", String(body.key || ""));
     return jsonOutput({ ok: true });
   }
 
@@ -400,6 +419,29 @@ function appendRows(sheetName, rows) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(v => String(v).trim());
   sheet.getRange(lastRow + 1, 1, rows.length, headers.length)
        .setValues(rows.map(r => headers.map(h => r[h] ?? "")));
+}
+
+/**
+ * keyField 값이 keyValue인 행을 시트에서 물리 삭제.
+ * 뒤에서 앞으로 순회해 deleteRow 후 인덱스 어긋남 방지.
+ */
+function deleteRowByKey(sheetName, keyField, keyValue) {
+  if (!keyValue) return;
+  const ss    = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const lastCol  = sheet.getLastColumn();
+  const headers  = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v).trim());
+  const keyIdx   = headers.indexOf(keyField);
+  if (keyIdx < 0) return;
+  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][keyIdx]).trim() === keyValue.trim()) {
+      sheet.deleteRow(i + 2); // +2: 헤더 1행 + 1-indexed
+    }
+  }
 }
 
 /** JSON ContentService 응답 생성 */

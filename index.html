@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>현금흐름 관리</title>
-  <link rel="stylesheet" href="style.css?v=20260514h" />
+  <link rel="stylesheet" href="style.css?v=20260611a" />
 </head>
 <body>
   <div class="app-shell">
@@ -22,6 +22,8 @@
             <button class="dropdown-item" id="ledgerVendorImportButton"><i>📋</i> 원장 → 업체마스터</button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" id="bizDivImportButton"><i>🏗</i> 사업부문마스터 업로드</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="rulesManageButton"><i>📐</i> 분류규칙 관리</button>
           </div>
         </div>
 
@@ -70,6 +72,7 @@
 
     <section id="vendorMasterPanel" class="vendor-master-panel hidden"></section>
     <section id="dataImportPanel" class="data-import-panel hidden"></section>
+    <section id="rulesPanel" class="rules-panel hidden"></section>
     <section class="summary-panel" id="summaryPanel"></section>
 
     <main>
@@ -85,6 +88,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260519a"></script>
+  <script src="app.js?v=20260611a"></script>
 </body>
 </html>
