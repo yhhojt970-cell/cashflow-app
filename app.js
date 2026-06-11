@@ -8779,6 +8779,10 @@ function renderRulesPanel() {
           ).join("")}
           <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
           <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
+          <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
+            📂 Excel 가져오기
+            <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
+          </label>
           <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
         </div>
       </div>
@@ -8806,6 +8810,12 @@ function renderRulesPanel() {
   });
 
   panel.querySelector("#rulesReloadBtn")?.addEventListener("click", loadRules);
+
+  panel.querySelector("#rulesImportFileInput")?.addEventListener("change", e => {
+    const file = e.target.files?.[0];
+    if (file) importRulesFromExcel(file);
+    e.target.value = "";
+  });
 
   panel.querySelector("#rulesAddBtn")?.addEventListener("click", () => {
     rulesState.addingNew = true;
@@ -8860,6 +8870,43 @@ function renderRulesPanel() {
       saveRule(ruleObj);
     });
   });
+}
+
+async function importRulesFromExcel(file) {
+  rulesState.saving = true;
+  rulesState.msg = "Excel 파싱 중…";
+  renderRulesPanel();
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!raw.length) throw new Error("데이터 없음");
+
+    const rows = raw.map(r => {
+      const ruleObj = {
+        사업체:   String(r["사업체"]   ?? "").trim(),
+        매칭방식: String(r["매칭방식"] ?? "").trim(),
+        매칭키:   String(r["매칭키"]   ?? "").trim(),
+        거래처명: String(r["거래처명"] ?? "").trim(),
+        구분:     String(r["구분"]     ?? "").trim(),
+        우선순위: String(r["우선순위"] ?? "10").trim() || "10",
+      };
+      ruleObj._rule_key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
+      return ruleObj;
+    }).filter(r => r.매칭키 && r.거래처명);
+
+    if (!rows.length) throw new Error("유효한 행 없음 (매칭키·거래처명 필수)");
+
+    await postSheetWebApp("upsertRules", { rows });
+    rulesState.msg = `${rows.length}건 가져오기 완료`;
+    await loadRules();
+  } catch (e) {
+    rulesState.msg = `가져오기 실패: ${e.message}`;
+  } finally {
+    rulesState.saving = false;
+    renderRulesPanel();
+  }
 }
 
 function setupRulesPanel() {
