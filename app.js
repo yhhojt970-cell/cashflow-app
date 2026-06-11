@@ -8984,7 +8984,16 @@ function parseXlsToRows(arrayBuffer, headerRowIndex) {
     const raw = allRows[i];
     if (raw.every(v => v === "" || v == null)) continue;
     const row = {};
-    headers.forEach((h, j) => { row[h] = raw[j] ?? ""; });
+    headers.forEach((h, j) => {
+      let val = raw[j] ?? "";
+      // 숫자이지만 셀 서식에 앞자리 0이 있으면(거래처코드 등) 서식 텍스트를 사용
+      if (typeof val === "number") {
+        const cellAddr = XLSX.utils.encode_cell({ r: i, c: j });
+        const cell = ws[cellAddr];
+        if (cell && cell.w && /^0\d/.test(cell.w)) val = cell.w;
+      }
+      row[h] = val;
+    });
     dataRows.push(row);
   }
   return { headers, dataRows };
