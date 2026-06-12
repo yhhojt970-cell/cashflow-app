@@ -137,6 +137,24 @@ function deleteMiraeSectionFile(key, filename) {
   else { delete miraeLedgerSources[filename]; saveMiraeSource(MIRAE_SOURCE_LEDGER_KEY, miraeLedgerSources); }
 }
 
+// ── 엠오토 세금계산서 소스 파일 보관 (국세청 양식, 파일 단위 교체 + 재빌드) ──
+const MAUTO_TAX_SOURCE_KEY = "mauto-tax-source-v1";
+let mautoTaxSources  = {}; // { [filename]: { filename, sideType, savedAt, rows[] } }
+let mautoTaxInvoices = []; // 재빌드 캐시
+function saveMautoTaxSource() { try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {} }
+function loadMautoTaxSource() {
+  try { const r = localStorage.getItem(MAUTO_TAX_SOURCE_KEY); mautoTaxSources = r ? JSON.parse(r) : {}; }
+  catch (_) { mautoTaxSources = {}; }
+}
+function rebuildMautoTaxInvoices() {
+  const seen = new Map();
+  for (const r of Object.values(mautoTaxSources).flatMap(f => f.rows || [])) {
+    const k = String(r._row_key || "").trim();
+    if (!k || !seen.has(k)) seen.set(k || `__rnd_${Math.random()}`, r);
+  }
+  mautoTaxInvoices = [...seen.values()];
+}
+
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
   b2bLoans: [],       // [{latestExpiry, execNo, finalExpiry, used}]
@@ -6853,14 +6871,39 @@ function renderMautoTab() {
         <h2>엠오토</h2>
         <p>엠오토 전용 현금흐름</p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
           📥 입출금 분류
           <input type="file" id="mautoClassifyFileInput" accept=".xls,.xlsx,.xlsm,.csv" hidden />
         </label>
+        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="국세청 전자세금계산서 조회 파일 (매출)">
+          🧾 매출 세금계산서
+          <input type="file" id="mautoTaxSalesFileInput" accept=".xls,.xlsx" hidden />
+        </label>
+        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="국세청 전자세금계산서 조회 파일 (매입)">
+          🧾 매입 세금계산서
+          <input type="file" id="mautoTaxPurchaseFileInput" accept=".xls,.xlsx" hidden />
+        </label>
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
     </div>
+    ${(() => {
+      // 엠오토 세금계산서 업로드 파일 목록
+      const taxEntries = Object.values(mautoTaxSources);
+      if (!taxEntries.length) return "";
+      return `
+    <div style="margin:8px 0;padding:8px 12px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;font-size:12px;">
+      <div style="font-weight:600;color:#92400e;margin-bottom:4px;">🧾 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)</div>
+      ${taxEntries.map(f => `
+      <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.filename)}</span>
+        <span style="color:#b45309;">${f.sideType}</span>
+        <span style="color:#6b7280;white-space:nowrap;">${(f.rows||[]).length}건</span>
+        ${f.checksumOk === true ? '<span style="color:#16a34a;">✓체크섬</span>' : f.checksumOk === false ? '<span style="color:#dc2626;">✗체크섬</span>' : ""}
+        <button type="button" class="mauto-tax-del-btn" data-fname="${encodeURIComponent(f.filename)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
+      </div>`).join("")}
+    </div>`;
+    })()}
     ${(() => {
       // 업로드된 파일 목록
       const fileEntries = Object.entries(mautoSourceFiles);
@@ -7030,6 +7073,67 @@ function renderMautoTab() {
     saveSourceFiles();
     saveUserEdits();
     renderMautoTab();
+  });
+
+  // 세금계산서 파일 업로드 핸들러 (매출/매입 공통)
+  async function handleMautoTaxFile(file, sideType) {
+    const result = await parseMautoTaxInvoiceFile(file);
+    if (result.error) { alert(`파싱 오류: ${result.error}`); return; }
+    if (!result.rows || !result.rows.length) { alert("세금계산서 행을 찾을 수 없습니다.\n헤더가 7번째 행인지 확인해주세요."); return; }
+
+    // 잘못된 파일 경고 (모든 거래처가 엠오토)
+    if (result.allMauto) {
+      const ok = confirm(`⚠ 모든 거래처가 "엠오토"입니다.\n이 파일은 타사에서 엠오토 앞으로 발행한 세금계산서로 보입니다.\n계속 저장하시겠습니까?`);
+      if (!ok) return;
+    }
+
+    // 체크섬 결과 안내
+    if (result.checksumOk === false) {
+      const diff = result.parsedTotal - result.fileTotal;
+      alert(`⚠ 체크섬 불일치!\n파일 합계: ${result.fileTotal.toLocaleString()}\n파싱 합계: ${result.parsedTotal.toLocaleString()}\n차이: ${diff.toLocaleString()}\n\n저장은 계속됩니다.`);
+    }
+
+    // 같은 파일명이 있으면 교체 확인
+    if (mautoTaxSources[file.name]) {
+      const ok = confirm(`'${file.name}' 파일이 이미 저장되어 있습니다.\n교체하시겠습니까?`);
+      if (!ok) return;
+    }
+
+    mautoTaxSources[file.name] = {
+      filename: file.name,
+      sideType,
+      savedAt: new Date().toISOString(),
+      rows: result.rows,
+      checksumOk: result.checksumOk,
+    };
+    saveMautoTaxSource();
+    rebuildMautoTaxInvoices();
+    renderMautoTab();
+
+    const cnt = result.rows.length;
+    const chk = result.checksumOk === true ? " ✓체크섬 일치" : result.checksumOk === false ? " ✗체크섬 불일치" : "";
+    alert(`${sideType} 세금계산서 ${cnt}건 저장됨${chk}`);
+  }
+
+  document.getElementById("mautoTaxSalesFileInput")?.addEventListener("change", async e => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (file) await handleMautoTaxFile(file, "매출");
+  });
+  document.getElementById("mautoTaxPurchaseFileInput")?.addEventListener("change", async e => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (file) await handleMautoTaxFile(file, "매입");
+  });
+
+  // 세금계산서 파일 삭제
+  sec.querySelectorAll(".mauto-tax-del-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const fname = decodeURIComponent(btn.dataset.fname);
+      if (!confirm(`'${fname}' 파일을 삭제하시겠습니까?`)) return;
+      delete mautoTaxSources[fname];
+      saveMautoTaxSource();
+      rebuildMautoTaxInvoices();
+      renderMautoTab();
+    });
   });
 
   setupMautoToggleHandlers(sec);
@@ -8883,8 +8987,10 @@ function renderArRecapView() {
   const fn = n => formatNumber(n);
   const jCls = n => n > 0 ? "arrecap-pos" : n < 0 ? "arrecap-neg" : "";
 
+  // 엠오토 세금계산서가 있으면 우선 사용, 없으면 미래 세금계산서 fallback
+  const taxSrc = (mautoTaxInvoices && mautoTaxInvoices.length) ? mautoTaxInvoices : daesaState.taxInvoices;
   const { entries, 확인필요 } = buildArRecap(
-    daesaState.taxInvoices,
+    taxSrc,
     typeof mautoClassifiedRows !== "undefined" ? mautoClassifiedRows : [],
     side
   );
@@ -8970,7 +9076,7 @@ function renderArRecapView() {
         <span class="daesa-toolbar-sep"></span>
         <label>연도 <select id="arRecapYearFilter">${yearOpts}</select></label>
         ${pendingBadge}
-        <span class="muted" style="font-size:12px;">발생: 세금계산서 합계 | 충당: 엠오토 입출금 분류(비고→귀속연월)</span>
+        <span class="muted" style="font-size:12px;">발생: ${(mautoTaxInvoices && mautoTaxInvoices.length) ? `엠오토 세금계산서 ${mautoTaxInvoices.length}건` : `미래 세금계산서 ${daesaState.taxInvoices.length}건`} | 충당: 엠오토 입출금 분류(비고→귀속연월)</span>
       </div>
       <div class="table-responsive">
         <table class="arrecap-table">
@@ -10152,6 +10258,63 @@ async function parseDailySalesFile(file) {
   }
 }
 
+// ── 엠오토 세금계산서 파서 (국세청 전자세금계산서 조회 XLS 양식) ──
+// 헤더: 7행(index 6), 상호(col)=거래처(상대방), 마지막 행=합계(체크섬)
+async function parseMautoTaxInvoiceFile(file) {
+  try {
+    const ab = await file.arrayBuffer();
+    const { dataRows } = parseXlsToRows(ab, 6); // 7행 헤더
+
+    const filteredRows = [];
+    let totalsRow = null;
+
+    for (const row of dataRows) {
+      const div = String(row["구분"] || "").trim();
+      // 마지막 합계행 감지: 구분 빈값 + 종류가 "N건" 형태
+      if (div === "" && /^\d+건/.test(String(row["종류"] || "").trim())) {
+        totalsRow = row;
+        continue;
+      }
+      if (div !== "매출" && div !== "매입") continue;
+
+      // 날짜 포맷
+      if (row["작성일자"]) row["작성일자"] = formatExcelDateToStr(row["작성일자"]);
+      if (row["발급일자"]) row["발급일자"] = formatExcelDateToStr(row["발급일자"]);
+
+      // 거래처명 = 상호 (상대방)
+      row["거래처명"] = String(row["상호"] || "").trim();
+      row["사업자번호"] = normalizeBizNum(String(row["사업자(주민)번호"] || "").trim());
+
+      // 숫자 필드
+      row["공급가액"] = Number(row["공급가액"] || 0);
+      row["세액"]     = Number(row["세액"]     || 0);
+      row["합계"]     = Number(row["합계"]     || 0);
+
+      // dedup 키: 승인번호 우선
+      const apprNo = String(row["승인번호"] || "").trim();
+      row["_row_key"] = apprNo || `${row["작성일자"]}_${row["사업자번호"]}_${row["합계"]}`;
+
+      filteredRows.push(row);
+    }
+
+    // 체크섬 검증
+    const parsedTotal = filteredRows.reduce((s, r) => s + r["공급가액"], 0);
+    let checksumOk = null, fileTotal = null;
+    if (totalsRow) {
+      fileTotal = Number(totalsRow["공급가액"] || 0);
+      checksumOk = Math.abs(parsedTotal - fileTotal) < 1;
+    }
+
+    // 상대방 검증: 모든 거래처가 "엠오토"이면 잘못된 파일 업로드 경고
+    const names = [...new Set(filteredRows.map(r => r["거래처명"]))];
+    const allMauto = names.length > 0 && names.every(n => /엠오토|M오토|EM오토/i.test(n));
+
+    return { rows: filteredRows, checksumOk, parsedTotal, fileTotal, allMauto, error: null };
+  } catch (err) {
+    return { rows: null, checksumOk: null, parsedTotal: null, fileTotal: null, allMauto: false, error: err.message };
+  }
+}
+
 const DATA_IMPORT_LABELS = {
   taxInvoice: "세금계산서 (매출/매입 통합)",
   ledgerSales: "계정별원장 — 외상매출금",
@@ -10377,6 +10540,9 @@ async function init() {
   miraeLedgerSources = loadMiraeSource(MIRAE_SOURCE_LEDGER_KEY);
   miraeBizSources    = loadMiraeSource(MIRAE_SOURCE_BIZ_KEY);
   if (hasMiraeSources()) rebuildDaesaFromSources();
+  // 엠오토 세금계산서 소스 로드
+  loadMautoTaxSource();
+  if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
   switchTab("home");
 
   await Promise.all([

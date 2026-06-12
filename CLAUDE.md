@@ -253,6 +253,38 @@ availableFunds = {
 
 ---
 
+### 2026-06-12 (8): 엠오토 세금계산서 파서 (국세청 전자세금계산서 조회 XLS)
+
+**기능 추가 (`app.js`):**
+- `parseMautoTaxInvoiceFile(file)`: 국세청 전자세금계산서 조회 파일 파서
+  - 파일 구조: Row 1=제목, Row 7(index 6)=헤더, Row 8+=데이터, 마지막 행=합계(체크섬)
+  - 헤더: `구분|종류|작성일자|사업자(주민)번호|종사업장번호|상호|대표자명|공급가액|세액|합계|비고|승인번호|발급일자|발급유형`
+  - 거래처 = `상호` (상대방): 매출 파일=매출처(구매자), 매입 파일=매입처(공급자)
+  - 체크섬: 마지막 행(`구분=""`, `종류="N건"`) → `공급가액` 합계 대조
+  - 잘못된 파일 경고: 모든 거래처명이 "엠오토"인 경우 알림 (타사 파일 업로드 실수 방지)
+  - `_row_key` = 승인번호 (없으면 `작성일자_사업자번호_합계`)
+- `MAUTO_TAX_SOURCE_KEY = "mauto-tax-source-v1"` — 파일 단위 소스 보관
+- `mautoTaxSources`, `mautoTaxInvoices` 전역 변수 + 저장/로드/재빌드 헬퍼
+  - `saveMautoTaxSource()`, `loadMautoTaxSource()`, `rebuildMautoTaxInvoices()`
+- 엠오토 탭 상단 버튼 추가: `🧾 매출 세금계산서`, `🧾 매입 세금계산서`
+  - 파일 선택 → 파싱 → 체크섬 확인 → `mautoTaxSources` 저장 → `rebuildMautoTaxInvoices()`
+  - 같은 파일명 재업로드 시 교체 확인
+  - 저장 파일 뱃지 표시 (파일명/건수/체크섬 결과/삭제 버튼)
+- `renderArRecapView()` 데이터소스 우선순위: `mautoTaxInvoices`(있으면) → `daesaState.taxInvoices`
+  - 툴바에 현재 소스 표시 ("엠오토 세금계산서 N건" / "미래 세금계산서 N건")
+- 앱 시작 시 `loadMautoTaxSource()` → `rebuildMautoTaxInvoices()` 자동 실행
+
+**파일 구조 확인 (Python xlrd 검증):**
+- 헤더 7행(index 6), 데이터 8행부터 (기존 `parseTaxInvoiceFile`과 동일)
+- 체크섬 행: 마지막 행, `구분` 빈값, `종류`=`"N건"` 패턴
+- 매출/매입 모두 `상호`(col 5)가 거래처 (엠오토는 항상 자기쪽이라 상대방만 표시됨)
+- 소형 파일(9건 이하)은 체크섬 행 없음 → `checksumOk=null` (검증 생략)
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260612m`)  
+**커밋:** (이번 커밋)
+
+---
+
 ### 2026-06-12 (7): Phase 4-A — 미수/미지급 자동계산 (대사 탭 📊 미수/미지급)
 
 **공식:** `잔액 = 발생액(세금계산서) − 충당액(입출금 분류)`
