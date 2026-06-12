@@ -9210,44 +9210,43 @@ function renderRulesPanel() {
     ? `<span style="font-size:12px;color:#6b7280;margin-left:6px;">${filtered.length}건${rulesState.bizFilter !== "전체" ? ` (${rulesState.bizFilter})` : ""}</span>`
     : "";
 
-  const bodyHtml = rulesState.tableOpen ? `
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-      ${BIZ_OPTIONS.map(b =>
-        `<button class="rules-biz-btn${rulesState.bizFilter===b?" active":""}" data-biz="${b}">${b}</button>`
-      ).join("")}
-      <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
-      <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
-      <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
-        📂 Excel 가져오기
-        <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
-      </label>
-    </div>
-    ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
-    ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
-    <div class="rules-table-wrap">
-      <table class="rules-table">
-        <thead><tr>
-          <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
-        </tr></thead>
-        <tbody>
-          ${rowsHtml}
-          ${newRowHtml}
-          ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
-        </tbody>
-      </table>
-    </div>`}` : "";
 
   panel.innerHTML = `
     <div class="rules-panel-inner">
       <div class="rules-toolbar">
-        <div style="display:flex;align-items:center;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;">
           <button id="rulesToggleBtn" class="rules-btn" style="min-width:28px;">${toggleIcon}</button>
-          <strong style="font-size:14px;">📐 분류규칙 관리</strong>
+          <strong style="font-size:14px;white-space:nowrap;">📐 분류규칙 관리</strong>
           ${countBadge}
+          ${rulesState.tableOpen ? `
+          <span style="color:#d1d5db;">|</span>
+          ${BIZ_OPTIONS.map(b =>
+            `<button class="rules-biz-btn${rulesState.bizFilter===b?" active":""}" data-biz="${b}">${b}</button>`
+          ).join("")}
+          <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
+          <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
+          <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
+            📂 Excel 가져오기
+            <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
+          </label>` : ""}
         </div>
         <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
       </div>
-      ${bodyHtml}
+      ${rulesState.tableOpen ? `
+        ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
+        ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
+        <div class="rules-table-wrap">
+          <table class="rules-table">
+            <thead><tr>
+              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
+            </tr></thead>
+            <tbody>
+              ${rowsHtml}
+              ${newRowHtml}
+              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+            </tbody>
+          </table>
+        </div>`}` : ""}
     </div>`;
 
   // 이벤트 바인딩
