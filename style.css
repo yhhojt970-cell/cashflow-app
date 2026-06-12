@@ -4758,6 +4758,44 @@ td {
 .daesa-vat-btn.active { background: #15803d; color: #fff; border-color: #15803d; }
 .daesa-vat-btn:hover { background: #dcfce7; }
 .daesa-vat-btn.active:hover { background: #166534; }
+.daesa-arrecap-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #fed7aa; background: #fff7ed; color: #c2410c; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+.daesa-arrecap-btn.active { background: #c2410c; color: #fff; border-color: #c2410c; }
+.daesa-arrecap-btn:hover { background: #ffedd5; }
+.daesa-arrecap-btn.active:hover { background: #9a3412; }
+
+/* ── Phase 4-A 미수/미지급 자동계산 ──────────────────────── */
+.arrecap-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.arrecap-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #fff7ed; border-bottom: 1px solid #fed7aa; flex-wrap: wrap; }
+.arrecap-toolbar strong { font-size: 14px; color: #c2410c; }
+.arrecap-toolbar label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #374151; }
+.arrecap-toolbar select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+.arrecap-side-toggle { display: flex; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; }
+.arrecap-side-btn { padding: 4px 12px; background: #f1f5f9; border: none; font-size: 13px; font-weight: 600; cursor: pointer; color: #475569; }
+.arrecap-side-btn.active { background: #c2410c; color: #fff; }
+.arrecap-side-btn:not(.active):hover { background: #e2e8f0; }
+.arrecap-pending-badge { padding: 3px 8px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; font-size: 12px; color: #92400e; font-weight: 600; }
+.arrecap-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.arrecap-table th, .arrecap-table td { border: 1px solid #e2e8f0; padding: 6px 10px; }
+.arrecap-th-vendor { background: #f8fafc; font-weight: 700; text-align: left; min-width: 140px; }
+.arrecap-th-ym { background: #f8fafc; font-weight: 700; text-align: center; white-space: nowrap; }
+.arrecap-th-num { background: #f8fafc; font-weight: 700; text-align: right; min-width: 130px; }
+.arrecap-th-jan { background: #fff7ed; font-weight: 700; text-align: right; min-width: 130px; color: #c2410c; }
+.arrecap-vendor-cell { font-weight: 600; color: #1e293b; vertical-align: top; white-space: nowrap; }
+.arrecap-ym-cell { text-align: center; white-space: nowrap; color: #475569; }
+.arrecap-num-cell { text-align: right; white-space: nowrap; }
+.arrecap-jan-cell { font-weight: 600; background: #fffbeb; }
+.arrecap-pos { color: #1d4ed8; }
+.arrecap-neg { color: #dc2626; }
+.arrecap-first td { border-top: 2px solid #e2e8f0; }
+.arrecap-sub-row td { background: #f8fafc; font-size: 12px; border-top: 1px dashed #cbd5e1; }
+.arrecap-total-row td { background: #fff7ed; font-weight: 700; border-top: 2px solid #fed7aa; }
+.arrecap-pending-wrap { margin: 0; border-top: 1px solid #e2e8f0; }
+.arrecap-pending-summary { padding: 8px 14px; background: #fffbeb; font-size: 13px; color: #92400e; cursor: pointer; font-weight: 600; }
+.arrecap-pending-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 0; }
+.arrecap-pending-table th, .arrecap-pending-table td { border: 1px solid #e2e8f0; padding: 5px 8px; }
+.arrecap-pending-table th { background: #f8fafc; font-weight: 600; }
+.arrecap-memo { color: #6c7a92; font-family: monospace; font-size: 11px; }
+.arrecap-note { padding: 8px 14px; font-size: 12px; color: #6c7a92; margin: 0; }
 
 /* ── Phase 3 부가세 대시보드 ─────────────────────────────── */
 .vat-view-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }

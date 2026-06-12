@@ -7948,6 +7948,10 @@ const daesaState = {
   vatView: false,               // true = 부가세 대시보드 모드
   vatMode: "분기",              // "월간" | "분기" | "반기" | "연간"
   vatYear: new Date().getFullYear(),
+  // 미수/미지급 자동계산 뷰
+  arRecapView: false,           // true = 미수/미지급 자동계산 뷰
+  arRecapSide: "미지급",        // "미수" | "미지급"
+  arRecapFilterYear: null,      // null = 전체
 };
 
 // 대사 탭 정렬 상태
@@ -8683,9 +8687,11 @@ function renderDaesaTab() {
       <span class="daesa-toolbar-sep"></span>
       <button class="daesa-settlement-btn${daesaState.settlementView ? " active" : ""}">📊 정산표</button>
       <button class="daesa-vat-btn${daesaState.vatView ? " active" : ""}">🧾 부가세</button>
+      <button class="daesa-arrecap-btn${daesaState.arRecapView ? " active" : ""}">📊 미수/미지급</button>
     </div>
     ${daesaState.settlementView ? renderSettlementView() : ""}
     ${daesaState.vatView ? renderVatView() : ""}
+    ${daesaState.arRecapView ? renderArRecapView() : ""}
     <div class="table-responsive">
       <table class="daesa-table">
         <thead>
@@ -8762,8 +8768,23 @@ function renderDaesaTab() {
   });
   section.querySelector(".daesa-vat-btn")?.addEventListener("click", () => {
     daesaState.vatView = !daesaState.vatView;
-    if (daesaState.vatView) daesaState.settlementView = false;
+    if (daesaState.vatView) { daesaState.settlementView = false; daesaState.arRecapView = false; }
     renderDaesaTab();
+  });
+  section.querySelector(".daesa-arrecap-btn")?.addEventListener("click", () => {
+    daesaState.arRecapView = !daesaState.arRecapView;
+    if (daesaState.arRecapView) { daesaState.settlementView = false; daesaState.vatView = false; }
+    renderDaesaTab();
+  });
+  section.querySelector("#arRecapYearFilter")?.addEventListener("change", e => {
+    daesaState.arRecapFilterYear = e.target.value === "" ? null : Number(e.target.value);
+    renderDaesaTab();
+  });
+  section.querySelectorAll(".arrecap-side-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      daesaState.arRecapSide = btn.dataset.side;
+      renderDaesaTab();
+    });
   });
   section.querySelector("#vatModeFilter")?.addEventListener("change", e => {
     daesaState.vatMode = e.target.value;
@@ -8782,6 +8803,199 @@ function renderDaesaTab() {
     daesaState.settlementFilterYear = e.target.value === "" ? null : Number(e.target.value);
     renderDaesaTab();
   });
+}
+
+// ────────────────────────────────────────────────────────────
+//  Phase 4-A — 미수/미지급 자동계산 (세금계산서 발생 − 입출금 충당)
+// ────────────────────────────────────────────────────────────
+
+// sideType: "미수"(매출) | "미지급"(매입)
+// taxInvoices: daesaState.taxInvoices
+// classifiedRows: mautoClassifiedRows (입출금 분류 결과)
+function buildArRecap(taxInvoices, classifiedRows, sideType) {
+  const 구분키 = sideType === "미수" ? "매출" : "매입";
+  const amtField = sideType === "미수" ? "credit" : "debit";
+
+  // ─ 발생액: 세금계산서 → 거래처×작성연월 집계 ─
+  const 발생맵 = new Map(); // key: "거래처명\t연월" → number
+  for (const r of taxInvoices) {
+    if (String(r["구분"] || "").trim() !== 구분키) continue;
+    const ym = rowToYearMonth(r["작성일자"]);
+    if (!ym) continue;
+    const vendor = (r["_matched_name"] || r["상호"] || "").trim();
+    if (!vendor) continue;
+    const amt = parseAmt(r["합계"]);
+    const k = `${vendor}\t${ym}`;
+    발생맵.set(k, (발생맵.get(k) || 0) + amt);
+  }
+
+  // ─ 충당액: 분류된 입출금 → 거래처×귀속연월 집계 ─
+  //   조건: 구분=매출/매입, 입금(미수)/출금(미지급), 귀속연월 파싱 ok
+  const 충당맵 = new Map(); // key: "거래처명\t귀속연월" → number
+  const 확인필요 = [];      // 귀속연월 파싱 실패 행 보관
+
+  for (const r of (classifiedRows || [])) {
+    if (r.excluded) continue;
+    if (String(r.구분 || "").trim() !== 구분키) continue;
+    const amt = Number(r[amtField]) || 0;
+    if (amt <= 0) continue;
+    const vendor = (r.거래처명 || "").trim();
+    if (!vendor) continue;
+
+    // 귀속연월 파싱: _memo2(비고) → _memo(적요1) → memo 순으로 시도
+    const memoSrc = r._memo2 || r._memo || r.memo || "";
+    const parsed = parseYearMonthCode(memoSrc);
+
+    if (parsed.status === "확인필요") {
+      확인필요.push({ vendor, amt, memo: memoSrc, date: r.date, 매칭근거: r.매칭근거 });
+      continue;
+    }
+    const귀속ym = `${parsed.연도}-${String(parsed.월).padStart(2, "0")}`;
+    const k = `${vendor}\t${귀속ym}`;
+    충당맵.set(k, (충당맵.get(k) || 0) + amt);
+  }
+
+  // ─ 발생 ∪ 충당 머지 → 잔액 계산 ─
+  const allKeys = new Set([...발생맵.keys(), ...충당맵.keys()]);
+  const entries = [];
+  for (const key of allKeys) {
+    const [vendor, ym] = key.split("\t");
+    const [year, month] = ym.split("-").map(Number);
+    const 발생 = 발생맵.get(key) || 0;
+    const 충당 = 충당맵.get(key) || 0;
+    entries.push({ vendor, ym, year, month, 발생, 충당, 잔액: 발생 - 충당 });
+  }
+
+  // 거래처명 → 연도 → 월 순 정렬
+  entries.sort((a, b) => {
+    const nc = a.vendor.localeCompare(b.vendor, "ko");
+    if (nc !== 0) return nc;
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
+
+  return { entries, 확인필요 };
+}
+
+function renderArRecapView() {
+  const side       = daesaState.arRecapSide;
+  const filterYear = daesaState.arRecapFilterYear;
+  const fn = n => formatNumber(n);
+  const jCls = n => n > 0 ? "arrecap-pos" : n < 0 ? "arrecap-neg" : "";
+
+  const { entries, 확인필요 } = buildArRecap(
+    daesaState.taxInvoices,
+    typeof mautoClassifiedRows !== "undefined" ? mautoClassifiedRows : [],
+    side
+  );
+
+  // 연도 필터 옵션
+  const dataYears = [...new Set(entries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a);
+  const yearOpts = [`<option value="">전체</option>`,
+    ...dataYears.map(y => `<option value="${y}" ${y === filterYear ? "selected" : ""}>${y}년</option>`)
+  ].join("");
+
+  const filtered = filterYear ? entries.filter(e => e.year === filterYear) : entries;
+
+  // 검색어 필터
+  const q = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  const searched = q ? filtered.filter(e => e.vendor.toLowerCase().includes(q)) : filtered;
+
+  // 거래처별 그룹
+  const groups = new Map();
+  for (const e of searched) {
+    if (!groups.has(e.vendor)) groups.set(e.vendor, []);
+    groups.get(e.vendor).push(e);
+  }
+
+  let bodyHtml = "";
+  let gDev = 0, gChung = 0, gJan = 0;
+
+  for (const [vendor, rows] of groups) {
+    const subDev   = rows.reduce((s, r) => s + r.발생, 0);
+    const subChung = rows.reduce((s, r) => s + r.충당, 0);
+    const subJan   = rows.reduce((s, r) => s + r.잔액, 0);
+    gDev += subDev; gChung += subChung; gJan += subJan;
+
+    rows.forEach((r, i) => {
+      bodyHtml += `<tr class="arrecap-row${i === 0 ? " arrecap-first" : ""}">
+        <td class="arrecap-vendor-cell">${i === 0 ? escapeHtml(vendor) : ""}</td>
+        <td class="arrecap-ym-cell">${r.ym}</td>
+        <td class="arrecap-num-cell">${r.발생 ? fn(r.발생) : "-"}</td>
+        <td class="arrecap-num-cell">${r.충당 ? fn(r.충당) : "-"}</td>
+        <td class="arrecap-num-cell arrecap-jan-cell ${jCls(r.잔액)}">${fn(r.잔액)}</td>
+      </tr>`;
+    });
+    if (rows.length > 1) {
+      bodyHtml += `<tr class="arrecap-sub-row">
+        <td colspan="2" style="text-align:right;font-size:12px;color:#374151;">↳ ${escapeHtml(vendor)} 소계</td>
+        <td class="arrecap-num-cell">${fn(subDev)}</td>
+        <td class="arrecap-num-cell">${fn(subChung)}</td>
+        <td class="arrecap-num-cell arrecap-jan-cell ${jCls(subJan)}"><strong>${fn(subJan)}</strong></td>
+      </tr>`;
+    }
+  }
+
+  const pendingBadge = 확인필요.length
+    ? `<span class="arrecap-pending-badge">⚠ 귀속연월 미확인 ${확인필요.length}건</span>`
+    : "";
+
+  const pendingHtml = 확인필요.length ? `
+    <details class="arrecap-pending-wrap">
+      <summary class="arrecap-pending-summary">⚠ 귀속연월 미확인 ${확인필요.length}건 — 비고에서 연월을 인식 못한 입출금 행 (충당 미반영)</summary>
+      <table class="arrecap-pending-table">
+        <thead><tr><th>거래처</th><th>금액</th><th>비고(원본)</th><th>거래일자</th><th>매칭근거</th></tr></thead>
+        <tbody>${확인필요.map(r => `<tr>
+          <td>${escapeHtml(r.vendor)}</td>
+          <td class="arrecap-num-cell">${fn(r.amt)}</td>
+          <td class="arrecap-memo">${escapeHtml(r.memo)}</td>
+          <td>${escapeHtml(r.date || "")}</td>
+          <td class="muted">${escapeHtml(r.매칭근거 || "")}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </details>` : "";
+
+  const emptyMsg = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#9ca3af;">
+    데이터 없음 — 세금계산서를 자료업로드로 불러오고, 엠오토 탭에서 입출금을 분류하세요.
+  </td></tr>`;
+
+  return `
+    <div class="arrecap-wrap">
+      <div class="arrecap-toolbar">
+        <strong>${side} 자동계산</strong>
+        <div class="arrecap-side-toggle">
+          <button class="arrecap-side-btn${side === "미수" ? " active" : ""}" data-side="미수">미수금</button>
+          <button class="arrecap-side-btn${side === "미지급" ? " active" : ""}" data-side="미지급">미지급</button>
+        </div>
+        <span class="daesa-toolbar-sep"></span>
+        <label>연도 <select id="arRecapYearFilter">${yearOpts}</select></label>
+        ${pendingBadge}
+        <span class="muted" style="font-size:12px;">발생: 세금계산서 합계 | 충당: 엠오토 입출금 분류(비고→귀속연월)</span>
+      </div>
+      <div class="table-responsive">
+        <table class="arrecap-table">
+          <thead>
+            <tr>
+              <th class="arrecap-th-vendor">거래처</th>
+              <th class="arrecap-th-ym">연월</th>
+              <th class="arrecap-th-num">발생액 (세금계산서)</th>
+              <th class="arrecap-th-num">충당액 (입출금)</th>
+              <th class="arrecap-th-jan">잔액</th>
+            </tr>
+          </thead>
+          <tbody>${searched.length ? bodyHtml : emptyMsg}</tbody>
+          ${searched.length ? `<tfoot><tr class="arrecap-total-row">
+            <td colspan="2"><strong>총계</strong></td>
+            <td class="arrecap-num-cell">${fn(gDev)}</td>
+            <td class="arrecap-num-cell">${fn(gChung)}</td>
+            <td class="arrecap-num-cell arrecap-jan-cell ${jCls(gJan)}"><strong>${fn(gJan)}</strong></td>
+          </tr></tfoot>` : ""}
+        </table>
+      </div>
+      ${pendingHtml}
+      <p class="arrecap-note muted">※ 발생: 작성일자(작성연월) 기준. 충당: 입출금 비고의 귀속연월(yy-mm) 파싱. 구분=매출/매입 분류된 행만 포함.</p>
+    </div>
+  `;
 }
 
 // ────────────────────────────────────────────────────────────
