@@ -253,6 +253,51 @@ availableFunds = {
 
 ---
 
+### 2026-06-12 (2): 분류규칙 관리 UI 개선 (sticky 헤더·구분 빈값·아코디언·툴바 한줄)
+
+**변경 내용 (`app.js`, `style.css`):**
+1. **분류규칙 표 헤더 sticky** — `style.css` `.rules-table-wrap`에 `overflow-y:auto; max-height:420px`, `th`에 `position:sticky; top:0; z-index:2` 추가
+2. **구분 빈값 옵션 추가** — `DIV_OPTIONS = ["", "매출", "매입"]` / 렌더 시 빈값은 `(없음)` 표시
+3. **아코디언 (기본 접힘, 수동 로드)** — `rulesState.tableOpen = false` 기본값; `▶` 클릭 시 `tableOpen` 토글 후 처음 열릴 때만 `loadRules()`; 패널 열 때 자동 로드 제거
+4. **툴바 한 줄** — `renderRulesPanel()` 내 `flex-wrap:nowrap` 단일 `<div>`에 토글버튼·제목·카운트·구분선·필터·버튼 전부 배치; ✕닫기는 우측 끝 `margin-left:auto`
+
+**수정 파일:** `app.js`, `style.css`, `index.html` (버전 `?v=20260612g`)  
+**커밋:** `dfc4e07`, `46ee7fb`
+
+---
+
+### 2026-06-12 (1): Phase 2 — 엠오토 입출금 분류 보강 (중복방지·제외토글·규칙학습)
+
+**Phase 2④ — 재업로드 중복 방지 + localStorage 영구저장 (`app.js`):**
+- `MAUTO_CLASSIFIED_KEY = "mauto-classified-rows-v1"` localStorage 키 추가
+- `saveClassifiedRows()` / `loadClassifiedRows()` 헬퍼 추가, 앱 시작 시 `loadClassifiedRows()` 호출
+- `assignTxKeys(bankRows)`: 거래키 부여 — `_time` 있으면 `date|time|credit|debit|memo`, 없으면 배치 내 같은 기본키에 `#N` 시퀀스 번호 추가
+- `mergeClassifiedRows(existing, incoming)`: Map 기반 merge — 기존 키 보존(건너뜀), 신규만 추가; 건너뜀 건수 반환
+- 파일 업로드 핸들러: `parseBankSheet()` → `assignTxKeys()` → `mergeClassifiedRows()` 순으로 변경
+- 저장 대상: 제외·미매칭 행 포함 **모든 행** 저장 (기존엔 `거래처명 있는 행만` 필터)
+- 저장 행 shape: `_txKey, date, time, _memo, _memo2, memo, credit, debit, 거래처명, 구분, excluded, 매칭근거`
+
+**Phase 2② — 제외 전체선택/전체해제 마스터 체크박스 3-상태 (`app.js`):**
+- `updateMasterCheckbox()`: `전체/일부/없음` → `checked + indeterminate` 3-상태 업데이트
+- 마스터 체크박스 클릭 → `전체/일부` 상태면 전체 해제, `없음`이면 전체 체크 (visible 행 기준)
+- 저장 후 요약바에 "⚠ 미매칭 N건" 주황 경고 표시 (excluded vs 미매칭 구분 명확화)
+- 결과보기(`openMautoClassifyResultView`)에 상태 컬럼 추가 (✓분류/⊘제외/? 미매칭)
+
+**Phase 2③ — 규칙 학습 (오버라이드 행 → 분류규칙 저장) (`app.js`):**
+- `isOverride` 플래그: 거래처 셀렉트 변경 시 설정 (구분만 바꾼 경우 포함)
+- 규칙 학습 UI: 거래처명 있는 행에 "☑ 분류규칙에 추가" 서브행 표시
+  - 매칭방식(키워드/거래처명/계좌) + 매칭키 입력 + 실시간 미리보기 "N건"
+  - 매칭키 2자 미만 시 저장 불가 + 경고
+  - 키워드: `_memo` 포함, 거래처명: `_memo2` 포함, 계좌: `_memo` 정확일치
+- 중복 키 처리: 동일 키·같은 거래처 → 조용히 덮어쓰기, 다른 거래처 → 확인 모달
+- 저장 순서: 분류 저장 → `upsertRules` 호출 (규칙 실패 시 분류는 롤백 안 함)
+- `applyNewRulesToUnmatched(updatedRules)`: 저장 후 현재 화면 미매칭 행에만 새 규칙 즉시 적용 (분류됨/제외됨 건드리지 않음)
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260612a`~`g`)  
+**커밋:** `20935e9`, `814fcb3`, `6eb3a48`, `74b7cd5`
+
+---
+
 ### 2026-06-11 (3): 계정별원장 거래처코드 앞자리 0 소실 수정
 
 **증상:** 계정별원장 업로드 시 `05959` → `5959`로 저장됨. 정산표에서 코드 오표시.
