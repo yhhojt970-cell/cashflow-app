@@ -7897,6 +7897,10 @@ const daesaState = {
   settlementView: false,        // true = 정산표 모드
   settlementDiv: "매출",        // "매출" | "매입" | "미지급"
   settlementFilterYear: null,   // null = 전체
+  // 부가세 뷰 상태
+  vatView: false,               // true = 부가세 대시보드 모드
+  vatMode: "분기",              // "월간" | "분기" | "반기" | "연간"
+  vatYear: new Date().getFullYear(),
 };
 
 // 대사 탭 정렬 상태
@@ -8591,8 +8595,10 @@ function renderDaesaTab() {
       <span class="daesa-count muted">${vendorEntries.length}개 업체 표시중 ${q ? `(검색: ${q})` : ""}</span>
       <span class="daesa-toolbar-sep"></span>
       <button class="daesa-settlement-btn${daesaState.settlementView ? " active" : ""}">📊 정산표</button>
+      <button class="daesa-vat-btn${daesaState.vatView ? " active" : ""}">🧾 부가세</button>
     </div>
     ${daesaState.settlementView ? renderSettlementView() : ""}
+    ${daesaState.vatView ? renderVatView() : ""}
     <div class="table-responsive">
       <table class="daesa-table">
         <thead>
@@ -8664,6 +8670,20 @@ function renderDaesaTab() {
   });
   section.querySelector(".daesa-settlement-btn")?.addEventListener("click", () => {
     daesaState.settlementView = !daesaState.settlementView;
+    if (daesaState.settlementView) daesaState.vatView = false;
+    renderDaesaTab();
+  });
+  section.querySelector(".daesa-vat-btn")?.addEventListener("click", () => {
+    daesaState.vatView = !daesaState.vatView;
+    if (daesaState.vatView) daesaState.settlementView = false;
+    renderDaesaTab();
+  });
+  section.querySelector("#vatModeFilter")?.addEventListener("change", e => {
+    daesaState.vatMode = e.target.value;
+    renderDaesaTab();
+  });
+  section.querySelector("#vatYearFilter")?.addEventListener("change", e => {
+    daesaState.vatYear = Number(e.target.value);
     renderDaesaTab();
   });
   // 정산표 내부 이벤트
@@ -8675,6 +8695,159 @@ function renderDaesaTab() {
     daesaState.settlementFilterYear = e.target.value === "" ? null : Number(e.target.value);
     renderDaesaTab();
   });
+}
+
+// ────────────────────────────────────────────────────────────
+//  부가세 대시보드 (Phase 3 — 세금계산서 작성일자 기준)
+// ────────────────────────────────────────────────────────────
+
+// taxInvoices 배열 → 연월별 집계 맵 반환
+// 반환: Map(ym → { 매출공급: number, 매출세액: number, 매입공급: number, 매입세액: number })
+function buildVatSummary(taxInvoices) {
+  const map = new Map();
+  const ensure = ym => {
+    if (!map.has(ym)) map.set(ym, { 매출공급: 0, 매출세액: 0, 매입공급: 0, 매입세액: 0 });
+    return map.get(ym);
+  };
+  for (const r of taxInvoices) {
+    const ym = rowToYearMonth(r["작성일자"]);
+    if (!ym) continue;
+    const type = String(r["구분"] || "").trim();
+    if (type !== "매출" && type !== "매입") continue;
+    const supply = parseAmt(r["공급가액"]);
+    const tax    = parseAmt(r["세액"]);
+    const e = ensure(ym);
+    if (type === "매출") { e.매출공급 += supply; e.매출세액 += tax; }
+    else                  { e.매입공급 += supply; e.매입세액 += tax; }
+  }
+  return map;
+}
+
+// mode별 기간 묶음 생성: [{ label, months: ["YYYY-MM", ...] }, ...]
+function buildVatPeriods(year, mode) {
+  const y = String(year);
+  if (mode === "월간") {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = String(i + 1).padStart(2, "0");
+      return { label: `${i + 1}월`, months: [`${y}-${m}`] };
+    });
+  }
+  if (mode === "분기") {
+    return [
+      { label: "1분기 (1~3월)",  months: [`${y}-01`, `${y}-02`, `${y}-03`] },
+      { label: "2분기 (4~6월)",  months: [`${y}-04`, `${y}-05`, `${y}-06`] },
+      { label: "3분기 (7~9월)",  months: [`${y}-07`, `${y}-08`, `${y}-09`] },
+      { label: "4분기 (10~12월)", months: [`${y}-10`, `${y}-11`, `${y}-12`] },
+    ];
+  }
+  if (mode === "반기") {
+    return [
+      { label: "1기 (1~6월)",  months: [`${y}-01`,`${y}-02`,`${y}-03`,`${y}-04`,`${y}-05`,`${y}-06`] },
+      { label: "2기 (7~12월)", months: [`${y}-07`,`${y}-08`,`${y}-09`,`${y}-10`,`${y}-11`,`${y}-12`] },
+    ];
+  }
+  // 연간
+  return [{ label: `${year}년 합계`, months: Array.from({ length: 12 }, (_, i) => `${y}-${String(i+1).padStart(2,"0")}`) }];
+}
+
+function renderVatView() {
+  const vatMap = buildVatSummary(daesaState.taxInvoices);
+  const mode = daesaState.vatMode;
+  const year = daesaState.vatYear;
+
+  // 연도 옵션: 데이터 있는 연도 + 현재 연도
+  const dataYears = [...new Set([...vatMap.keys()].map(ym => Number(ym.slice(0, 4))))].sort((a, b) => b - a);
+  if (!dataYears.includes(year)) dataYears.unshift(year);
+  const yearOpts = dataYears.map(y => `<option value="${y}" ${y === year ? "selected" : ""}>${y}년</option>`).join("");
+
+  const periods = buildVatPeriods(year, mode);
+
+  // 합산: period별
+  const rows = periods.map(p => {
+    const agg = { 매출공급: 0, 매출세액: 0, 매입공급: 0, 매입세액: 0 };
+    for (const ym of p.months) {
+      const e = vatMap.get(ym);
+      if (e) { agg.매출공급 += e.매출공급; agg.매출세액 += e.매출세액; agg.매입공급 += e.매입공급; agg.매입세액 += e.매입세액; }
+    }
+    agg.납부세액 = agg.매출세액 - agg.매입세액;
+    return { label: p.label, ...agg };
+  });
+
+  // 총계
+  const total = rows.reduce((s, r) => {
+    s.매출공급 += r.매출공급; s.매출세액 += r.매출세액;
+    s.매입공급 += r.매입공급; s.매입세액 += r.매입세액;
+    s.납부세액 += r.납부세액;
+    return s;
+  }, { 매출공급: 0, 매출세액: 0, 매입공급: 0, 매입세액: 0, 납부세액: 0 });
+
+  const fn = n => formatNumber(n);
+  const납부cls = n => n < 0 ? "vat-refund" : n > 0 ? "vat-pay" : "";
+
+  const bodyRows = rows.map(r => `
+    <tr>
+      <td class="vat-period-cell">${r.label}</td>
+      <td class="vat-num-cell">${fn(r.매출공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(r.매출세액)}</td>
+      <td class="vat-num-cell">${fn(r.매입공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(r.매입세액)}</td>
+      <td class="vat-num-cell vat-result-cell ${납부cls(r.납부세액)}">${r.납부세액 < 0 ? "▲ " + fn(-r.납부세액) : fn(r.납부세액)}</td>
+    </tr>
+  `).join("");
+
+  const totalRow = `
+    <tr class="vat-total-row">
+      <td class="vat-period-cell"><strong>합계</strong></td>
+      <td class="vat-num-cell">${fn(total.매출공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(total.매출세액)}</td>
+      <td class="vat-num-cell">${fn(total.매입공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(total.매입세액)}</td>
+      <td class="vat-num-cell vat-result-cell ${납부cls(total.납부세액)}">${total.납부세액 < 0 ? "▲ " + fn(-total.납부세액) : fn(total.납부세액)}</td>
+    </tr>
+  `;
+
+  const dataCount = daesaState.taxInvoices.filter(r => {
+    const t = String(r["구분"] || "").trim();
+    return (t === "매출" || t === "매입") && rowToYearMonth(r["작성일자"])?.startsWith(String(year));
+  }).length;
+
+  return `
+    <div class="vat-view-wrap">
+      <div class="vat-toolbar">
+        <strong>부가세 납부세액 집계</strong>
+        <span class="daesa-toolbar-sep"></span>
+        <label>연도 <select id="vatYearFilter">${yearOpts}</select></label>
+        <label>기간 <select id="vatModeFilter">
+          <option value="월간" ${mode === "월간" ? "selected" : ""}>월간</option>
+          <option value="분기" ${mode === "분기" ? "selected" : ""}>분기</option>
+          <option value="반기" ${mode === "반기" ? "selected" : ""}>반기</option>
+          <option value="연간" ${mode === "연간" ? "selected" : ""}>연간</option>
+        </select></label>
+        <span class="muted" style="font-size:12px;">${year}년 세금계산서 ${dataCount}건 기준</span>
+      </div>
+      <div class="table-responsive">
+        <table class="vat-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="vat-th-period">기간</th>
+              <th colspan="2" class="vat-th-group vat-th-sales">매출</th>
+              <th colspan="2" class="vat-th-group vat-th-purchase">매입</th>
+              <th rowspan="2" class="vat-th-result">납부(환급)세액</th>
+            </tr>
+            <tr>
+              <th class="vat-th-sub">공급가액</th>
+              <th class="vat-th-sub vat-th-tax">세액</th>
+              <th class="vat-th-sub">공급가액</th>
+              <th class="vat-th-sub vat-th-tax">세액</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot>${totalRow}</tfoot>
+        </table>
+      </div>
+      <p class="vat-note muted">※ 집계 기준: 세금계산서 작성일자(작성연월). 구분이 비어있는 행(이자·인출 등)은 제외됩니다.</p>
+    </div>
+  `;
 }
 
 // ────────────────────────────────────────────────────────────

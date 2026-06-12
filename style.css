@@ -4750,6 +4750,34 @@ td {
 .daesa-settlement-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .daesa-settlement-btn:hover { background: #dbeafe; }
 .daesa-settlement-btn.active:hover { background: #1e40af; }
+.daesa-vat-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #bbf7d0; background: #f0fdf4; color: #15803d; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+.daesa-vat-btn.active { background: #15803d; color: #fff; border-color: #15803d; }
+.daesa-vat-btn:hover { background: #dcfce7; }
+.daesa-vat-btn.active:hover { background: #166534; }
+
+/* ── Phase 3 부가세 대시보드 ─────────────────────────────── */
+.vat-view-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.vat-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; flex-wrap: wrap; }
+.vat-toolbar strong { font-size: 14px; color: #15803d; }
+.vat-toolbar label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #374151; }
+.vat-toolbar select { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+.vat-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vat-table th, .vat-table td { border: 1px solid #e2e8f0; padding: 7px 10px; }
+.vat-th-period { background: #f8fafc; font-weight: 700; text-align: left; min-width: 120px; }
+.vat-th-group { text-align: center; font-weight: 700; background: #f8fafc; }
+.vat-th-sales { background: #eff6ff; color: #1d4ed8; }
+.vat-th-purchase { background: #fef2f2; color: #b91c1c; }
+.vat-th-result { background: #fefce8; color: #854d0e; font-weight: 700; text-align: center; min-width: 130px; }
+.vat-th-sub { background: #f8fafc; font-size: 12px; text-align: right; font-weight: 600; }
+.vat-th-tax { background: #f0f9ff; }
+.vat-period-cell { font-weight: 500; color: #374151; white-space: nowrap; }
+.vat-num-cell { text-align: right; white-space: nowrap; color: #1e293b; }
+.vat-tax-cell { background: #f9fafb; }
+.vat-result-cell { font-weight: 700; background: #fffbeb; }
+.vat-pay { color: #b91c1c; }
+.vat-refund { color: #15803d; }
+.vat-total-row td { background: #f0fdf4; font-weight: 700; border-top: 2px solid #86efac; }
+.vat-note { padding: 8px 14px; font-size: 12px; color: #6c7a92; margin: 0; }
 
 /* ── Phase 1 정산표 ──────────────────────────────────────── */
 .stl-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
