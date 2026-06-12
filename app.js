@@ -7291,7 +7291,7 @@ function openMautoClassifyDialog(bankRows, rules) {
       <div class="table-responsive bank-match-table-wrap">
         <table class="bank-match-table">
           <thead><tr>
-            <th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>매칭근거</th><th>거래처명</th><th>매출/매입</th><th>제외</th>
+            <th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>매칭근거</th><th>거래처명</th><th>매출/매입</th><th style="white-space:nowrap;"><input type="checkbox" id="mclExcludeAll" title="전체 제외 토글" style="margin-right:3px;">제외</th>
           </tr></thead>
           <tbody>${buildTableHtml()}</tbody>
         </table>
@@ -7310,6 +7310,23 @@ function openMautoClassifyDialog(bankRows, rules) {
   }
   updateCount();
 
+  // 마스터 체크박스 3-상태 갱신
+  function updateMasterCheckbox() {
+    const master = overlay.querySelector("#mclExcludeAll");
+    if (!master) return;
+    const exclCount = items.filter(i => i.excluded).length;
+    if (exclCount === 0) {
+      master.checked = false;
+      master.indeterminate = false;
+    } else if (exclCount === items.length) {
+      master.checked = true;
+      master.indeterminate = false;
+    } else {
+      master.checked = false;
+      master.indeterminate = true;
+    }
+  }
+
   overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
   overlay.querySelectorAll(".mcl-vendor").forEach(sel =>
@@ -7317,7 +7334,21 @@ function openMautoClassifyDialog(bankRows, rules) {
   overlay.querySelectorAll(".mcl-div").forEach(sel =>
     sel.addEventListener("change", () => { items[+sel.dataset.idx].구분 = sel.value; }));
   overlay.querySelectorAll(".mcl-exclude").forEach(chk =>
-    chk.addEventListener("change", () => { items[+chk.dataset.idx].excluded = chk.checked; updateCount(); }));
+    chk.addEventListener("change", () => {
+      items[+chk.dataset.idx].excluded = chk.checked;
+      updateCount();
+      updateMasterCheckbox();
+    }));
+
+  // 마스터 체크박스 → 전체 토글 (보이는 행 = items 전체)
+  overlay.querySelector("#mclExcludeAll")?.addEventListener("change", e => {
+    const val = e.target.checked;
+    items.forEach(i => { i.excluded = val; });
+    overlay.querySelectorAll(".mcl-exclude").forEach(chk => { chk.checked = val; });
+    // indeterminate 해제 (마스터 직접 클릭 시 명확한 상태로)
+    e.target.indeterminate = false;
+    updateCount();
+  });
 
   overlay.querySelector("#mclApplyBtn").addEventListener("click", () => {
     const incoming = items.map(i => ({
