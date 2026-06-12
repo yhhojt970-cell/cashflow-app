@@ -7242,7 +7242,8 @@ function openMautoClassifyDialog(bankRows, rules) {
 
   const items = bankRows.map(row => {
     const match = classifyBankRow(row, 엠오토규칙);
-    return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false };
+    return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false,
+      isOverride: false, ruleAdd: false, ruleMethod: "키워드", ruleKey: "" };
   });
 
   const overlay = document.createElement("div");
@@ -7267,6 +7268,10 @@ function openMautoClassifyDialog(bankRows, rules) {
       const divOpts = `<option value="">-</option>
         <option value="매출" ${item.구분 === "매출" ? "selected" : ""}>매출</option>
         <option value="매입" ${item.구분 === "매입" ? "selected" : ""}>매입</option>`;
+      const ruleRowHidden = item.거래처명 ? "" : "display:none;";
+      const ruleDetailHidden = item.ruleAdd ? "" : "display:none;";
+      const memoHint = escapeHtml((row._memo || "").slice(0, 25));
+      const memo2Hint = row._memo2 ? ` | 비고: ${escapeHtml(row._memo2.slice(0, 15))}` : "";
       return `<tr style="${rowBg}">
         <td style="font-size:12px;white-space:nowrap;">${escapeHtml(row._date)}</td>
         <td>${dirLabel}</td>
@@ -7276,6 +7281,25 @@ function openMautoClassifyDialog(bankRows, rules) {
         <td><select class="mcl-vendor" data-idx="${idx}" style="font-size:12px;max-width:130px;">${vendorOpts}</select></td>
         <td><select class="mcl-div" data-idx="${idx}" style="font-size:12px;">${divOpts}</select></td>
         <td><input type="checkbox" class="mcl-exclude" data-idx="${idx}" ${item.excluded ? "checked" : ""} /></td>
+      </tr>
+      <tr class="mcl-rule-row" data-idx="${idx}" style="${ruleRowHidden}">
+        <td colspan="8" style="padding:2px 12px 6px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:#374151;white-space:nowrap;">
+              <input type="checkbox" class="mcl-rule-add" data-idx="${idx}" ${item.ruleAdd ? "checked" : ""}> 분류규칙에 추가
+            </label>
+            <div class="mcl-rule-detail" data-idx="${idx}" style="${ruleDetailHidden}display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span style="color:#9ca3af;font-size:11px;" title="적요: ${escapeHtml(row._memo || "")} / 비고: ${escapeHtml(row._memo2 || "")}">적요: ${memoHint}${memo2Hint}</span>
+              <select class="mcl-rule-method" data-idx="${idx}" style="font-size:12px;">
+                <option value="키워드" ${item.ruleMethod==="키워드"?"selected":""}>키워드(적요)</option>
+                <option value="거래처명" ${item.ruleMethod==="거래처명"?"selected":""}>거래처명(비고)</option>
+                <option value="계좌" ${item.ruleMethod==="계좌"?"selected":""}>계좌(정확)</option>
+              </select>
+              <input type="text" class="mcl-rule-key" data-idx="${idx}" value="${escapeHtml(item.ruleKey)}" placeholder="매칭키 2자 이상" style="font-size:12px;width:110px;padding:2px 6px;border:1px solid #d1d5db;border-radius:4px;">
+              <span class="mcl-rule-preview" data-idx="${idx}" style="font-size:11px;min-width:36px;"></span>
+            </div>
+          </div>
+        </td>
       </tr>`;
     }).join("");
   }
@@ -7327,12 +7351,70 @@ function openMautoClassifyDialog(bankRows, rules) {
     }
   }
 
+  // 미리보기: 이번 업로드 bankRows 기준으로 매칭방식별 건수 계산
+  function updateRulePreview(idx) {
+    const item = items[idx];
+    const key = (item.ruleKey || "").trim();
+    const method = item.ruleMethod || "키워드";
+    const previewEl = overlay.querySelector(`.mcl-rule-preview[data-idx="${idx}"]`);
+    if (!previewEl) return;
+    if (key.length < 2) {
+      previewEl.textContent = key.length > 0 ? "2자 이상" : "";
+      previewEl.style.color = "#ef4444";
+      return;
+    }
+    const keyLow = key.toLowerCase();
+    let count = 0;
+    for (const r of bankRows) {
+      if (method === "계좌") {
+        if (String(r._memo || "").trim() === key) count++;
+      } else if (method === "거래처명") {
+        if (String(r._memo2 || "").toLowerCase().includes(keyLow)) count++;
+      } else {
+        if (String(r._memo || "").toLowerCase().includes(keyLow)) count++;
+      }
+    }
+    const isHigh = count > 3 && count / bankRows.length > 0.3;
+    previewEl.textContent = `${count}건`;
+    previewEl.style.color = isHigh ? "#d97706" : "#166534";
+    previewEl.title = isHigh ? "과다매칭 주의" : "";
+  }
+
   overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
   overlay.querySelectorAll(".mcl-vendor").forEach(sel =>
-    sel.addEventListener("change", () => { items[+sel.dataset.idx].거래처명 = sel.value; updateCount(); }));
+    sel.addEventListener("change", () => {
+      const idx = +sel.dataset.idx;
+      items[idx].거래처명 = sel.value;
+      items[idx].isOverride = true;
+      const ruleRow = overlay.querySelector(`.mcl-rule-row[data-idx="${idx}"]`);
+      if (ruleRow) ruleRow.style.display = sel.value ? "" : "none";
+      updateCount();
+    }));
   overlay.querySelectorAll(".mcl-div").forEach(sel =>
     sel.addEventListener("change", () => { items[+sel.dataset.idx].구분 = sel.value; }));
+
+  // 규칙 추가 체크박스 → 상세 영역 펼침
+  overlay.querySelectorAll(".mcl-rule-add").forEach(chk =>
+    chk.addEventListener("change", () => {
+      const idx = +chk.dataset.idx;
+      items[idx].ruleAdd = chk.checked;
+      const detail = overlay.querySelector(`.mcl-rule-detail[data-idx="${idx}"]`);
+      if (detail) detail.style.display = chk.checked ? "flex" : "none";
+      if (chk.checked) updateRulePreview(idx);
+    }));
+  overlay.querySelectorAll(".mcl-rule-method").forEach(sel =>
+    sel.addEventListener("change", () => {
+      const idx = +sel.dataset.idx;
+      items[idx].ruleMethod = sel.value;
+      updateRulePreview(idx);
+    }));
+  overlay.querySelectorAll(".mcl-rule-key").forEach(inp =>
+    inp.addEventListener("input", () => {
+      const idx = +inp.dataset.idx;
+      items[idx].ruleKey = inp.value;
+      updateRulePreview(idx);
+    }));
   overlay.querySelectorAll(".mcl-exclude").forEach(chk =>
     chk.addEventListener("change", () => {
       items[+chk.dataset.idx].excluded = chk.checked;
@@ -7350,11 +7432,13 @@ function openMautoClassifyDialog(bankRows, rules) {
     updateCount();
   });
 
-  overlay.querySelector("#mclApplyBtn").addEventListener("click", () => {
+  overlay.querySelector("#mclApplyBtn").addEventListener("click", async () => {
     const incoming = items.map(i => ({
       _txKey: i.row._txKey,
       date: i.row._date,
       time: i.row._time || "",
+      _memo: i.row._memo || "",
+      _memo2: i.row._memo2 || "",
       memo: [i.row._memo, i.row._memo2].filter(Boolean).join(" / "),
       credit: i.row._credit || 0,
       debit: i.row._debit || 0,
@@ -7368,8 +7452,56 @@ function openMautoClassifyDialog(bankRows, rules) {
     saveClassifiedRows();
     overlay.remove();
     if (skipped > 0) alert(`저장 완료. 중복 의심 ${skipped}건 건너뜀 (기존 분류 유지).`);
+
+    // 규칙 학습: ruleAdd 켜져 있고 키 2자 이상인 행만
+    const ruleItems = items.filter(i => i.ruleAdd && (i.ruleKey || "").trim().length >= 2 && i.거래처명);
+    if (ruleItems.length) {
+      const newRules = [];
+      for (const item of ruleItems) {
+        const key = item.ruleKey.trim();
+        const existingRule = rulesState.rows.find(
+          r => r["_rule_key"] === buildRuleKey("엠오토", item.ruleMethod, key));
+        if (existingRule && existingRule["거래처명"] !== item.거래처명) {
+          const ok = confirm(`이미 '${existingRule["거래처명"]}'으로 매핑된 규칙입니다.\n'${item.거래처명}'으로 바꿀까요?`);
+          if (!ok) continue;
+        }
+        newRules.push({ 사업체: "엠오토", 매칭방식: item.ruleMethod, 매칭키: key,
+          거래처명: item.거래처명, 구분: item.구분 || "", 우선순위: "" });
+      }
+      if (newRules.length) {
+        try {
+          await postSheetWebApp("upsertRules", { rows: newRules });
+          await loadRules();
+          // 새 규칙을 미매칭 보관 행에 즉시 소급 적용
+          const changed = applyNewRulesToUnmatched(rulesState.rows);
+          if (changed) saveClassifiedRows();
+        } catch (_) {
+          alert("분류는 저장됨. 규칙 추가는 실패 — 다시 시도해주세요.");
+        }
+      }
+    }
+
     renderMautoTab();
   });
+}
+
+// 새 규칙을 localStorage 보관분 중 미매칭(excluded=false, 거래처명="") 행에 즉시 적용
+// 이미 분류/제외된 행은 건드리지 않음 (사용자 결정 보호)
+function applyNewRulesToUnmatched(updatedRules) {
+  const 엠오토규칙 = updatedRules.filter(r => String(r["사업체"] || "") === "엠오토");
+  let changed = 0;
+  for (const saved of mautoClassifiedRows) {
+    if (saved.excluded || saved.거래처명) continue;
+    const fakeRow = { _memo: saved._memo || saved.memo || "", _memo2: saved._memo2 || "" };
+    const match = classifyBankRow(fakeRow, 엠오토규칙);
+    if (match.거래처) {
+      saved.거래처명 = match.거래처;
+      saved.구분 = match.구분;
+      saved.매칭근거 = `규칙학습:${match.매칭근거}`;
+      changed++;
+    }
+  }
+  return changed;
 }
 
 function openMautoClassifyResultView(rows) {
