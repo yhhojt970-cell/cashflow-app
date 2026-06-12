@@ -69,6 +69,16 @@ let mautoData = {
   fixed: [],
 };
 let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과
+const MAUTO_CLASSIFIED_KEY = "mauto-classified-rows-v1";
+function saveClassifiedRows() {
+  try { localStorage.setItem(MAUTO_CLASSIFIED_KEY, JSON.stringify(mautoClassifiedRows)); } catch (_) {}
+}
+function loadClassifiedRows() {
+  try {
+    const raw = localStorage.getItem(MAUTO_CLASSIFIED_KEY);
+    mautoClassifiedRows = raw ? JSON.parse(raw) : [];
+  } catch (_) { mautoClassifiedRows = []; }
+}
 
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
@@ -6794,17 +6804,21 @@ function renderMautoTab() {
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
     </div>
-    ${mautoClassifiedRows.length ? `
-    <div style="margin:8px 0;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;display:flex;gap:16px;align-items:center;">
-      <span style="font-weight:600;color:#166534;">✅ 분류완료 ${mautoClassifiedRows.length}건</span>
-      <span style="color:#6b7280;">
-        매출 ${mautoClassifiedRows.filter(r=>r.구분==="매출").length}건 /
-        매입 ${mautoClassifiedRows.filter(r=>r.구분==="매입").length}건 /
-        미분류 ${mautoClassifiedRows.filter(r=>!r.구분).length}건
-      </span>
+    ${(() => {
+      if (!mautoClassifiedRows.length) return "";
+      const active = mautoClassifiedRows.filter(r => !r.excluded && r.거래처명);
+      const excl = mautoClassifiedRows.filter(r => r.excluded);
+      const unmatched = mautoClassifiedRows.filter(r => !r.excluded && !r.거래처명);
+      return `
+    <div style="margin:8px 0;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <span style="font-weight:600;color:#166534;">✅ ${mautoClassifiedRows.length}건 저장됨</span>
+      <span style="color:#374151;">매출 ${active.filter(r=>r.구분==="매출").length}건 / 매입 ${active.filter(r=>r.구분==="매입").length}건</span>
+      ${unmatched.length ? `<span style="color:#d97706;font-weight:600;">⚠ 미매칭 ${unmatched.length}건</span>` : ""}
+      ${excl.length ? `<span style="color:#9ca3af;">제외 ${excl.length}건</span>` : ""}
       <button type="button" id="mautoClassifyViewBtn" style="font-size:12px;padding:3px 10px;border:1px solid #16a34a;background:white;border-radius:4px;cursor:pointer;color:#15803d;">목록 보기</button>
       <button type="button" id="mautoClassifyClearBtn" style="font-size:12px;padding:3px 10px;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;color:#6b7280;">지우기</button>
-    </div>` : ""}
+    </div>`;
+    })()}
     <div class="mauto-summary-grid">
       <div class="mauto-card card-funds"><span>가용자금</span><strong>${formatNumber(funds)}</strong></div>
       <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong>${formatNumber(receivable)}</strong></div>
@@ -6895,7 +6909,7 @@ function renderMautoTab() {
     const wb = XLSX.read(ab, { type: "array", cellDates: true });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-    const bankRows = parseBankSheet(sheetData);
+    const bankRows = assignTxKeys(parseBankSheet(sheetData));
     if (!bankRows.length) { alert("입출금 행을 찾을 수 없습니다.\n헤더에 거래일자/입금/출금 컬럼이 있는지 확인해주세요."); return; }
     // 규칙이 없으면 먼저 로드
     if (!rulesState.rows.length) await loadRules();
@@ -6912,6 +6926,7 @@ function renderMautoTab() {
   document.getElementById("mautoClassifyClearBtn")?.addEventListener("click", () => {
     if (!confirm("분류 결과를 지우시겠습니까?")) return;
     mautoClassifiedRows = [];
+    saveClassifiedRows();
     renderMautoTab();
   });
 
@@ -7169,6 +7184,32 @@ function parseBankSheet(sheetData) {
 //  Phase 2: 엠오토 입출금 분류 (규칙 기반 3단계 매칭)
 // ────────────────────────────────────────────────────────────
 
+// 거래키 부여: _time 있으면 날짜+시간+금액+적요, 없으면 키+배치내 발생순번
+function assignTxKeys(bankRows) {
+  const seqMap = {};
+  return bankRows.map(row => {
+    const time = String(row._time || "").trim();
+    const base = [row._date, time, row._credit || 0, row._debit || 0, row._memo].join("|");
+    if (time) return { ...row, _txKey: base };
+    seqMap[base] = (seqMap[base] || 0) + 1;
+    return { ...row, _txKey: `${base}#${seqMap[base]}` };
+  });
+}
+
+// 기존 저장 데이터와 신규 업로드 merge (거래키 기준, 충돌 시 기존 유지)
+function mergeClassifiedRows(existing, incoming) {
+  const map = new Map(existing.map(r => [r._txKey, r]));
+  let skipped = 0;
+  for (const row of incoming) {
+    if (map.has(row._txKey)) {
+      skipped++;
+    } else {
+      map.set(row._txKey, row);
+    }
+  }
+  return { merged: [...map.values()], skipped };
+}
+
 function classifyBankRow(row, rules) {
   // 레거시 순서: ①적요1 정확일치(계좌) → ②비고 부분포함(거래처명) → ③적요1 부분포함(키워드)
   const 적요1 = String(row._memo  || "").trim();
@@ -7279,18 +7320,23 @@ function openMautoClassifyDialog(bankRows, rules) {
     chk.addEventListener("change", () => { items[+chk.dataset.idx].excluded = chk.checked; updateCount(); }));
 
   overlay.querySelector("#mclApplyBtn").addEventListener("click", () => {
-    mautoClassifiedRows = items
-      .filter(i => !i.excluded && i.거래처명)
-      .map(i => ({
-        date: i.row._date,
-        memo: [i.row._memo, i.row._memo2].filter(Boolean).join(" / "),
-        credit: i.row._credit || 0,
-        debit: i.row._debit || 0,
-        거래처명: i.거래처명,
-        구분: i.구분,
-        매칭근거: (i.match?.거래처 ? i.match.매칭근거 : "") || "수동",
-      }));
+    const incoming = items.map(i => ({
+      _txKey: i.row._txKey,
+      date: i.row._date,
+      time: i.row._time || "",
+      memo: [i.row._memo, i.row._memo2].filter(Boolean).join(" / "),
+      credit: i.row._credit || 0,
+      debit: i.row._debit || 0,
+      거래처명: i.거래처명,
+      구분: i.구분,
+      excluded: !!i.excluded,
+      매칭근거: (i.match?.거래처 ? i.match.매칭근거 : "") || (i.거래처명 ? "수동" : "미매칭"),
+    }));
+    const { merged, skipped } = mergeClassifiedRows(mautoClassifiedRows, incoming);
+    mautoClassifiedRows = merged;
+    saveClassifiedRows();
     overlay.remove();
+    if (skipped > 0) alert(`저장 완료. 중복 의심 ${skipped}건 건너뜀 (기존 분류 유지).`);
     renderMautoTab();
   });
 }
@@ -7303,14 +7349,23 @@ function openMautoClassifyResultView(rows) {
     const dir = r.credit > 0
       ? `<span style="color:#1565c0;font-size:11px;">입금</span>`
       : `<span style="color:#b71c1c;font-size:11px;">출금</span>`;
-    return `<tr>
+    const isExcl = !!r.excluded;
+    const isUnmatched = !r.excluded && !r.거래처명;
+    const rowStyle = isExcl ? "opacity:0.4;" : isUnmatched ? "background:#fff7ed;" : "";
+    const statusBadge = isExcl
+      ? `<span style="font-size:10px;color:#9ca3af;">제외</span>`
+      : isUnmatched
+        ? `<span style="font-size:10px;color:#d97706;">미매칭</span>`
+        : `<span style="font-size:10px;color:#166534;">✓</span>`;
+    return `<tr style="${rowStyle}">
       <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r.date)}</td>
       <td>${dir}</td>
       <td style="text-align:right;font-size:12px;">${formatNumber(r.credit || r.debit)}</td>
       <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.memo)}">${escapeHtml(r.memo.slice(0,24))}${r.memo.length>24?"…":""}</td>
-      <td style="font-size:12px;">${escapeHtml(r.거래처명)}</td>
-      <td style="font-size:12px;">${escapeHtml(r.구분)}</td>
-      <td style="font-size:11px;color:#6b7280;">${escapeHtml(r.매칭근거)}</td>
+      <td style="font-size:12px;">${escapeHtml(r.거래처명 || "")}</td>
+      <td style="font-size:12px;">${escapeHtml(r.구분 || "")}</td>
+      <td>${statusBadge}</td>
+      <td style="font-size:11px;color:#6b7280;">${escapeHtml(r.매칭근거 || "")}</td>
     </tr>`;
   }).join("");
   overlay.innerHTML = `
@@ -7322,7 +7377,7 @@ function openMautoClassifyResultView(rows) {
       </div>
       <div class="table-responsive bank-match-table-wrap">
         <table class="bank-match-table">
-          <thead><tr><th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>거래처명</th><th>매출/매입</th><th>매칭근거</th></tr></thead>
+          <thead><tr><th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>거래처명</th><th>매출/매입</th><th>상태</th><th>매칭근거</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
@@ -9459,6 +9514,7 @@ async function init() {
   });
 
   // 초기 로딩 시 홈 탭 활성화
+  loadClassifiedRows();
   switchTab("home");
 
   await Promise.all([
