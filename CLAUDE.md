@@ -253,6 +253,32 @@ availableFunds = {
 
 ---
 
+### 2026-06-12 (6): 미래 자료업로드 재빌드 모델 + 원장 전표번호 오타 수정
+
+**버그 수정: parseLedgerFile `_row_key` 견표번호 → 전표번호**
+- 원인: 실제 Excel 헤더가 `전표번호`인데 코드에서 `row["견표번호"]`로 잘못 접근
+- 결과: `일자__거래처코드` (전표번호 빠진 키) → 같은 날 같은 거래처 여러 전표가 1건으로 덮어써짐
+- 수정: `row["전표번호"] || row["견표번호"]` (견표번호 fallback 유지)
+- 확인 방법: 계정별원장 XLS 바이너리 스캔 → `전표번호` 확인, `견표번호` 없음
+
+**기능 추가 — 파일 단위 교체 + 로컬 재빌드 모델 (`app.js`, `style.css`):**
+- `MIRAE_SOURCE_TAX_KEY / LEDGER_KEY / BIZ_KEY` localStorage 3종 소스 보관소 추가
+- `getMiraeSectionFiles` / `saveMiraeSectionFile` / `deleteMiraeSectionFile` 헬퍼
+- `rebuildDaesaFromSources()`: 보관된 소스 파일 전체 → dedup → `daesaState` 갱신
+  - 세금계산서: 승인번호(`_row_key`) dedup, 원장 3종: `ledgerType`별 dedup, 영업현황: dedup
+  - 파일 삭제 시 해당 행이 집계에서 자동으로 사라짐 (파워쿼리 refresh 동일 효과)
+- 자료업로드 패널:
+  - 파일 선택 즉시 소스 저장 + `rebuildDaesaFromSources()` 호출 (클라우드 불필요)
+  - 저장된 파일 뱃지 표시 (파일명/건수/✕삭제)
+  - 같은 파일명 재업로드 시 기간 교체 확인 모달
+  - '구글시트 저장' 유지 (클라우드 백업용)
+- 앱 startup: 소스 파일 로드 → 소스 있으면 `daesaState` 즉시 재빌드 (Google Sheets 로드 전 선행)
+
+**수정 파일:** `app.js`, `style.css`, `index.html` (버전 `?v=20260612k`)  
+**커밋:** `b90b393`
+
+---
+
 ### 2026-06-12 (5): Phase 3 — 부가세 납부세액 집계 대시보드
 
 **기능 추가 (`app.js`, `style.css`):**
