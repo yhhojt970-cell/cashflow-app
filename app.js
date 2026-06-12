@@ -317,6 +317,17 @@ function normalizeBusinessNumber(value) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
+// 거래처명 비교용 정규화: 법인 suffix·공백·괄호 안 영문병기 제거
+function normalizeVendorName(name) {
+  return String(name || "")
+    .replace(/주식회사|유한회사|합자회사|합명회사/g, "")
+    .replace(/\(주\)|\(유\)|\(합\)/g, "")
+    .replace(/\([A-Za-z0-9\s&.]+\)/g, "")
+    .replace(/[\s\-_]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function normalizeDateValue(value) {
   if (!value) return "";
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -8916,58 +8927,104 @@ function renderDaesaTab() {
 // sideType: "미수"(매출) | "미지급"(매입)
 // taxInvoices: daesaState.taxInvoices
 // classifiedRows: mautoClassifiedRows (입출금 분류 결과)
+// taxInvoices: mautoTaxInvoices 또는 daesaState.taxInvoices
+// classifiedRows: mautoClassifiedRows (입출금 분류 결과)
+// sideType: "미수"(매출) | "미지급"(매입)
+// 매칭 키 우선순위: 거래처코드_norm > 사업자번호(biz:) > 정규화상호(name:)
 function buildArRecap(taxInvoices, classifiedRows, sideType) {
-  const 구분키 = sideType === "미수" ? "매출" : "매입";
+  const 구분키  = sideType === "미수" ? "매출" : "매입";
   const amtField = sideType === "미수" ? "credit" : "debit";
 
-  // ─ 발생액: 세금계산서 → 거래처×작성연월 집계 ─
-  const 발생맵 = new Map(); // key: "거래처명\t연월" → number
+  // 업체마스터 조회 맵 (사업자번호·이름 양방향)
+  const maps    = buildVendorLookupMaps();
+  const nameMap = buildVendorNameMap();
+
+  // 주어진 사업자번호+이름으로 표준 매칭 키와 표시명 반환
+  // 1순위: 마스터 사업자번호 → 거래처코드_norm
+  // 2순위: 마스터 정규화상호 → 거래처코드_norm
+  // 3순위: 사업자번호 자체 (biz:NNNN)
+  // 4순위: 정규화 상호 (name:…)
+  function getVendorKey(bizNum, name) {
+    const bn = normalizeBusinessNumber(bizNum || "");
+    if (bn && bn !== "0") {
+      const v = maps.byBiz[bn];
+      if (v?.code) return { key: v.code, displayName: v.name || name, exact: true };
+      return { key: `biz:${bn}`, displayName: name, exact: false };
+    }
+    const norm = normalizeVendorName(name);
+    const vn = norm && nameMap[norm];
+    if (vn?.code) return { key: vn.code, displayName: vn.name, exact: true };
+    return { key: `name:${norm || name}`, displayName: name, exact: false };
+  }
+
+  // 거래처명(분류 결과)만으로 키 조회 (충당 측)
+  function getVendorKeyByName(name) {
+    const norm = normalizeVendorName(name);
+    const vn = norm && nameMap[norm];
+    if (vn?.code) return { key: vn.code, displayName: vn.name, exact: true };
+    return { key: `name:${norm || name}`, displayName: name, exact: false };
+  }
+
+  // ─ 발생액: 세금계산서 → 거래처코드_norm×작성연월 집계 ─
+  const 발생맵 = new Map(); // key: "vendorKey\tYYYY-MM" → number
+  const keyToDisplay = new Map(); // vendorKey → 표시명
+  const inexactKeys = new Set();  // 코드매칭 실패한 키 추적
+
   for (const r of taxInvoices) {
     if (String(r["구분"] || "").trim() !== 구분키) continue;
     const ym = rowToYearMonth(r["작성일자"]);
     if (!ym) continue;
-    const vendor = (r["_matched_name"] || r["상호"] || "").trim();
-    if (!vendor) continue;
-    const amt = parseAmt(r["합계"]);
-    const k = `${vendor}\t${ym}`;
-    발생맵.set(k, (발생맵.get(k) || 0) + amt);
+    const bizNum = r["사업자번호"] || r["사업자(주민)번호"] || "";
+    const name   = (r["_matched_name"] || r["상호"] || r["거래처명"] || "").trim();
+    if (!name && !bizNum) continue;
+
+    const { key, displayName, exact } = getVendorKey(bizNum, name);
+    const mapKey = `${key}\t${ym}`;
+    발생맵.set(mapKey, (발생맵.get(mapKey) || 0) + parseAmt(r["합계"]));
+    if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName || name);
+    if (!exact) inexactKeys.add(key);
   }
 
-  // ─ 충당액: 분류된 입출금 → 거래처×귀속연월 집계 ─
-  //   조건: 구분=매출/매입, 입금(미수)/출금(미지급), 귀속연월 파싱 ok
-  const 충당맵 = new Map(); // key: "거래처명\t귀속연월" → number
-  const 확인필요 = [];      // 귀속연월 파싱 실패 행 보관
+  // ─ 충당액: 분류된 입출금 → 거래처코드_norm×귀속연월 집계 ─
+  const 충당맵  = new Map();
+  const 확인필요 = [];
 
   for (const r of (classifiedRows || [])) {
     if (r.excluded) continue;
     if (String(r.구분 || "").trim() !== 구분키) continue;
     const amt = Number(r[amtField]) || 0;
     if (amt <= 0) continue;
-    const vendor = (r.거래처명 || "").trim();
-    if (!vendor) continue;
+    const vendorName = (r.거래처명 || "").trim();
+    if (!vendorName) continue;
 
-    // 귀속연월 파싱: _memo2(비고) → _memo(적요1) → memo 순으로 시도
     const memoSrc = r._memo2 || r._memo || r.memo || "";
-    const parsed = parseYearMonthCode(memoSrc);
-
+    const parsed  = parseYearMonthCode(memoSrc);
     if (parsed.status === "확인필요") {
-      확인필요.push({ vendor, amt, memo: memoSrc, date: r.date, 매칭근거: r.매칭근거 });
+      확인필요.push({ vendor: vendorName, amt, memo: memoSrc, date: r.date, 매칭근거: r.매칭근거 });
       continue;
     }
-    const귀속ym = `${parsed.연도}-${String(parsed.월).padStart(2, "0")}`;
-    const k = `${vendor}\t${귀속ym}`;
-    충당맵.set(k, (충당맵.get(k) || 0) + amt);
+    const 귀속ym = `${parsed.연도}-${String(parsed.월).padStart(2, "0")}`;
+
+    const { key, displayName, exact } = getVendorKeyByName(vendorName);
+    const mapKey = `${key}\t${귀속ym}`;
+    충당맵.set(mapKey, (충당맵.get(mapKey) || 0) + amt);
+    if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName);
+    if (!exact) inexactKeys.add(key);
   }
 
   // ─ 발생 ∪ 충당 머지 → 잔액 계산 ─
   const allKeys = new Set([...발생맵.keys(), ...충당맵.keys()]);
   const entries = [];
-  for (const key of allKeys) {
-    const [vendor, ym] = key.split("\t");
+  for (const mapKey of allKeys) {
+    const tabIdx = mapKey.lastIndexOf("\t");
+    const vendorKey = mapKey.slice(0, tabIdx);
+    const ym  = mapKey.slice(tabIdx + 1);
     const [year, month] = ym.split("-").map(Number);
-    const 발생 = 발생맵.get(key) || 0;
-    const 충당 = 충당맵.get(key) || 0;
-    entries.push({ vendor, ym, year, month, 발생, 충당, 잔액: 발생 - 충당 });
+    const 발생 = 발생맵.get(mapKey) || 0;
+    const 충당 = 충당맵.get(mapKey) || 0;
+    const vendor = keyToDisplay.get(vendorKey) || vendorKey;
+    const inexact = inexactKeys.has(vendorKey);
+    entries.push({ vendor, vendorKey, ym, year, month, 발생, 충당, 잔액: 발생 - 충당, inexact });
   }
 
   // 거래처명 → 연도 → 월 순 정렬
@@ -8978,7 +9035,10 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
     return a.month - b.month;
   });
 
-  return { entries, 확인필요 };
+  // 매칭 불가 거래처 목록 (업체마스터에 없어서 이름으로만 묶인 것)
+  const inexactVendors = [...inexactKeys].map(k => keyToDisplay.get(k) || k);
+
+  return { entries, 확인필요, inexactVendors };
 }
 
 function renderArRecapView() {
@@ -8989,7 +9049,7 @@ function renderArRecapView() {
 
   // 엠오토 세금계산서가 있으면 우선 사용, 없으면 미래 세금계산서 fallback
   const taxSrc = (mautoTaxInvoices && mautoTaxInvoices.length) ? mautoTaxInvoices : daesaState.taxInvoices;
-  const { entries, 확인필요 } = buildArRecap(
+  const { entries, 확인필요, inexactVendors } = buildArRecap(
     taxSrc,
     typeof mautoClassifiedRows !== "undefined" ? mautoClassifiedRows : [],
     side
@@ -9045,6 +9105,9 @@ function renderArRecapView() {
   const pendingBadge = 확인필요.length
     ? `<span class="arrecap-pending-badge">⚠ 귀속연월 미확인 ${확인필요.length}건</span>`
     : "";
+  const inexactBadge = inexactVendors.length
+    ? `<span class="arrecap-inexact-badge" title="${inexactVendors.slice(0,10).join(', ')}${inexactVendors.length > 10 ? ' 외 ' + (inexactVendors.length-10) + '개' : ''}">🔗 업체마스터 미매칭 ${inexactVendors.length}개</span>`
+    : "";
 
   const pendingHtml = 확인필요.length ? `
     <details class="arrecap-pending-wrap">
@@ -9061,6 +9124,12 @@ function renderArRecapView() {
       </table>
     </details>` : "";
 
+  const inexactHtml = inexactVendors.length ? `
+    <details class="arrecap-pending-wrap">
+      <summary class="arrecap-pending-summary">🔗 업체마스터 미매칭 ${inexactVendors.length}개 — 사업자번호 없어 이름으로만 묶임. 마스터에 사업자번호를 추가하면 교차매칭 정확도가 높아집니다.</summary>
+      <div style="padding:8px 12px;font-size:12px;color:#374151;">${inexactVendors.map(n => `<span style="display:inline-block;margin:2px 4px;padding:1px 8px;background:#fef9c3;border:1px solid #fde68a;border-radius:12px;">${escapeHtml(n)}</span>`).join("")}</div>
+    </details>` : "";
+
   const emptyMsg = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#9ca3af;">
     데이터 없음 — 세금계산서를 자료업로드로 불러오고, 엠오토 탭에서 입출금을 분류하세요.
   </td></tr>`;
@@ -9075,7 +9144,7 @@ function renderArRecapView() {
         </div>
         <span class="daesa-toolbar-sep"></span>
         <label>연도 <select id="arRecapYearFilter">${yearOpts}</select></label>
-        ${pendingBadge}
+        ${pendingBadge}${inexactBadge}
         <span class="muted" style="font-size:12px;">발생: ${(mautoTaxInvoices && mautoTaxInvoices.length) ? `엠오토 세금계산서 ${mautoTaxInvoices.length}건` : `미래 세금계산서 ${daesaState.taxInvoices.length}건`} | 충당: 엠오토 입출금 분류(비고→귀속연월)</span>
       </div>
       <div class="table-responsive">
@@ -9099,7 +9168,8 @@ function renderArRecapView() {
         </table>
       </div>
       ${pendingHtml}
-      <p class="arrecap-note muted">※ 발생: 작성일자(작성연월) 기준. 충당: 입출금 비고의 귀속연월(yy-mm) 파싱. 구분=매출/매입 분류된 행만 포함.</p>
+      ${inexactHtml}
+      <p class="arrecap-note muted">※ 발생: 작성일자(작성연월) 기준. 충당: 입출금 비고의 귀속연월(yy-mm) 파싱. 구분=매출/매입 분류된 행만 포함. 거래처 매칭: 업체마스터 사업자번호 → 거래처코드_norm → 정규화 상호 순.</p>
     </div>
   `;
 }
@@ -10160,6 +10230,21 @@ function matchVendorEntry(bizNum, code, maps) {
   const c = String(code || "").trim().replace(/^0+/, "");
   if (c && maps.byCode[c]) return maps.byCode[c];
   return null;
+}
+
+// 거래처명(정규화) → { code, name, bizNum } 맵 생성
+function buildVendorNameMap() {
+  const byName = {}; // normalizedName → { code, name, bizNum }
+  vendorMasterState.rows.forEach(v => {
+    const name = String(v["거래처명"] || "").trim();
+    const norm = normalizeVendorName(name);
+    if (norm) byName[norm] = {
+      code: v["거래처코드_norm"] || "",
+      name,
+      bizNum: normalizeBusinessNumber(v["사업자번호"] || v["사업자(주민)번호"] || ""),
+    };
+  });
+  return byName;
 }
 
 function parseXlsToRows(arrayBuffer, headerRowIndex) {
