@@ -9067,6 +9067,7 @@ const rulesState = {
   bizFilter: "전체",  // "전체" | "엠오토" | "미래"
   editKey: null,      // 현재 편집 중인 _rule_key (null=신규 추가 폼)
   addingNew: false,   // 신규 추가 폼 표시 여부
+  tableOpen: false,   // 아코디언 — 기본 접힘
 };
 
 function buildRuleKey(사업체, 매칭방식, 매칭키) {
@@ -9204,40 +9205,61 @@ function renderRulesPanel() {
 
   const newRowHtml = rulesState.addingNew ? editForm({}) : "";
 
+  const toggleIcon = rulesState.tableOpen ? "▼" : "▶";
+  const countBadge = rulesState.rows.length
+    ? `<span style="font-size:12px;color:#6b7280;margin-left:6px;">${filtered.length}건${rulesState.bizFilter !== "전체" ? ` (${rulesState.bizFilter})` : ""}</span>`
+    : "";
+
+  const bodyHtml = rulesState.tableOpen ? `
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+      ${BIZ_OPTIONS.map(b =>
+        `<button class="rules-biz-btn${rulesState.bizFilter===b?" active":""}" data-biz="${b}">${b}</button>`
+      ).join("")}
+      <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
+      <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
+      <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
+        📂 Excel 가져오기
+        <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
+      </label>
+    </div>
+    ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
+    ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
+    <div class="rules-table-wrap">
+      <table class="rules-table">
+        <thead><tr>
+          <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
+        </tr></thead>
+        <tbody>
+          ${rowsHtml}
+          ${newRowHtml}
+          ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+        </tbody>
+      </table>
+    </div>`}` : "";
+
   panel.innerHTML = `
     <div class="rules-panel-inner">
       <div class="rules-toolbar">
-        <strong style="font-size:14px;">📐 분류규칙 관리</strong>
-        <div style="display:flex;gap:6px;align-items:center;">
-          ${BIZ_OPTIONS.map(b =>
-            `<button class="rules-biz-btn${rulesState.bizFilter===b?" active":""}" data-biz="${b}">${b}</button>`
-          ).join("")}
-          <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
-          <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
-          <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
-            📂 Excel 가져오기
-            <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
-          </label>
-          <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button id="rulesToggleBtn" class="rules-btn" style="min-width:28px;">${toggleIcon}</button>
+          <strong style="font-size:14px;">📐 분류규칙 관리</strong>
+          ${countBadge}
         </div>
+        <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
       </div>
-      ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
-      ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
-      <div class="rules-table-wrap">
-        <table class="rules-table">
-          <thead><tr>
-            <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
-          </tr></thead>
-          <tbody>
-            ${rowsHtml}
-            ${newRowHtml}
-            ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
-          </tbody>
-        </table>
-      </div>`}
+      ${bodyHtml}
     </div>`;
 
   // 이벤트 바인딩
+  panel.querySelector("#rulesToggleBtn")?.addEventListener("click", () => {
+    rulesState.tableOpen = !rulesState.tableOpen;
+    if (rulesState.tableOpen && !rulesState.rows.length && !rulesState.loading) {
+      loadRules();
+    } else {
+      renderRulesPanel();
+    }
+  });
+
   panel.querySelector("#rulesPanelClose")?.addEventListener("click", () => {
     panel.classList.add("hidden");
     rulesState.editKey = null;
@@ -9255,6 +9277,7 @@ function renderRulesPanel() {
   panel.querySelector("#rulesAddBtn")?.addEventListener("click", () => {
     rulesState.addingNew = true;
     rulesState.editKey = null;
+    rulesState.tableOpen = true;
     renderRulesPanel();
     panel.querySelector(".rules-edit-row input")?.focus();
   });
@@ -9357,11 +9380,7 @@ function setupRulesPanel() {
       panel.classList.add("hidden");
     } else {
       panel.classList.remove("hidden");
-      if (!rulesState.rows.length && !rulesState.loading) {
-        loadRules();
-      } else {
-        renderRulesPanel();
-      }
+      renderRulesPanel(); // 접힌 상태로 표시, 로드는 ▶ 펼치기 시
     }
   });
 }
