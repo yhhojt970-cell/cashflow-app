@@ -7232,7 +7232,10 @@ function parseBankSheet(sheetData) {
     obj._alias = String(obj["계좌별칭"] || "").trim();
     obj._branch = String(obj["취급지점"] || obj["취급점"] || "").trim();
     return obj;
-  }).filter(r => r._debit > 0 || r._credit > 0);  // 금액 없는 행 제외
+  }).filter(r =>
+    /^\d{4}/.test(r._date) &&        // 거래일자가 연도(숫자 4자리)로 시작해야 유효 — 합계/이월/소계 행 제외
+    (r._debit > 0 || r._credit > 0)  // 입금·출금 둘 다 0인 행 제외
+  );
 }
 
 // ────────────────────────────────────────────────────────────
