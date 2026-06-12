@@ -68,7 +68,7 @@ let mautoData = {
   payables: [],
   fixed: [],
 };
-let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과
+let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과 (재빌드 캐시)
 const MAUTO_CLASSIFIED_KEY = "mauto-classified-rows-v1";
 function saveClassifiedRows() {
   try { localStorage.setItem(MAUTO_CLASSIFIED_KEY, JSON.stringify(mautoClassifiedRows)); } catch (_) {}
@@ -79,6 +79,16 @@ function loadClassifiedRows() {
     mautoClassifiedRows = raw ? JSON.parse(raw) : [];
   } catch (_) { mautoClassifiedRows = []; }
 }
+
+// Phase 2 저장모델전환: 불변(원본) / 사용자 영역 분리
+const MAUTO_SOURCE_FILES_KEY = "mauto-source-files-v1";  // 파일 단위 원본 거래
+const MAUTO_USER_EDITS_KEY   = "mauto-user-edits-v1";   // 거래키별 사용자 수정
+let mautoSourceFiles = {}; // { fileKey: { filename, savedAt, isMigration?, rows[] } }
+let mautoUserEdits   = {}; // { txKey: { 거래처명, 구분, excluded, isOverride, 매칭근거 } }
+function saveSourceFiles() { try { localStorage.setItem(MAUTO_SOURCE_FILES_KEY, JSON.stringify(mautoSourceFiles)); } catch (_) {} }
+function loadSourceFiles()  { try { const r = localStorage.getItem(MAUTO_SOURCE_FILES_KEY); mautoSourceFiles = r ? JSON.parse(r) : {}; } catch (_) { mautoSourceFiles = {}; } }
+function saveUserEdits()    { try { localStorage.setItem(MAUTO_USER_EDITS_KEY, JSON.stringify(mautoUserEdits));   } catch (_) {} }
+function loadUserEdits()    { try { const r = localStorage.getItem(MAUTO_USER_EDITS_KEY);   mautoUserEdits   = r ? JSON.parse(r) : {}; } catch (_) { mautoUserEdits = {};   } }
 
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
@@ -6805,6 +6815,22 @@ function renderMautoTab() {
       </div>
     </div>
     ${(() => {
+      // 업로드된 파일 목록
+      const fileEntries = Object.entries(mautoSourceFiles);
+      if (!fileEntries.length) return "";
+      return `
+    <div style="margin:8px 0;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;">
+      <div style="font-weight:600;color:#374151;margin-bottom:4px;">📁 업로드된 파일 ${fileEntries.length}개</div>
+      ${fileEntries.map(([key, f]) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #f1f5f9;">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${f.isMigration ? '#9ca3af' : '#374151'};">${escapeHtml(f.filename)}${f.isMigration ? ' <em style="color:#d97706;">(마이그레이션)</em>' : ''}</span>
+        <span style="color:#6b7280;white-space:nowrap;">${(f.rows||[]).length}건</span>
+        <span style="color:#9ca3af;white-space:nowrap;">${(f.savedAt||"").slice(0,10)}</span>
+        <button type="button" class="mauto-file-del-btn" data-fkey="${encodeURIComponent(key)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
+      </div>`).join("")}
+    </div>`;
+    })()}
+    ${(() => {
       if (!mautoClassifiedRows.length) return "";
       const active = mautoClassifiedRows.filter(r => !r.excluded && r.거래처명);
       const excl = mautoClassifiedRows.filter(r => r.excluded);
@@ -6893,6 +6919,20 @@ function renderMautoTab() {
     });
   });
 
+  // 파일 개별 삭제
+  sec.querySelectorAll(".mauto-file-del-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = decodeURIComponent(btn.dataset.fkey || "");
+      if (!key || !mautoSourceFiles[key]) return;
+      const label = mautoSourceFiles[key].filename;
+      if (!confirm(`'${label}' 파일을 삭제하고 재빌드하시겠습니까?`)) return;
+      delete mautoSourceFiles[key];
+      saveSourceFiles();
+      rebuildMautoRows();
+      renderMautoTab();
+    });
+  });
+
   document.getElementById("mautoClearBtn")?.addEventListener("click", () => {
     if (!confirm("엠오토 데이터를 전체 초기화하시겠습니까?")) return;
     mautoData = createDefaultMautoData();
@@ -6911,6 +6951,17 @@ function renderMautoTab() {
     const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
     const bankRows = assignTxKeys(parseBankSheet(sheetData));
     if (!bankRows.length) { alert("입출금 행을 찾을 수 없습니다.\n헤더에 거래일자/입금/출금 컬럼이 있는지 확인해주세요."); return; }
+
+    // 같은 파일명이 이미 있으면 교체 확인
+    const fileKey = file.name;
+    if (mautoSourceFiles[fileKey]) {
+      const ok = confirm(`'${fileKey}' 파일이 이미 저장되어 있습니다.\n교체하시겠습니까?\n(이 파일의 거래 데이터가 새 내용으로 대체됩니다)`);
+      if (!ok) return;
+    }
+    // 불변 영역(원본 거래)에 파일 단위로 저장
+    mautoSourceFiles[fileKey] = { filename: fileKey, savedAt: new Date().toISOString(), rows: bankRows };
+    saveSourceFiles();
+
     // 규칙이 없으면 먼저 로드
     if (!rulesState.rows.length) await loadRules();
     openMautoClassifyDialog(bankRows, rulesState.rows);
@@ -6924,9 +6975,13 @@ function renderMautoTab() {
   });
 
   document.getElementById("mautoClassifyClearBtn")?.addEventListener("click", () => {
-    if (!confirm("분류 결과를 지우시겠습니까?")) return;
+    if (!confirm("분류 결과 및 업로드된 파일 전체를 지우시겠습니까?")) return;
     mautoClassifiedRows = [];
+    mautoSourceFiles    = {};
+    mautoUserEdits      = {};
     saveClassifiedRows();
+    saveSourceFiles();
+    saveUserEdits();
     renderMautoTab();
   });
 
@@ -7210,6 +7265,106 @@ function mergeClassifiedRows(existing, incoming) {
   return { merged: [...map.values()], skipped };
 }
 
+// ── 전체 재빌드: source-files 전체 → 분류 → 사용자편집 재적용 ──────────────
+function rebuildMautoRows() {
+  const rules = (rulesState.rows || []).filter(r => String(r["사업체"] || "") === "엠오토");
+
+  // 1. 모든 파일 행 합치기
+  let allRows = Object.values(mautoSourceFiles).flatMap(f => f.rows || []);
+
+  // 2. 거래키 기준 중복 제거 (첫 번째 발견 우선)
+  const seen = new Map();
+  for (const row of allRows) {
+    if (row._txKey && !seen.has(row._txKey)) seen.set(row._txKey, row);
+  }
+  allRows = [...seen.values()];
+
+  // 3. 날짜+시간 정렬
+  allRows.sort((a, b) => {
+    const ka = String(a._date || "") + "|" + String(a._time || "");
+    const kb = String(b._date || "") + "|" + String(b._time || "");
+    return ka.localeCompare(kb);
+  });
+
+  // 4. 자동분류 후 사용자 편집 덮어쓰기
+  mautoClassifiedRows = allRows.map(row => {
+    const match = classifyBankRow(row, rules);
+    const base = {
+      _txKey:  row._txKey,
+      date:    row._date  || "",
+      time:    row._time  || "",
+      _memo:   row._memo  || "",
+      _memo2:  row._memo2 || "",
+      memo:    [row._memo, row._memo2].filter(Boolean).join(" / "),
+      credit:  row._credit  || 0,
+      debit:   row._debit   || 0,
+      거래처명: match.거래처 || "",
+      구분:    match.구분   || "",
+      excluded:   false,
+      매칭근거: match.매칭근거,
+      isOverride: false,
+    };
+    const edit = mautoUserEdits[row._txKey];
+    if (edit) {
+      if (edit.거래처명 !== undefined) base.거래처명  = edit.거래처명;
+      if (edit.구분     !== undefined) base.구분      = edit.구분;
+      if (edit.excluded !== undefined) base.excluded  = edit.excluded;
+      if (edit.isOverride) { base.isOverride = true; base.매칭근거 = edit.매칭근거 || "수동"; }
+    }
+    return base;
+  });
+  saveClassifiedRows();
+}
+
+// ── 레거시 마이그레이션: mauto-classified-rows-v1 → source+edits 분리 ────────
+function migrateLegacyIfNeeded() {
+  if (Object.keys(mautoSourceFiles).length > 0) return;
+  const legacyStr = localStorage.getItem(MAUTO_CLASSIFIED_KEY);
+  if (!legacyStr) return;
+  let legacy;
+  try { legacy = JSON.parse(legacyStr); } catch { return; }
+  if (!Array.isArray(legacy) || !legacy.length) return;
+
+  // 원본 거래만 추출 → source-files
+  const migRows = legacy
+    .filter(r => r._txKey && (Number(r.credit) || Number(r.debit)))
+    .map(r => ({
+      _txKey:   r._txKey,
+      _date:    r.date   || "",
+      _time:    r.time   || "",
+      _memo:    r._memo  || "",
+      _memo2:   r._memo2 || "",
+      _credit:  Number(r.credit) || 0,
+      _debit:   Number(r.debit)  || 0,
+      _account: r._account || "",
+      _bank:    r._bank    || "",
+    }));
+  if (migRows.length) {
+    mautoSourceFiles["기존데이터(마이그레이션)"] = {
+      filename: "기존데이터(마이그레이션)",
+      savedAt: new Date().toISOString(),
+      isMigration: true,
+      rows: migRows,
+    };
+    saveSourceFiles();
+  }
+
+  // 사용자 편집 추출 → user-edits
+  for (const r of legacy) {
+    if (!r._txKey) continue;
+    if (r.excluded || r.거래처명) {
+      mautoUserEdits[r._txKey] = {
+        거래처명:  r.거래처명 || "",
+        구분:     r.구분    || "",
+        excluded: !!r.excluded,
+        isOverride: !!(r.거래처명),
+        매칭근거: r.매칭근거 || "",
+      };
+    }
+  }
+  saveUserEdits();
+}
+
 function classifyBankRow(row, rules) {
   // 레거시 순서: ①적요1 정확일치(계좌) → ②비고 부분포함(거래처명) → ③적요1 부분포함(키워드)
   const 적요1 = String(row._memo  || "").trim();
@@ -7433,25 +7588,24 @@ function openMautoClassifyDialog(bankRows, rules) {
   });
 
   overlay.querySelector("#mclApplyBtn").addEventListener("click", async () => {
-    const incoming = items.map(i => ({
-      _txKey: i.row._txKey,
-      date: i.row._date,
-      time: i.row._time || "",
-      _memo: i.row._memo || "",
-      _memo2: i.row._memo2 || "",
-      memo: [i.row._memo, i.row._memo2].filter(Boolean).join(" / "),
-      credit: i.row._credit || 0,
-      debit: i.row._debit || 0,
-      거래처명: i.거래처명,
-      구분: i.구분,
-      excluded: !!i.excluded,
-      매칭근거: (i.match?.거래처 ? i.match.매칭근거 : "") || (i.거래처명 ? "수동" : "미매칭"),
-    }));
-    const { merged, skipped } = mergeClassifiedRows(mautoClassifiedRows, incoming);
-    mautoClassifiedRows = merged;
-    saveClassifiedRows();
+    // 사용자가 수동으로 바꾼 행(isOverride) 또는 제외한 행만 user-edits에 저장
+    for (const i of items) {
+      const txKey = i.row._txKey;
+      if (!txKey) continue;
+      if (i.excluded || i.isOverride) {
+        mautoUserEdits[txKey] = {
+          거래처명:  i.거래처명 || "",
+          구분:     i.구분    || "",
+          excluded: !!i.excluded,
+          isOverride: !!i.isOverride,
+          매칭근거: i.isOverride ? "수동" : (i.match?.매칭근거 || ""),
+        };
+      }
+    }
+    saveUserEdits();
+    // 불변(source) + 사용자편집 → 전체 재빌드
+    rebuildMautoRows();
     overlay.remove();
-    if (skipped > 0) alert(`저장 완료. 중복 의심 ${skipped}건 건너뜀 (기존 분류 유지).`);
 
     // 규칙 학습: ruleAdd 켜져 있고 키 2자 이상인 행만
     const ruleItems = items.filter(i => i.ruleAdd && (i.ruleKey || "").trim().length >= 2 && i.거래처명);
@@ -7472,9 +7626,8 @@ function openMautoClassifyDialog(bankRows, rules) {
         try {
           await postSheetWebApp("upsertRules", { rows: newRules });
           await loadRules();
-          // 새 규칙을 미매칭 보관 행에 즉시 소급 적용
-          const changed = applyNewRulesToUnmatched(rulesState.rows);
-          if (changed) saveClassifiedRows();
+          // 새 규칙으로 전체 재빌드 (미매칭 자동 재분류 포함)
+          rebuildMautoRows();
         } catch (_) {
           alert("분류는 저장됨. 규칙 추가는 실패 — 다시 시도해주세요.");
         }
@@ -9696,6 +9849,9 @@ async function init() {
 
   // 초기 로딩 시 홈 탭 활성화
   loadClassifiedRows();
+  loadSourceFiles();
+  loadUserEdits();
+  migrateLegacyIfNeeded(); // 기존 분류 데이터를 불변/사용자 영역으로 분리
   switchTab("home");
 
   await Promise.all([
