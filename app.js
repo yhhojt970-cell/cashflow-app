@@ -68,6 +68,7 @@ let mautoData = {
   payables: [],
   fixed: [],
 };
+let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과
 
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
@@ -6785,8 +6786,25 @@ function renderMautoTab() {
         <h2>엠오토</h2>
         <p>엠오토 전용 현금흐름</p>
       </div>
-      <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
+          📥 입출금 분류
+          <input type="file" id="mautoClassifyFileInput" accept=".xls,.xlsx,.xlsm,.csv" hidden />
+        </label>
+        <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
+      </div>
     </div>
+    ${mautoClassifiedRows.length ? `
+    <div style="margin:8px 0;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;display:flex;gap:16px;align-items:center;">
+      <span style="font-weight:600;color:#166534;">✅ 분류완료 ${mautoClassifiedRows.length}건</span>
+      <span style="color:#6b7280;">
+        매출 ${mautoClassifiedRows.filter(r=>r.구분==="매출").length}건 /
+        매입 ${mautoClassifiedRows.filter(r=>r.구분==="매입").length}건 /
+        미분류 ${mautoClassifiedRows.filter(r=>!r.구분).length}건
+      </span>
+      <button type="button" id="mautoClassifyViewBtn" style="font-size:12px;padding:3px 10px;border:1px solid #16a34a;background:white;border-radius:4px;cursor:pointer;color:#15803d;">목록 보기</button>
+      <button type="button" id="mautoClassifyClearBtn" style="font-size:12px;padding:3px 10px;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;color:#6b7280;">지우기</button>
+    </div>` : ""}
     <div class="mauto-summary-grid">
       <div class="mauto-card card-funds"><span>가용자금</span><strong>${formatNumber(funds)}</strong></div>
       <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong>${formatNumber(receivable)}</strong></div>
@@ -6865,6 +6883,35 @@ function renderMautoTab() {
     if (!confirm("엠오토 데이터를 전체 초기화하시겠습니까?")) return;
     mautoData = createDefaultMautoData();
     saveMautoDataLocal();
+    renderMautoTab();
+  });
+
+  // 입출금 분류 파일 선택
+  document.getElementById("mautoClassifyFileInput")?.addEventListener("change", async e => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const ab = await file.arrayBuffer();
+    const wb = XLSX.read(ab, { type: "array", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    const bankRows = parseBankSheet(sheetData);
+    if (!bankRows.length) { alert("입출금 행을 찾을 수 없습니다.\n헤더에 거래일자/입금/출금 컬럼이 있는지 확인해주세요."); return; }
+    // 규칙이 없으면 먼저 로드
+    if (!rulesState.rows.length) await loadRules();
+    openMautoClassifyDialog(bankRows, rulesState.rows);
+  });
+
+  // 분류 결과 목록 보기 (재다이얼로그)
+  document.getElementById("mautoClassifyViewBtn")?.addEventListener("click", () => {
+    if (!rulesState.rows.length) { alert("분류규칙을 먼저 불러오세요."); return; }
+    // 저장된 결과를 다시 볼 수 있게 빈 bankRows로 재오픈하되, 기존 결과 표시
+    openMautoClassifyResultView(mautoClassifiedRows);
+  });
+
+  document.getElementById("mautoClassifyClearBtn")?.addEventListener("click", () => {
+    if (!confirm("분류 결과를 지우시겠습니까?")) return;
+    mautoClassifiedRows = [];
     renderMautoTab();
   });
 
@@ -7116,6 +7163,176 @@ function parseBankSheet(sheetData) {
     obj._branch = String(obj["취급지점"] || obj["취급점"] || "").trim();
     return obj;
   }).filter(r => r._debit > 0 || r._credit > 0);  // 금액 없는 행 제외
+}
+
+// ────────────────────────────────────────────────────────────
+//  Phase 2: 엠오토 입출금 분류 (규칙 기반 3단계 매칭)
+// ────────────────────────────────────────────────────────────
+
+function classifyBankRow(row, rules) {
+  // 레거시 순서: ①적요1 정확일치(계좌) → ②비고 부분포함(거래처명) → ③적요1 부분포함(키워드)
+  const 적요1 = String(row._memo  || "").trim();
+  const 비고  = String(row._memo2 || "").trim();
+  const contains = (hay, key) => key.length >= 2 && hay.toLowerCase().includes(key.toLowerCase());
+  const hit = (r, how) => ({ 거래처: r["거래처명"], 구분: r["구분"] || "", 매칭근거: `${how}:${r["매칭키"]}`, rule: r });
+
+  const 계좌R  = rules.filter(r => String(r["매칭방식"] || "") === "계좌");
+  const 비고R  = rules.filter(r => String(r["매칭방식"] || "") === "거래처명");
+  const 적요R  = rules.filter(r => String(r["매칭방식"] || "") === "키워드");
+
+  // ① 적요1 정확일치 (빈 적요1은 건너뜀)
+  for (const r of 계좌R) {
+    const key = String(r["매칭키"] || "").trim();
+    if (적요1 && 적요1 === key) return hit(r, "계좌-정확");
+  }
+  // ② 비고 부분포함
+  for (const r of 비고R) if (contains(비고,  String(r["매칭키"] || ""))) return hit(r, "비고-부분");
+  // ③ 적요1 부분포함
+  for (const r of 적요R) if (contains(적요1, String(r["매칭키"] || ""))) return hit(r, "적요1-부분");
+
+  return { 거래처: null, 구분: "", 매칭근거: "미매칭", rule: null };
+}
+
+function openMautoClassifyDialog(bankRows, rules) {
+  document.querySelector(".mauto-classify-overlay")?.remove();
+
+  const 엠오토규칙 = rules.filter(r => String(r["사업체"] || "") === "엠오토");
+  const vendorNames = [...new Set(엠오토규칙.map(r => String(r["거래처명"] || "")).filter(Boolean))].sort();
+
+  const items = bankRows.map(row => {
+    const match = classifyBankRow(row, 엠오토규칙);
+    return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false };
+  });
+
+  const overlay = document.createElement("div");
+  overlay.className = "mauto-classify-overlay bank-match-overlay";
+
+  function buildTableHtml() {
+    return items.map((item, idx) => {
+      const row = item.row;
+      const isCredit = (row._credit || 0) > 0;
+      const amount = row._credit || row._debit || 0;
+      const memo = [row._memo, row._memo2].filter(Boolean).join(" / ");
+      const dirLabel = isCredit
+        ? `<span style="color:#1565c0;font-size:11px;font-weight:bold;">입금</span>`
+        : `<span style="color:#b71c1c;font-size:11px;font-weight:bold;">출금</span>`;
+      const matched = item.match?.거래처 !== null;
+      const matchBadge = matched
+        ? `<span style="color:#166534;font-size:10px;">${escapeHtml(item.match.매칭근거)}</span>`
+        : `<span style="color:#9ca3af;font-size:10px;">미분류</span>`;
+      const rowBg = item.excluded ? "opacity:0.4;" : !matched ? "background:#fff7ed;" : "";
+      const vendorOpts = `<option value="">-- 선택 --</option>` +
+        vendorNames.map(n => `<option value="${escapeHtml(n)}" ${item.거래처명 === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+      const divOpts = `<option value="">-</option>
+        <option value="매출" ${item.구분 === "매출" ? "selected" : ""}>매출</option>
+        <option value="매입" ${item.구분 === "매입" ? "selected" : ""}>매입</option>`;
+      return `<tr style="${rowBg}">
+        <td style="font-size:12px;white-space:nowrap;">${escapeHtml(row._date)}</td>
+        <td>${dirLabel}</td>
+        <td style="text-align:right;font-size:12px;font-weight:500;">${formatNumber(amount)}</td>
+        <td style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(memo)}">${escapeHtml(memo.slice(0, 22))}${memo.length > 22 ? "…" : ""}</td>
+        <td>${matchBadge}</td>
+        <td><select class="mcl-vendor" data-idx="${idx}" style="font-size:12px;max-width:130px;">${vendorOpts}</select></td>
+        <td><select class="mcl-div" data-idx="${idx}" style="font-size:12px;">${divOpts}</select></td>
+        <td><input type="checkbox" class="mcl-exclude" data-idx="${idx}" ${item.excluded ? "checked" : ""} /></td>
+      </tr>`;
+    }).join("");
+  }
+
+  const matchedCount = items.filter(i => i.match?.거래처 !== null).length;
+  overlay.innerHTML = `
+    <div class="bank-match-dialog" style="max-width:940px;">
+      <div class="bank-match-header">
+        <h3>엠오토 입출금 분류</h3>
+        <span class="bank-match-sub">${bankRows.length}건 · 자동분류 ${matchedCount}건 / 미분류 ${bankRows.length - matchedCount}건</span>
+        <button type="button" class="bank-match-close">✕</button>
+      </div>
+      <div class="table-responsive bank-match-table-wrap">
+        <table class="bank-match-table">
+          <thead><tr>
+            <th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>매칭근거</th><th>거래처명</th><th>매출/매입</th><th>제외</th>
+          </tr></thead>
+          <tbody>${buildTableHtml()}</tbody>
+        </table>
+      </div>
+      <div class="bank-match-actions">
+        <span id="mclCount" class="bank-match-count"></span>
+        <button type="button" class="bank-apply-btn" id="mclApplyBtn">분류 결과 저장</button>
+        <button type="button" class="bank-cancel-btn">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  function updateCount() {
+    const n = items.filter(i => !i.excluded && i.거래처명).length;
+    overlay.querySelector("#mclCount").textContent = `분류 ${n}건`;
+  }
+  updateCount();
+
+  overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
+  overlay.querySelectorAll(".mcl-vendor").forEach(sel =>
+    sel.addEventListener("change", () => { items[+sel.dataset.idx].거래처명 = sel.value; updateCount(); }));
+  overlay.querySelectorAll(".mcl-div").forEach(sel =>
+    sel.addEventListener("change", () => { items[+sel.dataset.idx].구분 = sel.value; }));
+  overlay.querySelectorAll(".mcl-exclude").forEach(chk =>
+    chk.addEventListener("change", () => { items[+chk.dataset.idx].excluded = chk.checked; updateCount(); }));
+
+  overlay.querySelector("#mclApplyBtn").addEventListener("click", () => {
+    mautoClassifiedRows = items
+      .filter(i => !i.excluded && i.거래처명)
+      .map(i => ({
+        date: i.row._date,
+        memo: [i.row._memo, i.row._memo2].filter(Boolean).join(" / "),
+        credit: i.row._credit || 0,
+        debit: i.row._debit || 0,
+        거래처명: i.거래처명,
+        구분: i.구분,
+        매칭근거: (i.match?.거래처 ? i.match.매칭근거 : "") || "수동",
+      }));
+    overlay.remove();
+    renderMautoTab();
+  });
+}
+
+function openMautoClassifyResultView(rows) {
+  document.querySelector(".mauto-classify-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "mauto-classify-overlay bank-match-overlay";
+  const rowsHtml = rows.map(r => {
+    const dir = r.credit > 0
+      ? `<span style="color:#1565c0;font-size:11px;">입금</span>`
+      : `<span style="color:#b71c1c;font-size:11px;">출금</span>`;
+    return `<tr>
+      <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r.date)}</td>
+      <td>${dir}</td>
+      <td style="text-align:right;font-size:12px;">${formatNumber(r.credit || r.debit)}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.memo)}">${escapeHtml(r.memo.slice(0,24))}${r.memo.length>24?"…":""}</td>
+      <td style="font-size:12px;">${escapeHtml(r.거래처명)}</td>
+      <td style="font-size:12px;">${escapeHtml(r.구분)}</td>
+      <td style="font-size:11px;color:#6b7280;">${escapeHtml(r.매칭근거)}</td>
+    </tr>`;
+  }).join("");
+  overlay.innerHTML = `
+    <div class="bank-match-dialog" style="max-width:860px;">
+      <div class="bank-match-header">
+        <h3>분류 결과 목록</h3>
+        <span class="bank-match-sub">${rows.length}건</span>
+        <button type="button" class="bank-match-close">✕</button>
+      </div>
+      <div class="table-responsive bank-match-table-wrap">
+        <table class="bank-match-table">
+          <thead><tr><th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>거래처명</th><th>매출/매입</th><th>매칭근거</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="bank-match-actions">
+        <button type="button" class="bank-cancel-btn">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
 }
 
 function openBankImportDialog(bankRows) {
