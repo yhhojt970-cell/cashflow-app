@@ -4722,9 +4722,9 @@ td {
 .rules-panel-inner { padding: 12px 16px; }
 .rules-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
 .rules-msg { font-size: 12px; color: #6b7280; margin-bottom: 6px; padding: 4px 0; }
-.rules-table-wrap { overflow-x: auto; }
+.rules-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 420px; }
 .rules-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-.rules-table th { background: #1e40af; color: #fff; padding: 7px 10px; text-align: left; white-space: nowrap; font-weight: 600; }
+.rules-table th { background: #1e40af; color: #fff; padding: 7px 10px; text-align: left; white-space: nowrap; font-weight: 600; position: sticky; top: 0; z-index: 2; }
 .rules-table td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
 .rules-table tbody tr:hover { background: #f8faff; }
 .rules-table .rules-edit-row td { background: #fffbeb; }

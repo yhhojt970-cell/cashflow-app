@@ -9148,7 +9148,7 @@ function renderRulesPanel() {
 
   const BIZ_OPTIONS = ["전체", "엠오토", "미래"];
   const METHOD_OPTIONS = ["계좌", "키워드", "거래처명"];
-  const DIV_OPTIONS = ["매출", "매입"];
+  const DIV_OPTIONS = ["", "매출", "매입"];
 
   const filtered = rulesState.bizFilter === "전체"
     ? rulesState.rows
@@ -9169,7 +9169,7 @@ function renderRulesPanel() {
         <td><input class="rules-inp" name="매칭키" value="${escapeAttr(data["매칭키"]||"")}" placeholder="계좌번호 또는 키워드" ${dis} /></td>
         <td><input class="rules-inp" name="거래처명" value="${escapeAttr(data["거래처명"]||"")}" placeholder="거래처명" ${dis} /></td>
         <td><select class="rules-inp" name="구분" ${dis}>
-          ${DIV_OPTIONS.map(v => `<option${data["구분"]===v?" selected":""}>${v}</option>`).join("")}
+          ${DIV_OPTIONS.map(v => `<option value="${v}"${data["구분"]===v?" selected":""}>${v || "(없음)"}</option>`).join("")}
         </select></td>
         <td><input class="rules-inp rules-inp-sm" name="우선순위" type="number" min="1" value="${escapeAttr(String(data["우선순위"]||"10"))}" ${dis} /></td>
         <td>
