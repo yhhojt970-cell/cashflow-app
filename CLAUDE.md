@@ -253,7 +253,50 @@ availableFunds = {
 
 ---
 
-### 2026-06-12 (2): 분류규칙 관리 UI 개선 (sticky 헤더·구분 빈값·아코디언·툴바 한줄)
+### 2026-06-12 (5): Phase 3 — 부가세 납부세액 집계 대시보드
+
+**기능 추가 (`app.js`, `style.css`):**
+- `buildVatSummary(taxInvoices)`: 세금계산서 → 작성연월별 `{ 매출공급, 매출세액, 매입공급, 매입세액 }` 집계 맵 반환
+  - 집계 기준: **작성일자(작성연월)** (입출금일·거래일자 아님)
+  - 합산 대상: **세액** (합계 아님)
+  - 구분 공란(이자·인출 등) 자동 제외
+- `buildVatPeriods(year, mode)`: 월간/분기/반기/연간 기간 묶음 생성
+- `renderVatView()`: 기간별 매출세액·매입세액·납부(환급)세액 표 렌더링
+  - 납부세액 = 매출세액 − 매입세액 (음수 = 환급, 녹색 표시)
+  - 연도·기간모드 선택 필터, 합계 행 포함
+- 대사 탭 툴바 "🧾 부가세" 버튼 추가 (정산표 버튼과 상호 배타 토글)
+- `daesaState`에 `vatView`, `vatMode`, `vatYear` 상태 추가
+
+**사업체별 신고기간 기본값 (Phase 3 스펙):**
+- 미래(법인) → 분기 (1~3, 4~6, 7~9, 10~12월)
+- 엠오토(개인) → 반기 (1~6, 7~12월)
+- 기본값만 다르며 사용자가 모드 변경 가능
+
+**수정 파일:** `app.js`, `style.css`, `index.html` (버전 `?v=20260612j`)  
+**커밋:** `761e3e2`
+
+---
+
+### 2026-06-12 (4): Phase 2 저장모델 전환 — 불변/사용자 영역 분리 + 합계행 필터
+
+**저장 모델 분리 (`app.js`):**
+- `MAUTO_SOURCE_FILES_KEY = "mauto-source-files-v1"` — 파일 단위 원본 거래 보관 (파일명 기준 교체)
+- `MAUTO_USER_EDITS_KEY = "mauto-user-edits-v1"` — 거래키별 사용자 수정 (거래처·구분·제외·오버라이드)
+- `rebuildMautoRows()`: source-files 전체 → 날짜정렬 → `classifyBankRow` → user-edits 덮어쓰기
+- `migrateLegacyIfNeeded()`: 기존 `mauto-classified-rows-v1` → 새 모델로 자동 1회 전환
+- 파일 업로드: 같은 파일명 재업로드 시 교체 확인 → source-files에 통째 교체
+- 파일 목록 UI: 파일명/건수/날짜/개별 삭제 버튼
+
+**합계행 필터 수정 (`app.js`, `parseBankSheet`):**
+- 기존: `r._debit > 0 || r._credit > 0` — 금액 있는 합계 행 통과됨
+- 수정: `/^\d{4}/.test(r._date) && (r._debit > 0 || r._credit > 0)` — 거래일자가 연도(숫자 4자리)로 시작해야 유효
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260612i`)  
+**커밋:** `19c6df7`, `9ce94c0`
+
+---
+
+### 2026-06-12 (3): 분류규칙 관리 UI 개선 (sticky 헤더·구분 빈값·아코디언·툴바 한줄) (sticky 헤더·구분 빈값·아코디언·툴바 한줄)
 
 **변경 내용 (`app.js`, `style.css`):**
 1. **분류규칙 표 헤더 sticky** — `style.css` `.rules-table-wrap`에 `overflow-y:auto; max-height:420px`, `th`에 `position:sticky; top:0; z-index:2` 추가
