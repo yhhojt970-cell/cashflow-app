@@ -90,6 +90,53 @@ function loadSourceFiles()  { try { const r = localStorage.getItem(MAUTO_SOURCE_
 function saveUserEdits()    { try { localStorage.setItem(MAUTO_USER_EDITS_KEY, JSON.stringify(mautoUserEdits));   } catch (_) {} }
 function loadUserEdits()    { try { const r = localStorage.getItem(MAUTO_USER_EDITS_KEY);   mautoUserEdits   = r ? JSON.parse(r) : {}; } catch (_) { mautoUserEdits = {};   } }
 
+// ── 미래 자료업로드 소스 파일 보관 (파일 단위 교체 + 재빌드 모델) ──
+const MIRAE_SOURCE_TAX_KEY    = "mirae-source-tax-v1";
+const MIRAE_SOURCE_LEDGER_KEY = "mirae-source-ledger-v1";
+const MIRAE_SOURCE_BIZ_KEY    = "mirae-source-biz-v1";
+let miraeTaxSources    = {}; // { fileKey: { filename, savedAt, rows[] } }
+let miraeLedgerSources = {}; // { fileKey: { filename, savedAt, ledgerType, rows[] } }
+let miraeBizSources    = {}; // { fileKey: { filename, savedAt, rows[] } }
+function saveMiraeSource(stKey, data) { try { localStorage.setItem(stKey, JSON.stringify(data)); } catch (_) {} }
+function loadMiraeSource(stKey) { try { const r = localStorage.getItem(stKey); return r ? JSON.parse(r) : {}; } catch (_) { return {}; } }
+function hasMiraeSources() {
+  return Object.keys(miraeTaxSources).length > 0 ||
+         Object.keys(miraeLedgerSources).length > 0 ||
+         Object.keys(miraeBizSources).length > 0;
+}
+
+// 섹션키 → 저장된 파일 목록
+function getMiraeSectionFiles(key) {
+  if (key === "taxInvoice") return Object.values(miraeTaxSources);
+  if (key === "dailySales") return Object.values(miraeBizSources);
+  const typeMap = { ledgerSales: "매출", ledgerPurchase: "매입", ledgerPayable: "미지급" };
+  const lt = typeMap[key];
+  return lt ? Object.values(miraeLedgerSources).filter(f => f.ledgerType === lt) : [];
+}
+
+// 파싱된 rows를 소스 저장소에 보관
+function saveMiraeSectionFile(key, filename, rows) {
+  const lt = { ledgerSales: "매출", ledgerPurchase: "매입", ledgerPayable: "미지급" }[key] || null;
+  const entry = { filename, savedAt: new Date().toISOString(), rows };
+  if (key === "taxInvoice") {
+    miraeTaxSources[filename] = entry;
+    saveMiraeSource(MIRAE_SOURCE_TAX_KEY, miraeTaxSources);
+  } else if (key === "dailySales") {
+    miraeBizSources[filename] = entry;
+    saveMiraeSource(MIRAE_SOURCE_BIZ_KEY, miraeBizSources);
+  } else if (lt) {
+    miraeLedgerSources[filename] = { ...entry, ledgerType: lt };
+    saveMiraeSource(MIRAE_SOURCE_LEDGER_KEY, miraeLedgerSources);
+  }
+}
+
+// 소스 파일 삭제
+function deleteMiraeSectionFile(key, filename) {
+  if (key === "taxInvoice") { delete miraeTaxSources[filename]; saveMiraeSource(MIRAE_SOURCE_TAX_KEY, miraeTaxSources); }
+  else if (key === "dailySales") { delete miraeBizSources[filename]; saveMiraeSource(MIRAE_SOURCE_BIZ_KEY, miraeBizSources); }
+  else { delete miraeLedgerSources[filename]; saveMiraeSource(MIRAE_SOURCE_LEDGER_KEY, miraeLedgerSources); }
+}
+
 let availableFunds = {
   accounts: [],       // [{bank, accountNo, balance}]
   b2bLoans: [],       // [{latestExpiry, execNo, finalExpiry, used}]
@@ -7980,6 +8027,46 @@ async function loadDaesaData() {
   }
 }
 
+// ────────────────────────────────────────────────────────────
+//  미래 소스 파일 재빌드 (파일 단위 교체 → daesaState 갱신)
+// ────────────────────────────────────────────────────────────
+function rebuildDaesaFromSources() {
+  // dedup 헬퍼 — _row_key 기준 1건화
+  const dedupByKey = rows => {
+    const seen = new Map();
+    for (const r of rows) {
+      const k = String(r["_row_key"] || "").trim();
+      if (!k || !seen.has(k)) seen.set(k || `__rnd_${Math.random()}`, r);
+    }
+    return [...seen.values()];
+  };
+
+  // 세금계산서: 승인번호(_row_key) dedup
+  daesaState.taxInvoices = dedupByKey(
+    Object.values(miraeTaxSources).flatMap(f => f.rows || [])
+  );
+
+  // 원장 3종: ledgerType별 dedup
+  const ledgerOf = lt => dedupByKey(
+    Object.values(miraeLedgerSources).filter(f => f.ledgerType === lt).flatMap(f => f.rows || [])
+  );
+  daesaState.ledgerSales    = ledgerOf("매출");
+  daesaState.ledgerPurchase = ledgerOf("매입");
+  daesaState.ledgerPayable  = ledgerOf("미지급");
+
+  // 영업현황: dedup
+  daesaState.dailySales = dedupByKey(
+    Object.values(miraeBizSources).flatMap(f => f.rows || [])
+  );
+
+  daesaState.loaded = true;
+  daesaState.error  = null;
+
+  // 대사 탭 활성 상태면 즉시 재렌더
+  const el = document.getElementById("daesa");
+  if (el && !el.classList.contains("hidden")) renderDaesaTab();
+}
+
 // ════════════════════════════════════════════════════════════
 //  Phase 1 — 미래 원장 정산 (거래처×귀속연월 집계)
 // ════════════════════════════════════════════════════════════
@@ -9817,7 +9904,7 @@ async function parseLedgerFile(file) {
         row["_matched_code"] = v?.code || "";
         row["_matched_name"] = v?.name || "";
         row["_row_key"] =
-          `${row["일자"]}_${String(row["견표번호"] || "").trim()}_${String(row["거래처코드"] || "").trim()}`;
+          `${row["일자"]}_${String(row["전표번호"] || row["견표번호"] || "").trim()}_${String(row["거래처코드"] || "").trim()}`;
         return row;
       }),
       error: null,
@@ -9878,6 +9965,20 @@ function renderDataImportPanel() {
     const parsed = sec.parsed;
     const matchedCount = parsed ? parsed.filter(r => r._matched_code).length : 0;
     const unmatchedCount = parsed ? parsed.length - matchedCount : 0;
+
+    // 저장된 소스 파일 목록
+    const storedFiles = getMiraeSectionFiles(key);
+    const storedFilesHtml = storedFiles.length > 0 ? `
+      <div class="di-source-files">
+        ${storedFiles.map(f => `
+          <span class="di-source-file">
+            📄 ${escapeHtml(f.filename)} <span class="muted">(${f.rows?.length || 0}건)</span>
+            <button type="button" class="di-source-del-btn" data-key="${key}" data-filename="${escapeHtml(f.filename)}" title="삭제">✕</button>
+          </span>
+        `).join("")}
+      </div>
+    ` : "";
+
     return `
       <div class="di-section">
         <div class="di-section-header">
@@ -9897,6 +9998,7 @@ function renderDataImportPanel() {
             </button>
           ` : ""}
         </div>
+        ${storedFilesHtml}
         ${sec.status ? `<div class="di-status ${sec.status.startsWith("✓") ? "di-status-ok" : sec.status.startsWith("저장") ? "" : "di-status-err"}">${sec.status}</div>` : ""}
       </div>
     `;
@@ -9905,7 +10007,7 @@ function renderDataImportPanel() {
   panel.innerHTML = `
     <div class="di-header">
       <h3>자료 업로드</h3>
-      <p class="di-desc muted">파일을 선택하면 파싱 결과를 미리 보여줍니다. '구글시트 저장'을 눌러야 반영됩니다.<br>전체 행을 구글시트에 저장합니다 (중복 행은 자동 덮어쓰기).</p>
+      <p class="di-desc muted">파일을 선택하면 <strong>로컬에 즉시 저장</strong>되고 대사 탭이 재빌드됩니다. 같은 기간 재업로드 시 파일 단위로 교체됩니다.<br>'구글시트 저장'은 클라우드 백업용입니다 (중복 행 자동 덮어쓰기).</p>
       <button type="button" class="di-close-btn" id="dataImportCloseBtn">✕ 닫기</button>
     </div>
     <div class="di-sections">${sections}</div>
@@ -9921,6 +10023,16 @@ function renderDataImportPanel() {
       const file = e.target.files[0];
       if (!file) return;
       const key = input.dataset.key;
+
+      // 같은 파일명이 이미 저장된 경우 교체 확인
+      const existing = getMiraeSectionFiles(key).find(f => f.filename === file.name);
+      if (existing) {
+        if (!confirm(`"${file.name}" 파일이 이미 저장되어 있습니다.\n같은 기간 데이터를 통째 교체하겠습니까?`)) {
+          input.value = "";
+          return;
+        }
+      }
+
       const sec = dataImportState[key];
       sec.status = "파싱 중…";
       sec.parsed = null;
@@ -9931,8 +10043,26 @@ function renderDataImportPanel() {
       else if (key === "dailySales") result = await parseDailySalesFile(file);
       else result = await parseLedgerFile(file);
 
-      sec.parsed = result.error ? null : result.rows;
-      sec.status = result.error ? `오류: ${result.error}` : "";
+      if (result.error) {
+        sec.status = `오류: ${result.error}`;
+      } else {
+        sec.parsed = result.rows;
+        sec.status = "";
+        // 소스 파일 저장 + 재빌드
+        saveMiraeSectionFile(key, file.name, result.rows);
+        rebuildDaesaFromSources();
+      }
+      renderDataImportPanel();
+    });
+  });
+
+  // 소스 파일 삭제 버튼
+  panel.querySelectorAll(".di-source-del-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const { key, filename } = btn.dataset;
+      if (!confirm(`"${filename}" 파일을 로컬 저장소에서 삭제하겠습니까?`)) return;
+      deleteMiraeSectionFile(key, filename);
+      rebuildDaesaFromSources();
       renderDataImportPanel();
     });
   });
@@ -10028,6 +10158,11 @@ async function init() {
   loadSourceFiles();
   loadUserEdits();
   migrateLegacyIfNeeded(); // 기존 분류 데이터를 불변/사용자 영역으로 분리
+  // 미래 자료업로드 소스 파일 로드 → 소스 있으면 daesaState 즉시 재빌드
+  miraeTaxSources    = loadMiraeSource(MIRAE_SOURCE_TAX_KEY);
+  miraeLedgerSources = loadMiraeSource(MIRAE_SOURCE_LEDGER_KEY);
+  miraeBizSources    = loadMiraeSource(MIRAE_SOURCE_BIZ_KEY);
+  if (hasMiraeSources()) rebuildDaesaFromSources();
   switchTab("home");
 
   await Promise.all([
