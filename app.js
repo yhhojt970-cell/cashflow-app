@@ -7485,7 +7485,7 @@ function assignTxKeys(bankRows) {
   return bankRows.map(row => {
     const time = String(row._time || "").trim();
     const base = [row._date, time, row._credit || 0, row._debit || 0, row._memo].join("|");
-    if (time) return { ...row, _txKey: base };
+    // 시간 유무와 관계없이 항상 배치 내 발생순번 부여 → 같은 날 같은 금액 중복 처리 방지
     seqMap[base] = (seqMap[base] || 0) + 1;
     return { ...row, _txKey: `${base}#${seqMap[base]}` };
   });
