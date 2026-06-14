@@ -148,9 +148,13 @@ function loadMautoTaxSource() {
 }
 function rebuildMautoTaxInvoices() {
   const seen = new Map();
-  for (const r of Object.values(mautoTaxSources).flatMap(f => f.rows || [])) {
-    const k = String(r._row_key || "").trim();
-    if (!k || !seen.has(k)) seen.set(k || `__rnd_${Math.random()}`, r);
+  for (const src of Object.values(mautoTaxSources)) {
+    for (const r of (src.rows || [])) {
+      // 신형 포맷(구분 컬럼 없음)은 sideType으로 구분 설정
+      if (!r["구분"]) r["구분"] = src.sideType === "매출" ? "매출" : "매입";
+      const k = String(r._row_key || "").trim();
+      if (!k || !seen.has(k)) seen.set(k || `__rnd_${Math.random()}`, r);
+    }
   }
   mautoTaxInvoices = [...seen.values()];
 }
@@ -6928,12 +6932,14 @@ function renderMautoTab() {
       </div>
     </div>
     ${(() => {
-      // 엠오토 세금계산서 업로드 파일 목록
       const taxEntries = Object.values(mautoTaxSources);
       if (!taxEntries.length) return "";
       return `
-    <div style="margin:8px 0;padding:8px 12px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;font-size:12px;">
-      <div style="font-weight:600;color:#92400e;margin-bottom:4px;">🧾 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)</div>
+    <details style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
+      <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#92400e;list-style:none;display:flex;align-items:center;gap:6px;">
+        <span>▶</span> 🧾 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)
+      </summary>
+      <div style="padding:4px 12px 8px;">
       ${taxEntries.map(f => `
       <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.filename)}</span>
@@ -6942,15 +6948,18 @@ function renderMautoTab() {
         ${f.checksumOk === true ? '<span style="color:#16a34a;">✓체크섬</span>' : f.checksumOk === false ? '<span style="color:#dc2626;">✗체크섬</span>' : ""}
         <button type="button" class="mauto-tax-del-btn" data-fname="${encodeURIComponent(f.filename)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
       </div>`).join("")}
-    </div>`;
+      </div>
+    </details>`;
     })()}
     ${(() => {
-      // 업로드된 파일 목록
       const fileEntries = Object.entries(mautoSourceFiles);
       if (!fileEntries.length) return "";
       return `
-    <div style="margin:8px 0;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;">
-      <div style="font-weight:600;color:#374151;margin-bottom:4px;">📁 업로드된 파일 ${fileEntries.length}개</div>
+    <details style="margin:6px 0;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:12px;">
+      <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#374151;list-style:none;display:flex;align-items:center;gap:6px;">
+        <span>▶</span> 📁 업로드된 파일 ${fileEntries.length}개
+      </summary>
+      <div style="padding:4px 12px 8px;">
       ${fileEntries.map(([key, f]) => `
       <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #f1f5f9;">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${f.isMigration ? '#9ca3af' : '#374151'};">${escapeHtml(f.filename)}${f.isMigration ? ' <em style="color:#d97706;">(마이그레이션)</em>' : ''}</span>
@@ -6958,7 +6967,8 @@ function renderMautoTab() {
         <span style="color:#9ca3af;white-space:nowrap;">${(f.savedAt||"").slice(0,10)}</span>
         <button type="button" class="mauto-file-del-btn" data-fkey="${encodeURIComponent(key)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
       </div>`).join("")}
-    </div>`;
+      </div>
+    </details>`;
     })()}
     ${(() => {
       if (!mautoClassifiedRows.length) return "";
