@@ -6954,58 +6954,59 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
 
   const tdSt = `padding:4px 6px;border-bottom:1px solid #f3f4f6;`;
   const thSt = `padding:4px 6px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-weight:600;font-size:11px;`;
-
   const CAT_COLOR = { 이자:"#dbeafe", 인출금:"#fef9c3", 카드:"#f3e8ff", 세금:"#fee2e2", 세계:"#d1fae5", 복리:"#ffedd5" };
 
   // 미완료 항목이 있는 월 or 이번 달/미래 → 기본 펼침 / 완료된 과거 달 → 접힘
   const renderMonth = ({ year, month, ym, items: monthItems, monthTotal, isPast, isCurrent, allDone }) => {
     const today = new Date();
     const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
-    const isFuture = ym > todayYM;
-    const collapsed = isPast && allDone; // 과거 + 전부 완료 → 기본 접힘
+    const collapsed = isPast && allDone;
 
-    const bycat = {};
-    monthItems.forEach(item => {
-      const cat = item.고정분류 || "기타";
-      if (!bycat[cat]) bycat[cat] = [];
-      bycat[cat].push(item);
+    // 날짜 오름차순 정렬 (날짜 없는 항목은 맨 뒤)
+    const sorted = [...monthItems].sort((a, b) => {
+      const da = a.예정결제일?.date || "9999";
+      const db = b.예정결제일?.date || "9999";
+      return da < db ? -1 : da > db ? 1 : 0;
     });
 
-    const catOrder = ["이자","인출금","카드","세금","세계","복리","기타"];
-    const catSections = catOrder.filter(c => bycat[c]).map(cat => {
-      const catItems = bycat[cat];
-      const catTotal = catItems.reduce((s, i) => s + i.totalAmount, 0);
-      const bg = CAT_COLOR[cat] || "#f9fafb";
-      const catExpected = catItems.reduce((s, i) => s + (i.예정금액 || 0), 0);
-      const rows = catItems.map(item => {
+    // 날짜별로 그룹화 → 날짜별 소계
+    const dateGroups = [];
+    sorted.forEach(item => {
+      const d = item.예정결제일?.date || "미정";
+      const last = dateGroups[dateGroups.length - 1];
+      if (last && last.date === d) last.items.push(item);
+      else dateGroups.push({ date: d, dow: item.예정결제일?.dow || "", items: [item] });
+    });
+
+    const bodyRows = dateGroups.map(({ date, dow, items: grpItems }) => {
+      const grpExpected = grpItems.reduce((s, i) => s + (i.예정금액 || 0), 0);
+      const grpActual  = grpItems.reduce((s, i) => s + i.totalAmount, 0);
+      const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
+      const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
+
+      // 날짜 소계 행
+      const subtotalRow = `<tr style="background:#f8fafc;">
+        <td colspan="2" style="${tdSt}font-weight:700;color:#374151;">${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
+        <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${grpExpected ? formatNumber(grpExpected) : ""}</td>
+        <td style="${tdSt}"></td>
+        <td style="${tdSt}text-align:right;font-weight:700;">${grpActual ? formatNumber(grpActual) : ""}</td>
+        <td style="${tdSt}"></td>
+      </tr>`;
+
+      const itemRows = grpItems.map(item => {
         const paid = item.status === "완료";
-        const sch = item.예정결제일;
-        let schedCell;
-        if (sch) {
-          const origDay = item.예정일;
-          const adjDay = parseInt(sch.date.slice(8));
-          const isAdj = origDay !== adjDay;
-          schedCell = `${sch.date.slice(5)} <span style="color:#6b7280;">(${sch.dow})</span>${isAdj ? ` <span style="color:#f59e0b;font-size:10px;" title="${origDay}일 → 공휴일/주말 조정">*</span>` : ""}`;
-        } else {
-          schedCell = item.예정일 ? `${item.예정일}일` : "-";
-        }
-        return `<tr style="${paid ? "opacity:0.55;" : ""}">
-          <td style="${tdSt}padding-left:10px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}</td>
-          <td style="${tdSt}text-align:center;white-space:nowrap;">${schedCell}</td>
+        const catBg = CAT_COLOR[item.고정분류] ? `background:${CAT_COLOR[item.고정분류]};` : "";
+        return `<tr style="${paid ? "opacity:0.55;" : ""}${catBg}">
+          <td style="${tdSt}padding-left:14px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
+          <td style="${tdSt}text-align:center;color:#9ca3af;font-size:11px;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
           <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? `${formatNumber(item.예정금액)}${item.예정금액출처==="auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : ""}` : "-"}</td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
           <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : (isPast ? "color:#ef4444;font-weight:700;" : "color:#9ca3af;")}">${paid ? "✓" : (isPast ? "미결" : "-")}</td>
         </tr>`;
       }).join("");
-      return `<tr style="background:${bg};">
-          <td style="${tdSt}font-weight:700;color:#374151;">${cat}</td>
-          <td style="${tdSt}"></td>
-          <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${catExpected ? formatNumber(catExpected) : ""}</td>
-          <td style="${tdSt}"></td>
-          <td style="${tdSt}text-align:right;font-weight:700;">${catTotal ? formatNumber(catTotal) : ""}</td>
-          <td style="${tdSt}"></td>
-        </tr>${rows}`;
+
+      return subtotalRow + itemRows;
     }).join("");
 
     const doneBadge = allDone
@@ -7015,13 +7016,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
     const tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:left;">항목</th>
-          <th style="${thSt}text-align:center;">예정일</th>
+          <th style="${thSt}text-align:center;">기준일</th>
           <th style="${thSt}text-align:right;">예정금액</th>
           <th style="${thSt}text-align:center;">실제결제일</th>
           <th style="${thSt}text-align:right;">실적</th>
           <th style="${thSt}text-align:center;">상태</th>
         </tr></thead>
-        <tbody>${catSections}</tbody>
+        <tbody>${bodyRows}</tbody>
       </table>`;
     return `<details style="margin-bottom:12px;" ${collapsed ? "" : "open"}>
       <summary style="cursor:pointer;font-weight:700;font-size:13px;color:${isCurrent?"#2563eb":"#374151"};padding:4px 0 6px;border-bottom:${headerBorder};list-style:none;display:flex;align-items:center;gap:6px;">
