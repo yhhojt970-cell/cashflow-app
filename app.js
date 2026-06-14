@@ -6814,17 +6814,66 @@ function getMautoFixedDateLabel(row) {
 
 // ── Phase 4-B: 분류규칙 결제예정일 기반 고정지출 자동 계산 ──
 
+// 한국 공휴일 (2025~2026, 대체공휴일 포함)
+const KR_HOLIDAYS = new Set([
+  // 2025
+  "2025-01-01","2025-01-28","2025-01-29","2025-01-30",           // 신정 / 설날연휴
+  "2025-03-01","2025-03-03",                                       // 삼일절(토)+대체(월)
+  "2025-05-05","2025-05-06",                                       // 어린이날+부처님오신날 대체
+  "2025-06-06",                                                    // 현충일(금)
+  "2025-08-15",                                                    // 광복절(금)
+  "2025-10-03","2025-10-05","2025-10-06","2025-10-07","2025-10-08","2025-10-09", // 개천절/추석연휴+대체/한글날
+  "2025-12-25",                                                    // 성탄절(목)
+  // 2026
+  "2026-01-01",                                                    // 신정(목)
+  "2026-02-16","2026-02-17","2026-02-18",                         // 설날연휴(월~수)
+  "2026-03-01","2026-03-02",                                       // 삼일절(일)+대체(월)
+  "2026-05-05","2026-05-24",                                       // 어린이날(수)/부처님오신날(약)
+  "2026-06-06","2026-06-08",                                       // 현충일(토)+대체(월)
+  "2026-08-15","2026-08-17",                                       // 광복절(토)+대체(월)
+  "2026-09-24","2026-09-25","2026-09-26","2026-09-28",            // 추석연휴(목~토)+대체(월)
+  "2026-10-03","2026-10-05",                                       // 개천절(토)+대체(월)
+  "2026-10-09",                                                    // 한글날(금)
+  "2026-12-25",                                                    // 성탄절(금)
+]);
+
+const DAYS_KO = ["일","월","화","수","목","금","토"];
+
+// 결제예정일(N일)을 해당 월의 실제 영업일로 변환 (주말/공휴일 → 다음 영업일)
+function getScheduledPaymentDate(year, month, day) {
+  const lastDay = new Date(year, month, 0).getDate();
+  let d = new Date(year, month - 1, Math.min(day, lastDay));
+  for (let i = 0; i < 14; i++) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6 && !KR_HOLIDAYS.has(ds)) return { date: ds, dow: DAYS_KO[dow] };
+    d.setDate(d.getDate() + 1);
+  }
+  const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  return { date: ds, dow: DAYS_KO[d.getDay()] };
+}
+
 function buildFixedFromRules(fixedRules, classifiedRows) {
+  const today = new Date();
+  const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
+
+  // 자동 월 생성: 오늘 기준 3개월 전 ~ 6개월 후
   const monthSet = new Set();
+  for (let i = -3; i <= 6; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+  }
+  // classifiedRows 월도 포함 (범위 밖 과거 데이터 보존)
   (classifiedRows || []).forEach(r => {
     if (!r._date || !/^\d{4}-\d{2}/.test(r._date)) return;
     monthSet.add(r._date.slice(0, 7));
   });
-  if (!monthSet.size) return [];
 
-  const months = [...monthSet].sort().reverse(); // 최신 월 먼저
+  const months = [...monthSet].sort().reverse(); // 최신 먼저
   return months.map(ym => {
     const [year, month] = ym.split("-");
+    const isPast = ym < todayYM;
+    const isCurrent = ym === todayYM;
     const items = fixedRules.map(rule => {
       const matched = (classifiedRows || []).filter(r => {
         if (!r._date || !r.거래처명) return false;
@@ -6834,20 +6883,23 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
       const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
       const dates = [...new Set(matched.map(r => r._date).filter(Boolean))].sort();
       const rawExpected = Number(rule["예정금액"]) || 0;
-      // 천원 단위 올림 (1원~999원 → 올려서 천원 단위)
       const 예정금액 = rawExpected ? Math.ceil(rawExpected / 1000) * 1000 : 0;
+      const dayNum = parseInt(rule["결제예정일"]) || null;
+      const 예정결제일 = dayNum ? getScheduledPaymentDate(parseInt(year), parseInt(month), dayNum) : null;
       return {
         거래처명: rule["거래처명"],
         구분: rule["구분"] || "",
         고정분류: rule["고정분류"] || "",
-        예정일: parseInt(rule["결제예정일"]) || null,
+        예정일: dayNum,
+        예정결제일,
         예정금액,
         matched, totalAmount, dates,
         status: matched.length > 0 ? "완료" : "예정",
       };
     });
     const monthTotal = items.reduce((s, i) => s + i.totalAmount, 0);
-    return { year, month, ym, items, monthTotal };
+    const allDone = items.length > 0 && items.every(i => i.status === "완료");
+    return { year, month, ym, items, monthTotal, isPast, isCurrent, allDone };
   });
 }
 
@@ -6866,8 +6918,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
 
   const CAT_COLOR = { 이자:"#dbeafe", 인출금:"#fef9c3", 카드:"#f3e8ff", 세금:"#fee2e2", 세계:"#d1fae5", 복리:"#ffedd5" };
 
-  const html = monthData.map(({ year, month, items: monthItems, monthTotal }) => {
-    // 분류별 그룹핑 (분류 없으면 "기타")
+  // 미완료 항목이 있는 월 or 이번 달/미래 → 기본 펼침 / 완료된 과거 달 → 접힘
+  const renderMonth = ({ year, month, ym, items: monthItems, monthTotal, isPast, isCurrent, allDone }) => {
+    const today = new Date();
+    const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
+    const isFuture = ym > todayYM;
+    const collapsed = isPast && allDone; // 과거 + 전부 완료 → 기본 접힘
+
     const bycat = {};
     monthItems.forEach(item => {
       const cat = item.고정분류 || "기타";
@@ -6883,13 +6940,23 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
       const catExpected = catItems.reduce((s, i) => s + (i.예정금액 || 0), 0);
       const rows = catItems.map(item => {
         const paid = item.status === "완료";
-        return `<tr>
-          <td style="${tdSt}padding-left:10px;">${escapeHtml(item.거래처명)}</td>
-          <td style="${tdSt}text-align:center;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
+        const sch = item.예정결제일;
+        let schedCell;
+        if (sch) {
+          const origDay = item.예정일;
+          const adjDay = parseInt(sch.date.slice(8));
+          const isAdj = origDay !== adjDay;
+          schedCell = `${sch.date.slice(5)} <span style="color:#6b7280;">(${sch.dow})</span>${isAdj ? ` <span style="color:#f59e0b;font-size:10px;" title="${origDay}일 → 공휴일/주말 조정">*</span>` : ""}`;
+        } else {
+          schedCell = item.예정일 ? `${item.예정일}일` : "-";
+        }
+        return `<tr style="${paid ? "opacity:0.55;" : ""}">
+          <td style="${tdSt}padding-left:10px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}</td>
+          <td style="${tdSt}text-align:center;white-space:nowrap;">${schedCell}</td>
           <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? formatNumber(item.예정금액) : "-"}</td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
-          <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${paid ? "✓" : "-"}</td>
+          <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : (isPast ? "color:#ef4444;font-weight:700;" : "color:#9ca3af;")}">${paid ? "✓" : (isPast ? "미결" : "-")}</td>
         </tr>`;
       }).join("");
       return `<tr style="background:${bg};">
@@ -6902,12 +6969,11 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
         </tr>${rows}`;
     }).join("");
 
-    return `<div style="margin-bottom:18px;">
-      <div style="font-weight:700;font-size:13px;color:#374151;padding:4px 0 6px;border-bottom:2px solid #e5e7eb;margin-bottom:4px;">
-        ${year}년 ${parseInt(month)}월
-        <span style="float:right;color:#6b7280;font-weight:400;font-size:12px;">합계 ${formatNumber(monthTotal)}</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    const doneBadge = allDone
+      ? `<span style="font-size:11px;color:#16a34a;margin-left:6px;">✓ 완료</span>`
+      : (isPast ? `<span style="font-size:11px;color:#ef4444;margin-left:6px;">● 미결</span>` : "");
+    const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
+    const tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:left;">항목</th>
           <th style="${thSt}text-align:center;">예정일</th>
@@ -6917,11 +6983,20 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
           <th style="${thSt}text-align:center;">상태</th>
         </tr></thead>
         <tbody>${catSections}</tbody>
-      </table>
-    </div>`;
-  }).join("");
+      </table>`;
+    return `<details style="margin-bottom:12px;" ${collapsed ? "" : "open"}>
+      <summary style="cursor:pointer;font-weight:700;font-size:13px;color:${isCurrent?"#2563eb":"#374151"};padding:4px 0 6px;border-bottom:${headerBorder};list-style:none;display:flex;align-items:center;gap:6px;">
+        <span>${collapsed ? "▶" : "▼"}</span>
+        <span>${year}년 ${parseInt(month)}월${doneBadge}</span>
+        <span style="margin-left:auto;color:#6b7280;font-weight:400;font-size:12px;">합계 ${formatNumber(monthTotal)}</span>
+      </summary>
+      <div style="padding-top:4px;">${tableHtml}</div>
+    </details>`;
+  };
 
-  return `<div style="padding:10px 4px;max-height:520px;overflow-y:auto;">${html}</div>`;
+  const html = monthData.map(renderMonth).join("");
+
+  return `<div style="padding:10px 4px;max-height:600px;overflow-y:auto;">${html}</div>`;
 }
 
 function renderMautoFixedTable(rows) {
