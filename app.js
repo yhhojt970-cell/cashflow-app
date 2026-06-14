@@ -137,6 +137,20 @@ function deleteMiraeSectionFile(key, filename) {
   else { delete miraeLedgerSources[filename]; saveMiraeSource(MIRAE_SOURCE_LEDGER_KEY, miraeLedgerSources); }
 }
 
+// ── 엠오토 미수미지급 제외 거래처 (자기 회사명 등 표시 불필요한 거래처) ──
+const MAUTO_EXCLUDE_KEY = "mauto-exclude-vendors-v1";
+let mautoExcludeVendors = []; // 정규화 상호 목록
+function saveMautoExcludeVendors() { try { localStorage.setItem(MAUTO_EXCLUDE_KEY, JSON.stringify(mautoExcludeVendors)); } catch (_) {} }
+function loadMautoExcludeVendors() {
+  try { const r = localStorage.getItem(MAUTO_EXCLUDE_KEY); mautoExcludeVendors = r ? JSON.parse(r) : []; }
+  catch (_) { mautoExcludeVendors = []; }
+}
+function isArRecapExcluded(vendorName) {
+  if (!mautoExcludeVendors.length) return false;
+  const norm = normalizeVendorName(vendorName);
+  return mautoExcludeVendors.some(ex => normalizeVendorName(ex) === norm || ex === vendorName);
+}
+
 // ── 엠오토 세금계산서 소스 파일 보관 (국세청 양식, 파일 단위 교체 + 재빌드) ──
 const MAUTO_TAX_SOURCE_KEY = "mauto-tax-source-v1";
 let mautoTaxSources  = {}; // { [filename]: { filename, sideType, savedAt, rows[] } }
@@ -6847,10 +6861,12 @@ function renderMautoFixedTable(rows) {
   </div>`;
 }
 
-// buildArRecap 결과 → renderMautoAccountingTable 포맷 변환 (발생 0 제외)
+// buildArRecap 결과 → renderMautoAccountingTable 포맷 변환 (발생 0·잔액 0·제외 거래처 제외)
 function arRecapToMautoRows(entries) {
   return entries
     .filter(e => e.발생 !== 0)
+    .filter(e => e.잔액 !== 0)
+    .filter(e => !isArRecapExcluded(e.vendor))
     .map(e => ({
       year: e.year, month: e.month, company: e.vendor,
       total: e.발생, inout: e.충당, balance: e.잔액,
@@ -6899,8 +6915,11 @@ function renderMautoTab() {
     receivable = rcvRows.reduce((s, r) => s + r.balance, 0);
     payable    = payRows.reduce((s, r) => s + r.balance, 0);
     const taxCnt = mautoTaxInvoices.length;
-    rcvBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
-    payBadge = rcvBadge;
+    const excludeBadge = mautoExcludeVendors.length
+      ? `<button type="button" id="mautoExcludeBtn" style="font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;" title="제외 거래처 설정">🚫 제외 ${mautoExcludeVendors.length}개</button>`
+      : `<button type="button" id="mautoExcludeBtn" style="font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;" title="제외 거래처 설정">🚫 제외 설정</button>`;
+    rcvBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>${excludeBadge}`;
+    payBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
     if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
     if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
   } else {
@@ -7024,6 +7043,19 @@ function renderMautoTab() {
 
   sec.querySelectorAll(".mauto-apply-btn").forEach(btn => {
     btn.addEventListener("click", () => applyMautoPaste(btn.dataset.mautoSection));
+  });
+
+  // 제외 거래처 설정 버튼
+  document.getElementById("mautoExcludeBtn")?.addEventListener("click", () => {
+    const cur = mautoExcludeVendors.join("\n");
+    const ans = prompt(
+      "미수금/미지급에서 제외할 거래처명을 한 줄에 하나씩 입력하세요.\n(예: 에스케이텔레콤(주), 미래오토메이션)",
+      cur
+    );
+    if (ans === null) return; // 취소
+    mautoExcludeVendors = ans.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    saveMautoExcludeVendors();
+    renderMautoTab();
   });
 
   sec.querySelectorAll(".mauto-textarea").forEach(textarea => {
@@ -10692,8 +10724,9 @@ async function init() {
   miraeLedgerSources = loadMiraeSource(MIRAE_SOURCE_LEDGER_KEY);
   miraeBizSources    = loadMiraeSource(MIRAE_SOURCE_BIZ_KEY);
   if (hasMiraeSources()) rebuildDaesaFromSources();
-  // 엠오토 세금계산서 소스 로드
+  // 엠오토 세금계산서 소스 로드 + 제외 거래처 로드
   loadMautoTaxSource();
+  loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
   switchTab("home");
 
