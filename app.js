@@ -6871,10 +6871,19 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
 
   const months = [...monthSet].sort().reverse(); // 최신 먼저
 
+  // 같은 거래처명+결제예정일 규칙이 여러 개(매칭키별)여도 표시는 1개로 중복 제거
+  const seenFixed = new Set();
+  const dedupedRules = fixedRules.filter(rule => {
+    const k = `${rule["거래처명"]}||${rule["결제예정일"]}`;
+    if (seenFixed.has(k)) return false;
+    seenFixed.add(k);
+    return true;
+  });
+
   // 거래처별 월 실적 평균 계산 → 예정금액 자동 산출 (2개월 이상 데이터 있을 때)
   const vendorActuals = {}; // { vendorName: [amount, ...] }
   months.forEach(ym => {
-    fixedRules.forEach(rule => {
+    dedupedRules.forEach(rule => {
       const name = rule["거래처명"];
       const matched = (classifiedRows || []).filter(r =>
         r._date && r.거래처명 === name && r._date.slice(0, 7) === ym
@@ -6901,7 +6910,7 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
     const [year, month] = ym.split("-");
     const isPast = ym < todayYM;
     const isCurrent = ym === todayYM;
-    const items = fixedRules.map(rule => {
+    const items = dedupedRules.map(rule => {
       const matched = (classifiedRows || []).filter(r => {
         if (!r._date || !r.거래처명) return false;
         if (r._date.slice(0, 7) !== ym) return false;
