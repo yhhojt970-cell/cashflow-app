@@ -6915,11 +6915,11 @@ function renderMautoTab() {
     receivable = rcvRows.reduce((s, r) => s + r.balance, 0);
     payable    = payRows.reduce((s, r) => s + r.balance, 0);
     const taxCnt = mautoTaxInvoices.length;
-    const excludeBadge = mautoExcludeVendors.length
-      ? `<button type="button" id="mautoExcludeBtn" style="font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;" title="제외 거래처 설정">🚫 제외 ${mautoExcludeVendors.length}개</button>`
-      : `<button type="button" id="mautoExcludeBtn" style="font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;" title="제외 거래처 설정">🚫 제외 설정</button>`;
-    rcvBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>${excludeBadge}`;
-    payBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
+    const exLabel = mautoExcludeVendors.length ? `🚫 제외 ${mautoExcludeVendors.length}개` : `🚫 제외 설정`;
+    const exStyle = `font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;`;
+    const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
+    rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyle}" title="제외 거래처 설정">${exLabel}</button>`;
+    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyle}" title="제외 거래처 설정">${exLabel}</button>`;
     if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
     if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
   } else {
@@ -7045,18 +7045,20 @@ function renderMautoTab() {
     btn.addEventListener("click", () => applyMautoPaste(btn.dataset.mautoSection));
   });
 
-  // 제외 거래처 설정 버튼
-  document.getElementById("mautoExcludeBtn")?.addEventListener("click", () => {
+  // 제외 거래처 설정 버튼 (미수금·미지급 공통)
+  const openExcludeDialog = () => {
     const cur = mautoExcludeVendors.join("\n");
     const ans = prompt(
-      "미수금/미지급에서 제외할 거래처명을 한 줄에 하나씩 입력하세요.\n(예: 에스케이텔레콤(주), 미래오토메이션)",
+      "미수금/미지급에서 제외할 거래처명을 한 줄에 하나씩 입력하세요.\n(예: 에스케이텔레콤(주)\n미래오토메이션)",
       cur
     );
-    if (ans === null) return; // 취소
+    if (ans === null) return;
     mautoExcludeVendors = ans.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
     saveMautoExcludeVendors();
     renderMautoTab();
-  });
+  };
+  document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", openExcludeDialog);
+  document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", openExcludeDialog);
 
   sec.querySelectorAll(".mauto-textarea").forEach(textarea => {
     textarea.addEventListener("paste", () => {
