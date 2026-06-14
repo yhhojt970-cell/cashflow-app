@@ -6843,13 +6843,21 @@ function renderMautoFixedTable(rows) {
   </div>`;
 }
 
-function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false) {
+// buildArRecap 결과 → renderMautoAccountingTable 포맷 변환
+function arRecapToMautoRows(entries) {
+  return entries.map(e => ({
+    year: e.year, month: e.month, company: e.vendor,
+    total: e.발생, inout: e.충당, balance: e.잔액,
+  }));
+}
+
+function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
   const toggleBtns = hasToggle ? `
     <button type="button" class="mauto-ctrl-btn" data-mauto-expand-all="${id}">전체 펼치기</button>
     <button type="button" class="mauto-ctrl-btn" data-mauto-collapse-all="${id}">전체 접기</button>` : "";
   return `<div class="mauto-section" id="mauto-section-${id}" data-kind="${id}">
     <div class="mauto-section-header">
-      <div><h3>${escapeHtml(title)}</h3></div>
+      <div><h3>${escapeHtml(title)}${badge ? ` ${badge}` : ""}</h3></div>
       <div class="mauto-section-actions">
         ${toggleBtns}
         <button type="button" class="mauto-paste-btn" data-mauto-section="${id}">붙여넣기 입력</button>
@@ -6872,9 +6880,30 @@ function renderMautoTab() {
   if (!sec) return;
   mautoData = normalizeMautoData(mautoData);
   const funds = (mautoData.funds || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-  const receivable = (mautoData.receivables || []).reduce((s, r) => s + Number(r.balance || 0), 0);
-  const payable = (mautoData.payables || []).reduce((s, r) => s + Number(r.balance || 0), 0);
   const fixed = (mautoData.fixed || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+
+  // 세금계산서 데이터가 있으면 buildArRecap으로 미수/미지급 자동 계산
+  const hasTax = mautoTaxInvoices && mautoTaxInvoices.length > 0;
+  let rcvRows, payRows, receivable, payable, rcvBadge, payBadge, rcvWarn = "", payWarn = "";
+  if (hasTax) {
+    const rcv = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미수");
+    const pay = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미지급");
+    rcvRows = arRecapToMautoRows(rcv.entries);
+    payRows = arRecapToMautoRows(pay.entries);
+    receivable = rcvRows.reduce((s, r) => s + r.balance, 0);
+    payable    = payRows.reduce((s, r) => s + r.balance, 0);
+    const taxCnt = mautoTaxInvoices.length;
+    rcvBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
+    payBadge = rcvBadge;
+    if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
+    if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
+  } else {
+    rcvRows = mautoData.receivables || [];
+    payRows = mautoData.payables || [];
+    receivable = rcvRows.reduce((s, r) => s + Number(r.balance || 0), 0);
+    payable    = payRows.reduce((s, r) => s + Number(r.balance || 0), 0);
+    rcvBadge = ""; payBadge = "";
+  }
 
   sec.innerHTML = `<div class="mauto-container">
     <div class="mauto-top-bar">
@@ -6956,11 +6985,11 @@ function renderMautoTab() {
       renderMautoFundsTable(),
       "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)", false)}
     ${mautoPasteSection("receivables", "미수금",
-      renderMautoAccountingTable(mautoData.receivables, "receivables"),
-      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", true)}
+      rcvWarn + renderMautoAccountingTable(rcvRows, "receivables"),
+      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", true, rcvBadge)}
     ${mautoPasteSection("payables", "미지급",
-      renderMautoAccountingTable(mautoData.payables, "payables"),
-      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true)}
+      payWarn + renderMautoAccountingTable(payRows, "payables"),
+      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       renderMautoFixedTable(mautoData.fixed),
       "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true)}
