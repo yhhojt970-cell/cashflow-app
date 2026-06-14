@@ -10526,12 +10526,15 @@ async function importRulesFromExcel(file) {
 
     const rows = raw.map(r => {
       const ruleObj = {
-        사업체:   String(r["사업체"]   ?? "").trim(),
-        매칭방식: String(r["매칭방식"] ?? "").trim(),
-        매칭키:   String(r["매칭키"]   ?? "").trim(),
-        거래처명: String(r["거래처명"] ?? "").trim(),
-        구분:     String(r["구분"]     ?? "").trim(),
-        우선순위: String(r["우선순위"] ?? "10").trim() || "10",
+        사업체:     String(r["사업체"]     ?? "").trim(),
+        매칭방식:   String(r["매칭방식"]   ?? "").trim(),
+        매칭키:     String(r["매칭키"]     ?? "").trim(),
+        거래처명:   String(r["거래처명"]   ?? "").trim(),
+        구분:       String(r["구분"]       ?? "").trim(),
+        우선순위:   String(r["우선순위"]   ?? "10").trim() || "10",
+        결제예정일: String(r["결제예정일"] ?? "").trim(),
+        고정분류:   String(r["고정분류"]   ?? "").trim(),
+        예정금액:   String(r["예정금액"]   ?? "").trim(),
       };
       ruleObj._rule_key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
       return ruleObj;
