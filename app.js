@@ -6870,6 +6870,33 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
   });
 
   const months = [...monthSet].sort().reverse(); // 최신 먼저
+
+  // 거래처별 월 실적 평균 계산 → 예정금액 자동 산출 (2개월 이상 데이터 있을 때)
+  const vendorActuals = {}; // { vendorName: [amount, ...] }
+  months.forEach(ym => {
+    fixedRules.forEach(rule => {
+      const name = rule["거래처명"];
+      const matched = (classifiedRows || []).filter(r =>
+        r._date && r.거래처명 === name && r._date.slice(0, 7) === ym
+      );
+      if (matched.length) {
+        const total = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
+        if (total > 0) {
+          if (!vendorActuals[name]) vendorActuals[name] = [];
+          vendorActuals[name].push(total);
+        }
+      }
+    });
+  });
+  // 2개월 이상이면 평균 → 천원 단위 올림, 아니면 규칙 입력값 fallback
+  const vendorCalcExpected = {};
+  Object.entries(vendorActuals).forEach(([name, amounts]) => {
+    if (amounts.length >= 2) {
+      const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+      vendorCalcExpected[name] = Math.ceil(avg / 1000) * 1000;
+    }
+  });
+
   return months.map(ym => {
     const [year, month] = ym.split("-");
     const isPast = ym < todayYM;
@@ -6882,17 +6909,20 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
       });
       const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
       const dates = [...new Set(matched.map(r => r._date).filter(Boolean))].sort();
-      const rawExpected = Number(rule["예정금액"]) || 0;
-      const 예정금액 = rawExpected ? Math.ceil(rawExpected / 1000) * 1000 : 0;
       const dayNum = parseInt(rule["결제예정일"]) || null;
       const 예정결제일 = dayNum ? getScheduledPaymentDate(parseInt(year), parseInt(month), dayNum) : null;
+      // 예정금액: 실적 평균(2개월↑) 우선 → 규칙 수동값 fallback
+      const calcAmt = vendorCalcExpected[rule["거래처명"]];
+      const manualAmt = Number(rule["예정금액"]) || 0;
+      const 예정금액 = calcAmt || (manualAmt ? Math.ceil(manualAmt / 1000) * 1000 : 0);
+      const 예정금액출처 = calcAmt ? "auto" : "manual";
       return {
         거래처명: rule["거래처명"],
         구분: rule["구분"] || "",
         고정분류: rule["고정분류"] || "",
         예정일: dayNum,
         예정결제일,
-        예정금액,
+        예정금액, 예정금액출처,
         matched, totalAmount, dates,
         status: matched.length > 0 ? "완료" : "예정",
       };
@@ -6953,7 +6983,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
         return `<tr style="${paid ? "opacity:0.55;" : ""}">
           <td style="${tdSt}padding-left:10px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}</td>
           <td style="${tdSt}text-align:center;white-space:nowrap;">${schedCell}</td>
-          <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? formatNumber(item.예정금액) : "-"}</td>
+          <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? `${formatNumber(item.예정금액)}${item.예정금액출처==="auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : ""}` : "-"}</td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
           <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : (isPast ? "color:#ef4444;font-weight:700;" : "color:#9ca3af;")}">${paid ? "✓" : (isPast ? "미결" : "-")}</td>
