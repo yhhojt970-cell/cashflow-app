@@ -137,24 +137,49 @@ function deleteMiraeSectionFile(key, filename) {
   else { delete miraeLedgerSources[filename]; saveMiraeSource(MIRAE_SOURCE_LEDGER_KEY, miraeLedgerSources); }
 }
 
-// ── 엠오토 미수미지급 제외 거래처 (자기 회사명 등 표시 불필요한 거래처) ──
-const MAUTO_EXCLUDE_KEY = "mauto-exclude-vendors-v1";
-let mautoExcludeVendors = []; // 정규화 상호 목록
-function saveMautoExcludeVendors() { try { localStorage.setItem(MAUTO_EXCLUDE_KEY, JSON.stringify(mautoExcludeVendors)); } catch (_) {} }
-function loadMautoExcludeVendors() {
-  try { const r = localStorage.getItem(MAUTO_EXCLUDE_KEY); mautoExcludeVendors = r ? JSON.parse(r) : []; }
-  catch (_) { mautoExcludeVendors = []; }
+// ── 엠오토 미수미지급 제외 거래처 (미수금·미지급 별도 관리) ──
+const MAUTO_EXCLUDE_KEY_RCV = "mauto-exclude-vendors-rcv-v1";
+const MAUTO_EXCLUDE_KEY_PAY = "mauto-exclude-vendors-pay-v1";
+let mautoExcludeVendorsRcv = [];
+let mautoExcludeVendorsPay = [];
+function saveMautoExcludeVendors(side) {
+  try {
+    if (side === "rcv") localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv));
+    else              localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay));
+  } catch (_) {}
 }
-function isArRecapExcluded(vendorName) {
-  if (!mautoExcludeVendors.length) return false;
+function loadMautoExcludeVendors() {
+  try {
+    const r = localStorage.getItem(MAUTO_EXCLUDE_KEY_RCV);
+    mautoExcludeVendorsRcv = r ? JSON.parse(r) : [];
+    const p = localStorage.getItem(MAUTO_EXCLUDE_KEY_PAY);
+    mautoExcludeVendorsPay = p ? JSON.parse(p) : [];
+    // 구버전 마이그레이션
+    const old = localStorage.getItem("mauto-exclude-vendors-v1");
+    if (old) {
+      const parsed = JSON.parse(old);
+      if (parsed.length && !mautoExcludeVendorsRcv.length && !mautoExcludeVendorsPay.length) {
+        mautoExcludeVendorsRcv = [...parsed];
+        mautoExcludeVendorsPay = [...parsed];
+        saveMautoExcludeVendors("rcv");
+        saveMautoExcludeVendors("pay");
+      }
+      localStorage.removeItem("mauto-exclude-vendors-v1");
+    }
+  } catch (_) { mautoExcludeVendorsRcv = []; mautoExcludeVendorsPay = []; }
+}
+function isArRecapExcluded(vendorName, side) {
+  const list = side === "rcv" ? mautoExcludeVendorsRcv : mautoExcludeVendorsPay;
+  if (!list.length) return false;
   const norm = normalizeVendorName(vendorName);
-  return mautoExcludeVendors.some(ex => normalizeVendorName(ex) === norm || ex === vendorName);
+  return list.some(ex => normalizeVendorName(ex) === norm || ex === vendorName);
 }
 
 // ── 엠오토 세금계산서 소스 파일 보관 (국세청 양식, 파일 단위 교체 + 재빌드) ──
 const MAUTO_TAX_SOURCE_KEY = "mauto-tax-source-v1";
 let mautoTaxSources  = {}; // { [filename]: { filename, sideType, savedAt, rows[] } }
 let mautoTaxInvoices = []; // 재빌드 캐시
+let mautoFixedRules  = null; // null=미로드, []=로드완료(항목없음), [...]=로드완료(항목있음)
 function saveMautoTaxSource() { try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {} }
 function loadMautoTaxSource() {
   try { const r = localStorage.getItem(MAUTO_TAX_SOURCE_KEY); mautoTaxSources = r ? JSON.parse(r) : {}; }
@@ -6787,6 +6812,85 @@ function getMautoFixedDateLabel(row) {
   return "날짜 없음";
 }
 
+// ── Phase 4-B: 분류규칙 결제예정일 기반 고정지출 자동 계산 ──
+
+function buildFixedFromRules(fixedRules, classifiedRows) {
+  const monthSet = new Set();
+  (classifiedRows || []).forEach(r => {
+    if (!r._date || !/^\d{4}-\d{2}/.test(r._date)) return;
+    monthSet.add(r._date.slice(0, 7));
+  });
+  if (!monthSet.size) return [];
+
+  const months = [...monthSet].sort().reverse(); // 최신 월 먼저
+  return months.map(ym => {
+    const [year, month] = ym.split("-");
+    const items = fixedRules.map(rule => {
+      const matched = (classifiedRows || []).filter(r => {
+        if (!r._date || !r.거래처명) return false;
+        if (r._date.slice(0, 7) !== ym) return false;
+        return r.거래처명 === rule["거래처명"];
+      });
+      const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
+      const dates = [...new Set(matched.map(r => r._date).filter(Boolean))].sort();
+      return {
+        거래처명: rule["거래처명"],
+        구분: rule["구분"] || "",
+        예정일: parseInt(rule["결제예정일"]) || null,
+        matched, totalAmount, dates,
+        status: matched.length > 0 ? "완료" : "예정",
+      };
+    });
+    const monthTotal = items.reduce((s, i) => s + i.totalAmount, 0);
+    return { year, month, ym, items, monthTotal };
+  });
+}
+
+function renderMautoFixedAutoView(fixedRules, classifiedRows) {
+  const items = (fixedRules || []).filter(r => r["결제예정일"]);
+  if (!items.length) {
+    return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">📐 분류규칙에 결제예정일이 설정된 항목이 없습니다.<br>분류규칙 관리 → 항목 수정 → <strong>결제예정일</strong>(N일) 입력 후 "불러오기"를 누르세요.</div>`;
+  }
+  const monthData = buildFixedFromRules(items, classifiedRows || []);
+  if (!monthData.length) {
+    return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">입출금 내역을 업로드하면 월별 실적이 자동으로 채워집니다.</div>`;
+  }
+
+  const tdSt = `padding:4px 6px;border-bottom:1px solid #f3f4f6;`;
+  const thSt = `padding:4px 6px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-weight:600;font-size:11px;`;
+
+  const html = monthData.map(({ year, month, items: monthItems, monthTotal }) => {
+    const rows = monthItems.map(item => {
+      const paid = item.status === "완료";
+      return `<tr>
+        <td style="${tdSt}">${escapeHtml(item.거래처명)}</td>
+        <td style="${tdSt}text-align:center;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
+        <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
+        <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
+        <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : "color:#dc2626;"}">${paid ? "✓" : "미결제"}</td>
+      </tr>`;
+    }).join("");
+    return `<div style="margin-bottom:18px;">
+      <div style="font-weight:700;font-size:13px;color:#374151;padding:4px 0 6px;border-bottom:2px solid #e5e7eb;margin-bottom:4px;">
+        ${year}년 ${parseInt(month)}월
+        <span style="float:right;color:#6b7280;font-weight:400;font-size:12px;">합계 ${formatNumber(monthTotal)}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr>
+          <th style="${thSt}text-align:left;">항목</th>
+          <th style="${thSt}text-align:center;">예정일</th>
+          <th style="${thSt}text-align:center;">실제결제일</th>
+          <th style="${thSt}text-align:right;">금액</th>
+          <th style="${thSt}text-align:center;">상태</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join("");
+
+  return `<div style="padding:10px 4px;max-height:520px;overflow-y:auto;">${html}</div>`;
+}
+
 function renderMautoFixedTable(rows) {
   const sorted = [...(rows || [])].sort((a, b) =>
     (a.year || 9999) - (b.year || 9999) || (a.month || 99) - (b.month || 99) ||
@@ -6862,11 +6966,11 @@ function renderMautoFixedTable(rows) {
 }
 
 // buildArRecap 결과 → renderMautoAccountingTable 포맷 변환 (발생 0·잔액 0·제외 거래처 제외)
-function arRecapToMautoRows(entries) {
+function arRecapToMautoRows(entries, side) {
   return entries
     .filter(e => e.발생 !== 0)
     .filter(e => e.잔액 !== 0)
-    .filter(e => !isArRecapExcluded(e.vendor))
+    .filter(e => !isArRecapExcluded(e.vendor, side))
     .map(e => ({
       year: e.year, month: e.month, company: e.vendor,
       total: e.발생, inout: e.충당, balance: e.잔액,
@@ -6910,16 +7014,17 @@ function renderMautoTab() {
   if (hasTax) {
     const rcv = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미수");
     const pay = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미지급");
-    rcvRows = arRecapToMautoRows(rcv.entries);
-    payRows = arRecapToMautoRows(pay.entries);
+    rcvRows = arRecapToMautoRows(rcv.entries, "rcv");
+    payRows = arRecapToMautoRows(pay.entries, "pay");
     receivable = rcvRows.reduce((s, r) => s + r.balance, 0);
     payable    = payRows.reduce((s, r) => s + r.balance, 0);
     const taxCnt = mautoTaxInvoices.length;
-    const exLabel = mautoExcludeVendors.length ? `🚫 제외 ${mautoExcludeVendors.length}개` : `🚫 제외 설정`;
-    const exStyle = `font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;`;
+    const exStyleBase = `font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;`;
     const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
-    rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyle}" title="제외 거래처 설정">${exLabel}</button>`;
-    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyle}" title="제외 거래처 설정">${exLabel}</button>`;
+    const rcvExLabel = mautoExcludeVendorsRcv.length ? `🚫 제외 ${mautoExcludeVendorsRcv.length}개` : `🚫 제외 설정`;
+    const payExLabel = mautoExcludeVendorsPay.length ? `🚫 제외 ${mautoExcludeVendorsPay.length}개` : `🚫 제외 설정`;
+    rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyleBase}" title="미수금 제외 거래처 설정">${rcvExLabel}</button>`;
+    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyleBase}" title="미지급 제외 거래처 설정">${payExLabel}</button>`;
     if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
     if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
   } else {
@@ -7022,8 +7127,11 @@ function renderMautoTab() {
       payWarn + renderMautoAccountingTable(payRows, "payables"),
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
-      renderMautoFixedTable(mautoData.fixed),
-      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true)}
+      mautoFixedRules !== null
+        ? renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows)
+        : renderMautoFixedTable(mautoData.fixed),
+      "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true,
+      `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">📐 ${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
   </div>`;
 
   sec.querySelectorAll(".mauto-paste-btn").forEach(btn => {
@@ -7045,17 +7153,20 @@ function renderMautoTab() {
     btn.addEventListener("click", () => applyMautoPaste(btn.dataset.mautoSection));
   });
 
-  // 제외 거래처 설정 버튼 (미수금·미지급 공통)
-  const openExcludeDialog = () => {
+  // 제외 거래처 설정 버튼 (미수금·미지급 별도)
+  const openExcludeDialog = (side) => {
     document.querySelector(".mauto-exclude-overlay")?.remove();
+    const iRcv = side === "rcv";
+    const label = iRcv ? "미수금" : "미지급";
+    const currentList = iRcv ? mautoExcludeVendorsRcv : mautoExcludeVendorsPay;
     const overlay = document.createElement("div");
     overlay.className = "mauto-exclude-overlay";
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;";
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:8px;padding:24px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);">
-        <h4 style="margin:0 0 8px;font-size:15px;">🚫 제외 거래처 설정</h4>
-        <p style="margin:0 0 12px;font-size:12px;color:#6b7280;">미수금/미지급에 표시하지 않을 거래처를 한 줄에 하나씩 입력하세요.</p>
-        <textarea id="mautoExcludeTextarea" rows="7" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:8px;font-size:13px;resize:vertical;">${escapeHtml(mautoExcludeVendors.join("\n"))}</textarea>
+        <h4 style="margin:0 0 8px;font-size:15px;">🚫 ${label} 제외 거래처 설정</h4>
+        <p style="margin:0 0 12px;font-size:12px;color:#6b7280;">${label}에 표시하지 않을 거래처를 한 줄에 하나씩 입력하세요.</p>
+        <textarea id="mautoExcludeTextarea" rows="7" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:8px;font-size:13px;resize:vertical;">${escapeHtml(currentList.join("\n"))}</textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
           <button id="mautoExcludeCancel" style="padding:6px 14px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">취소</button>
           <button id="mautoExcludeSave" style="padding:6px 14px;border:none;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer;font-weight:600;">저장</button>
@@ -7066,15 +7177,30 @@ function renderMautoTab() {
     document.getElementById("mautoExcludeCancel").onclick = () => overlay.remove();
     document.getElementById("mautoExcludeSave").onclick = () => {
       const val = document.getElementById("mautoExcludeTextarea").value;
-      mautoExcludeVendors = val.split("\n").map(s => s.trim()).filter(Boolean);
-      saveMautoExcludeVendors();
+      const parsed = val.split("\n").map(s => s.trim()).filter(Boolean);
+      if (iRcv) mautoExcludeVendorsRcv = parsed;
+      else      mautoExcludeVendorsPay = parsed;
+      saveMautoExcludeVendors(side);
       overlay.remove();
       renderMautoTab();
     };
     overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
   };
-  document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", openExcludeDialog);
-  document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", openExcludeDialog);
+  document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
+  document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 고정지출 자동계산 — 분류규칙 결제예정일 기반
+  document.getElementById("mautoFixedRulesBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("mautoFixedRulesBtn");
+    if (btn) { btn.textContent = "📐 불러오는 중…"; btn.disabled = true; }
+    try {
+      mautoFixedRules = await fetchRulesFromApi("엠오토");
+    } catch (e) {
+      alert("규칙 불러오기 실패: " + e.message);
+      mautoFixedRules = null;
+    }
+    renderMautoTab();
+  });
 
   sec.querySelectorAll(".mauto-textarea").forEach(textarea => {
     textarea.addEventListener("paste", () => {
@@ -10083,6 +10209,7 @@ function renderRulesPanel() {
         <td><select class="rules-inp" name="구분" ${dis}>
           ${DIV_OPTIONS.map(v => `<option value="${v}"${data["구분"]===v?" selected":""}>${v || "(없음)"}</option>`).join("")}
         </select></td>
+        <td><input class="rules-inp rules-inp-sm" name="결제예정일" type="number" min="1" max="31" placeholder="없음" value="${escapeAttr(String(data["결제예정일"]||""))}" ${dis} style="width:52px;" title="매월 N일 결제 (고정지출 자동계산용)" /></td>
         <td><input class="rules-inp rules-inp-sm" name="우선순위" type="number" min="1" value="${escapeAttr(String(data["우선순위"]||"10"))}" ${dis} /></td>
         <td>
           <button class="rules-btn rules-save-btn" data-key="${escapeAttr(sKey)}" ${dis}>저장</button>
@@ -10106,6 +10233,7 @@ function renderRulesPanel() {
         <td class="rules-key-cell" title="${escapeAttr(r["매칭키"]||"")}">${escapeAttr(r["매칭키"]||"")}</td>
         <td>${escapeAttr(r["거래처명"]||"")}</td>
         <td>${escapeAttr(r["구분"]||"")}</td>
+        <td style="text-align:right;color:${r["결제예정일"]?"#2563eb":"#9ca3af"};">${r["결제예정일"] ? `매월 ${r["결제예정일"]}일` : ""}</td>
         <td style="text-align:right;">${escapeAttr(String(r["우선순위"]||""))}</td>
         <td>
           <button class="rules-btn rules-edit-btn" data-key="${escapeAttr(key)}" ${dis}>수정</button>
@@ -10149,12 +10277,12 @@ function renderRulesPanel() {
         <div class="rules-table-wrap">
           <table class="rules-table">
             <thead><tr>
-              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>우선순위</th><th>액션</th>
+              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>결제예정일</th><th>우선순위</th><th>액션</th>
             </tr></thead>
             <tbody>
               ${rowsHtml}
               ${newRowHtml}
-              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
             </tbody>
           </table>
         </div>`}` : ""}
@@ -10231,6 +10359,7 @@ function renderRulesPanel() {
         매칭키: get("매칭키"),
         거래처명: get("거래처명"),
         구분: get("구분"),
+        결제예정일: get("결제예정일") || "",
         우선순위: get("우선순위") || "10",
       };
       if (!ruleObj.매칭키) { alert("매칭키를 입력해주세요."); return; }
