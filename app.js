@@ -7047,15 +7047,31 @@ function renderMautoTab() {
 
   // 제외 거래처 설정 버튼 (미수금·미지급 공통)
   const openExcludeDialog = () => {
-    const cur = mautoExcludeVendors.join("\n");
-    const ans = prompt(
-      "미수금/미지급에서 제외할 거래처명을 한 줄에 하나씩 입력하세요.\n(예: 에스케이텔레콤(주)\n미래오토메이션)",
-      cur
-    );
-    if (ans === null) return;
-    mautoExcludeVendors = ans.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
-    saveMautoExcludeVendors();
-    renderMautoTab();
+    document.querySelector(".mauto-exclude-overlay")?.remove();
+    const overlay = document.createElement("div");
+    overlay.className = "mauto-exclude-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:8px;padding:24px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);">
+        <h4 style="margin:0 0 8px;font-size:15px;">🚫 제외 거래처 설정</h4>
+        <p style="margin:0 0 12px;font-size:12px;color:#6b7280;">미수금/미지급에 표시하지 않을 거래처를 한 줄에 하나씩 입력하세요.</p>
+        <textarea id="mautoExcludeTextarea" rows="7" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:8px;font-size:13px;resize:vertical;">${escapeHtml(mautoExcludeVendors.join("\n"))}</textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button id="mautoExcludeCancel" style="padding:6px 14px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">취소</button>
+          <button id="mautoExcludeSave" style="padding:6px 14px;border:none;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer;font-weight:600;">저장</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById("mautoExcludeTextarea")?.focus();
+    document.getElementById("mautoExcludeCancel").onclick = () => overlay.remove();
+    document.getElementById("mautoExcludeSave").onclick = () => {
+      const val = document.getElementById("mautoExcludeTextarea").value;
+      mautoExcludeVendors = val.split("\n").map(s => s.trim()).filter(Boolean);
+      saveMautoExcludeVendors();
+      overlay.remove();
+      renderMautoTab();
+    };
+    overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", openExcludeDialog);
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", openExcludeDialog);
