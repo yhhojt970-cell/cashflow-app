@@ -4774,6 +4774,7 @@ td {
 .arrecap-side-btn.active { background: #c2410c; color: #fff; }
 .arrecap-side-btn:not(.active):hover { background: #e2e8f0; }
 .arrecap-pending-badge { padding: 3px 8px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; font-size: 12px; color: #92400e; font-weight: 600; }
+.arrecap-inexact-badge { padding: 3px 8px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; font-size: 12px; color: #1e40af; font-weight: 600; cursor: help; }
 .arrecap-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .arrecap-table th, .arrecap-table td { border: 1px solid #e2e8f0; padding: 6px 10px; }
 .arrecap-th-vendor { background: #f8fafc; font-weight: 700; text-align: left; min-width: 140px; }
