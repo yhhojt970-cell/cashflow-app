@@ -6847,12 +6847,14 @@ function renderMautoFixedTable(rows) {
   </div>`;
 }
 
-// buildArRecap 결과 → renderMautoAccountingTable 포맷 변환
+// buildArRecap 결과 → renderMautoAccountingTable 포맷 변환 (발생 0 제외)
 function arRecapToMautoRows(entries) {
-  return entries.map(e => ({
-    year: e.year, month: e.month, company: e.vendor,
-    total: e.발생, inout: e.충당, balance: e.잔액,
-  }));
+  return entries
+    .filter(e => e.발생 !== 0)
+    .map(e => ({
+      year: e.year, month: e.month, company: e.vendor,
+      total: e.발생, inout: e.충당, balance: e.잔액,
+    }));
 }
 
 function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
@@ -7127,7 +7129,7 @@ function renderMautoTab() {
 
   // 세금계산서 파일 업로드 핸들러 (매출/매입 공통)
   async function handleMautoTaxFile(file, sideType) {
-    const result = await parseMautoTaxInvoiceFile(file);
+    const result = await parseMautoTaxInvoiceFile(file, sideType);
     if (result.error) { alert(`파싱 오류: ${result.error}`); return; }
     if (!result.rows || !result.rows.length) { alert("세금계산서 행을 찾을 수 없습니다.\n헤더가 6번째 행인지 확인해주세요."); return; }
 
@@ -9051,8 +9053,8 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
     if (!exact) inexactKeys.add(key);
   }
 
-  // ─ 발생 ∪ 충당 머지 → 잔액 계산 ─
-  const allKeys = new Set([...발생맵.keys(), ...충당맵.keys()]);
+  // ─ 발생 기준 머지 → 잔액 계산 (세금계산서 없는 월의 충당은 제외) ─
+  const allKeys = new Set([...발생맵.keys()]);
   const entries = [];
   for (const mapKey of allKeys) {
     const tabIdx = mapKey.lastIndexOf("\t");
@@ -10384,53 +10386,71 @@ async function parseDailySalesFile(file) {
 
 // ── 엠오토 세금계산서 파서 (국세청 전자세금계산서 조회 XLS 양식) ──
 // 헤더: 6행(index 5), 상호(col)=거래처(상대방), 마지막 행=합계(체크섬)
-async function parseMautoTaxInvoiceFile(file) {
+// sideType: "매출"|"매입" — 중복 상호 컬럼 중 어느 쪽을 거래처로 볼지 결정
+//   매입: 공급자(첫번째 상호) = 매입처, 매출: 공급받는자(마지막 상호) = 매출처
+async function parseMautoTaxInvoiceFile(file, sideType) {
   try {
     const ab = await file.arrayBuffer();
-    const { dataRows } = parseXlsToRows(ab, 5); // 6행 헤더
+    const wb = XLSX.read(ab, { type: "array", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
+    const HEADER_IDX = 5; // 6행
+    if (allRows.length <= HEADER_IDX) throw new Error("헤더 행이 없습니다.");
+    const headers = allRows[HEADER_IDX].map(h => String(h).trim());
+
+    // 중복 컬럼 처리: 매입=공급자(첫번째), 매출=공급받는자(마지막)
+    const allIdxOf = (name) => headers.reduce((acc, h, i) => h === name ? [...acc, i] : acc, []);
+    const pickIdx  = (idxs) => sideType === "매입" ? (idxs[0] ?? -1) : (idxs[idxs.length - 1] ?? -1);
+    const vendorColIdx = pickIdx(allIdxOf("상호"));
+    const bizColIdx    = pickIdx(allIdxOf("사업자(주민)번호"));
+
+    const hasDiv = headers.includes("구분");
     const filteredRows = [];
     let totalsRow = null;
-    // 구분 컬럼 존재 여부 (국세청 구형 포맷은 없음)
-    const hasDiv = dataRows.length > 0 && "구분" in dataRows[0];
 
-    for (const row of dataRows) {
-      const div = String(row["구분"] || "").trim();
-      // 합계행 감지 ①: 구분=빈값 + 종류="N건" (구형 포맷)
-      if (div === "" && /^\d+건/.test(String(row["종류"] || "").trim())) {
-        totalsRow = row;
-        continue;
-      }
-      // 합계행 감지 ②: 작성일자 없는 행 (신형 포맷 — 구분 컬럼 없음)
+    for (let i = HEADER_IDX + 1; i < allRows.length; i++) {
+      const raw = allRows[i];
+      if (raw.every(v => v === "" || v == null)) continue;
+
+      // 표준 row 객체 (중복 헤더는 마지막 값이 됨)
+      const row = {};
+      headers.forEach((h, j) => {
+        let val = raw[j] ?? "";
+        if (typeof val === "number") {
+          const cell = ws[XLSX.utils.encode_cell({ r: i, c: j })];
+          if (cell && cell.w && /^0\d/.test(cell.w)) val = cell.w;
+        }
+        row[h] = val;
+      });
+
+      // 상대방 거래처 컬럼을 올바른 위치(첫번째/마지막)로 덮어씀
+      if (vendorColIdx >= 0) row["상호"]              = String(raw[vendorColIdx] || "").trim();
+      if (bizColIdx    >= 0) row["사업자(주민)번호"] = String(raw[bizColIdx]    || "").trim();
+
+      const div     = String(row["구분"] || "").trim();
+      // 합계행 감지 ①: 구형 포맷
+      if (div === "" && /^\d+건/.test(String(row["종류"] || "").trim())) { totalsRow = row; continue; }
+      // 합계행 감지 ②: 신형 포맷 (작성일자 없음)
       const dateVal = String(row["작성일자"] || "").trim();
-      if (!hasDiv && !dateVal) {
-        totalsRow = row;
-        continue;
-      }
-      // 구분 컬럼 있으면 매출/매입만 허용
+      if (!hasDiv && !dateVal) { totalsRow = row; continue; }
       if (hasDiv && div !== "매출" && div !== "매입") continue;
 
-      // 날짜 포맷
       if (row["작성일자"]) row["작성일자"] = formatExcelDateToStr(row["작성일자"]);
       if (row["발급일자"]) row["발급일자"] = formatExcelDateToStr(row["발급일자"]);
 
-      // 거래처명 = 상호 (상대방)
-      row["거래처명"] = String(row["상호"] || "").trim();
+      row["거래처명"]   = String(row["상호"] || "").trim();
       row["사업자번호"] = normalizeBizNum(String(row["사업자(주민)번호"] || "").trim());
+      row["공급가액"]   = Number(row["공급가액"] || 0);
+      row["세액"]       = Number(row["세액"]     || 0);
+      row["합계"]       = Number(row["합계"] || row["합계금액"] || 0);
 
-      // 숫자 필드 (합계금액 fallback 포함)
-      row["공급가액"] = Number(row["공급가액"] || 0);
-      row["세액"]     = Number(row["세액"]     || 0);
-      row["합계"]     = Number(row["합계"] || row["합계금액"] || 0);
-
-      // dedup 키: 승인번호 우선
       const apprNo = String(row["승인번호"] || row["승인번호(발급)"] || "").trim();
       row["_row_key"] = apprNo || `${row["작성일자"]}_${row["사업자번호"]}_${row["합계"]}`;
 
       filteredRows.push(row);
     }
 
-    // 체크섬 검증
     const parsedTotal = filteredRows.reduce((s, r) => s + r["공급가액"], 0);
     let checksumOk = null, fileTotal = null;
     if (totalsRow) {
@@ -10438,7 +10458,6 @@ async function parseMautoTaxInvoiceFile(file) {
       checksumOk = Math.abs(parsedTotal - fileTotal) < 1;
     }
 
-    // 상대방 검증: 모든 거래처가 "엠오토"이면 잘못된 파일 업로드 경고
     const names = [...new Set(filteredRows.map(r => r["거래처명"]))];
     const allMauto = names.length > 0 && names.every(n => /엠오토|M오토|EM오토/i.test(n));
 
