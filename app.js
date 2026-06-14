@@ -6833,11 +6833,15 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
       });
       const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
       const dates = [...new Set(matched.map(r => r._date).filter(Boolean))].sort();
+      const rawExpected = Number(rule["예정금액"]) || 0;
+      // 천원 단위 올림 (1원~999원 → 올려서 천원 단위)
+      const 예정금액 = rawExpected ? Math.ceil(rawExpected / 1000) * 1000 : 0;
       return {
         거래처명: rule["거래처명"],
         구분: rule["구분"] || "",
         고정분류: rule["고정분류"] || "",
         예정일: parseInt(rule["결제예정일"]) || null,
+        예정금액,
         matched, totalAmount, dates,
         status: matched.length > 0 ? "완료" : "예정",
       };
@@ -6876,11 +6880,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
       const catItems = bycat[cat];
       const catTotal = catItems.reduce((s, i) => s + i.totalAmount, 0);
       const bg = CAT_COLOR[cat] || "#f9fafb";
+      const catExpected = catItems.reduce((s, i) => s + (i.예정금액 || 0), 0);
       const rows = catItems.map(item => {
         const paid = item.status === "완료";
         return `<tr>
           <td style="${tdSt}padding-left:10px;">${escapeHtml(item.거래처명)}</td>
           <td style="${tdSt}text-align:center;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
+          <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? formatNumber(item.예정금액) : "-"}</td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
           <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${paid ? "✓" : "-"}</td>
@@ -6888,7 +6894,9 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
       }).join("");
       return `<tr style="background:${bg};">
           <td style="${tdSt}font-weight:700;color:#374151;">${cat}</td>
-          <td style="${tdSt}"></td><td style="${tdSt}"></td>
+          <td style="${tdSt}"></td>
+          <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${catExpected ? formatNumber(catExpected) : ""}</td>
+          <td style="${tdSt}"></td>
           <td style="${tdSt}text-align:right;font-weight:700;">${catTotal ? formatNumber(catTotal) : ""}</td>
           <td style="${tdSt}"></td>
         </tr>${rows}`;
@@ -6903,8 +6911,9 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
         <thead><tr>
           <th style="${thSt}text-align:left;">항목</th>
           <th style="${thSt}text-align:center;">예정일</th>
+          <th style="${thSt}text-align:right;">예정금액</th>
           <th style="${thSt}text-align:center;">실제결제일</th>
-          <th style="${thSt}text-align:right;">금액</th>
+          <th style="${thSt}text-align:right;">실적</th>
           <th style="${thSt}text-align:center;">상태</th>
         </tr></thead>
         <tbody>${catSections}</tbody>
@@ -10234,7 +10243,8 @@ function renderRulesPanel() {
           ${DIV_OPTIONS.map(v => `<option value="${v}"${data["구분"]===v?" selected":""}>${v || "(없음)"}</option>`).join("")}
         </select></td>
         <td><input class="rules-inp rules-inp-sm" name="결제예정일" type="number" min="1" max="31" placeholder="없음" value="${escapeAttr(String(data["결제예정일"]||""))}" ${dis} style="width:52px;" title="매월 N일 결제 (고정지출 자동계산용)" /></td>
-        <td><input class="rules-inp" name="고정분류" placeholder="이자/인출금/카드/세금/세계" value="${escapeAttr(data["고정분류"]||"")}" ${dis} style="width:90px;" /></td>
+        <td><input class="rules-inp" name="고정분류" placeholder="이자/인출금/카드" value="${escapeAttr(data["고정분류"]||"")}" ${dis} style="width:80px;" /></td>
+        <td><input class="rules-inp rules-inp-sm" name="예정금액" type="number" min="0" placeholder="평균금액" value="${escapeAttr(String(data["예정금액"]||""))}" ${dis} style="width:80px;" /></td>
         <td><input class="rules-inp rules-inp-sm" name="우선순위" type="number" min="1" value="${escapeAttr(String(data["우선순위"]||"10"))}" ${dis} /></td>
         <td>
           <button class="rules-btn rules-save-btn" data-key="${escapeAttr(sKey)}" ${dis}>저장</button>
@@ -10260,6 +10270,7 @@ function renderRulesPanel() {
         <td>${escapeAttr(r["구분"]||"")}</td>
         <td style="text-align:right;color:${r["결제예정일"]?"#2563eb":"#9ca3af"};">${r["결제예정일"] ? `매월 ${r["결제예정일"]}일` : ""}</td>
         <td style="color:#6b7280;">${escapeAttr(r["고정분류"]||"")}</td>
+        <td style="text-align:right;color:#6b7280;">${r["예정금액"] ? formatNumber(Number(r["예정금액"])) : ""}</td>
         <td style="text-align:right;">${escapeAttr(String(r["우선순위"]||""))}</td>
         <td>
           <button class="rules-btn rules-edit-btn" data-key="${escapeAttr(key)}" ${dis}>수정</button>
@@ -10303,12 +10314,12 @@ function renderRulesPanel() {
         <div class="rules-table-wrap">
           <table class="rules-table">
             <thead><tr>
-              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>결제예정일</th><th>고정분류</th><th>우선순위</th><th>액션</th>
+              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>결제예정일</th><th>고정분류</th><th>예정금액</th><th>우선순위</th><th>액션</th>
             </tr></thead>
             <tbody>
               ${rowsHtml}
               ${newRowHtml}
-              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
             </tbody>
           </table>
         </div>`}` : ""}
@@ -10387,6 +10398,7 @@ function renderRulesPanel() {
         구분: get("구분"),
         결제예정일: get("결제예정일") || "",
         고정분류: get("고정분류") || "",
+        예정금액: get("예정금액") || "",
         우선순위: get("우선순위") || "10",
       };
       if (!ruleObj.매칭키) { alert("매칭키를 입력해주세요."); return; }
