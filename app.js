@@ -6956,7 +6956,7 @@ function renderMautoTab() {
       const taxEntries = Object.values(mautoTaxSources);
       if (!taxEntries.length) return "";
       return `
-    <details style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
+    <details data-accordion-id="mauto-tax-files" style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
       <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#92400e;list-style:none;display:flex;align-items:center;gap:6px;">
         <span>▶</span> 🧾 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)
       </summary>
@@ -6976,7 +6976,7 @@ function renderMautoTab() {
       const fileEntries = Object.entries(mautoSourceFiles);
       if (!fileEntries.length) return "";
       return `
-    <details style="margin:6px 0;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:12px;">
+    <details data-accordion-id="mauto-bank-files" style="margin:6px 0;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:12px;">
       <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#374151;list-style:none;display:flex;align-items:center;gap:6px;">
         <span>▶</span> 📁 업로드된 파일 ${fileEntries.length}개
       </summary>
@@ -7118,10 +7118,16 @@ function renderMautoTab() {
       if (!key || !mautoSourceFiles[key]) return;
       const label = mautoSourceFiles[key].filename;
       if (!confirm(`'${label}' 파일을 삭제하고 재빌드하시겠습니까?`)) return;
+      const openDetails = [...sec.querySelectorAll("details[data-accordion-id]")]
+        .filter(d => d.open).map(d => d.dataset.accordionId);
       delete mautoSourceFiles[key];
       saveSourceFiles();
       rebuildMautoRows();
       renderMautoTab();
+      openDetails.forEach(id => {
+        const d = sec.querySelector(`details[data-accordion-id="${id}"]`);
+        if (d) d.open = true;
+      });
     });
   });
 
@@ -7231,10 +7237,18 @@ function renderMautoTab() {
     btn.addEventListener("click", () => {
       const fname = decodeURIComponent(btn.dataset.fname);
       if (!confirm(`'${fname}' 파일을 삭제하시겠습니까?`)) return;
+      // 삭제 전 아코디언 열림 상태 저장
+      const openDetails = [...sec.querySelectorAll("details[data-accordion-id]")]
+        .filter(d => d.open).map(d => d.dataset.accordionId);
       delete mautoTaxSources[fname];
       saveMautoTaxSource();
       rebuildMautoTaxInvoices();
       renderMautoTab();
+      // 열림 상태 복원
+      openDetails.forEach(id => {
+        const d = sec.querySelector(`details[data-accordion-id="${id}"]`);
+        if (d) d.open = true;
+      });
     });
   });
 
