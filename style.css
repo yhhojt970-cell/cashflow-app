@@ -4207,7 +4207,7 @@ td {
   transition: transform 0.15s;
 }
 
-.mauto-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mauto-summary-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .mauto-table { min-width: 540px; }
 
 @media (max-width: 980px) {
