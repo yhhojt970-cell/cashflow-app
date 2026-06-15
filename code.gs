@@ -24,6 +24,7 @@ const BIZ_DIVISION_SHEET   = "사업부문마스터";
 const FIXED_SHEET          = "고정지출";
 const PNL_SHEET            = "경영손익_data";
 const RULES_SHEET          = "분류규칙";
+const CLASSIFIED_SHEET     = "엠오토_분류";
 
 // ── 미수금 이메일 설정 ───────────────────────────────────────
 const RCV_MANAGER_EMAIL_MAP = {
@@ -114,6 +115,16 @@ function doGet(e) {
     });
   }
 
+  // 엠오토 입출금 분류 (날짜 범위 필터 지원: from=YYYY-MM-DD, to=YYYY-MM-DD)
+  if (action === "getClassifiedRows") {
+    const from = String(params.from || "").trim();
+    const to   = String(params.to   || "").trim();
+    let rows = getSheetRows(CLASSIFIED_SHEET);
+    if (from) rows = rows.filter(r => String(r.date || "") >= from);
+    if (to)   rows = rows.filter(r => String(r.date || "") <= to);
+    return jsonOutput({ rows });
+  }
+
   // action 없음 → 미지급 raw (기본값)
   return jsonOutput({ data: getSheetRows(PAYABLES_SHEET) });
 }
@@ -200,6 +211,13 @@ function doPost(e) {
   if (action === "deleteRule") {
     deleteRowByKey(RULES_SHEET, "_rule_key", String(body.key || ""));
     return jsonOutput({ ok: true });
+  }
+
+  // ── 엠오토 입출금 분류 누적 저장 (_txKey 기준 upsert) ──
+  if (action === "upsertClassifiedRows") {
+    if (!rows.length) return jsonOutput({ ok: true, count: 0 });
+    upsertRowsByKey(CLASSIFIED_SHEET, "_txKey", rows);
+    return jsonOutput({ ok: true, count: rows.length });
   }
 
   // ── 이메일 발송 ──

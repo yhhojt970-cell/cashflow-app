@@ -70,8 +70,26 @@ let mautoData = {
 };
 let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과 (재빌드 캐시)
 const MAUTO_CLASSIFIED_KEY = "mauto-classified-rows-v1";
+// 공유 저장 시 보낼 필드만 추출 (원본 파일 데이터 제외)
+const CLASSIFIED_SHARE_FIELDS = ["_txKey","date","_memo","_memo2","debit","credit","거래처명","구분","excluded","매칭근거","savedAt"];
+let _classifiedSaveTimer = null;
 function saveClassifiedRows() {
   try { localStorage.setItem(MAUTO_CLASSIFIED_KEY, JSON.stringify(mautoClassifiedRows)); } catch (_) {}
+  // 구글시트 debounce 저장 (3초)
+  if (SHEET_APP_SCRIPT_URL) {
+    clearTimeout(_classifiedSaveTimer);
+    _classifiedSaveTimer = setTimeout(() => {
+      const rows = mautoClassifiedRows
+        .filter(r => r._txKey && r.거래처명)
+        .map(r => {
+          const out = {};
+          CLASSIFIED_SHARE_FIELDS.forEach(f => { out[f] = r[f] ?? ""; });
+          out.savedAt = out.savedAt || new Date().toISOString().slice(0,19);
+          return out;
+        });
+      if (rows.length) postSheetWebApp("upsertClassifiedRows", { rows }).catch(() => {});
+    }, 3000);
+  }
 }
 function loadClassifiedRows() {
   try {
@@ -4136,6 +4154,31 @@ function switchTab(tabId) {
         mautoFixedRules = rules;
         renderMautoTab();
       }).catch(() => { mautoFixedRules = []; });
+    }
+    // 입출금 분류 원격 로드 → 로컬과 병합 (다른 사람이 저장한 데이터 반영)
+    if (SHEET_APP_SCRIPT_URL) {
+      fetchSheetWebApp({ action: "getClassifiedRows" }).then(res => {
+        const remote = (res && (res.rows || res.data)) || [];
+        if (!remote.length) return;
+        const localMap = new Map(mautoClassifiedRows.map(r => [r._txKey, r]));
+        let added = 0;
+        remote.forEach(r => {
+          if (!r._txKey) return;
+          if (!localMap.has(r._txKey)) { localMap.set(r._txKey, r); added++; }
+          else {
+            // 원격이 더 최신이면 거래처명/구분만 업데이트 (사용자 수동 수정 보존)
+            const local = localMap.get(r._txKey);
+            if (!local.savedAt || (r.savedAt && r.savedAt > local.savedAt)) {
+              localMap.set(r._txKey, { ...local, 거래처명: r.거래처명, 구분: r.구분, excluded: r.excluded, 매칭근거: r.매칭근거, savedAt: r.savedAt });
+            }
+          }
+        });
+        if (added > 0 || remote.length) {
+          mautoClassifiedRows = [...localMap.values()].sort((a,b) => (a.date||"") < (b.date||"") ? -1 : 1);
+          try { localStorage.setItem(MAUTO_CLASSIFIED_KEY, JSON.stringify(mautoClassifiedRows)); } catch(_) {}
+          renderMautoTab();
+        }
+      }).catch(() => {});
     }
     console.log("[엠오토] 탭 진입 — 원격 로드 시작");
     if (SHEET_APP_SCRIPT_URL) {
