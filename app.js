@@ -7307,10 +7307,11 @@ function renderMautoTab() {
     </div>`;
     })()}
     <div class="mauto-summary-grid">
-      <div class="mauto-card card-funds"><span>가용자금</span><strong>${formatNumber(funds)}</strong></div>
-      <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong>${formatNumber(receivable)}</strong></div>
-      <div class="mauto-card card-payable"><span>미지급 잔액</span><strong>${formatNumber(payable)}</strong></div>
-      <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total">${formatNumber(fixed)}</strong></div>
+      <div class="mauto-card card-funds"><span>가용자금</span><strong data-raw="${funds}">${formatNumber(funds)}</strong></div>
+      <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong data-raw="${receivable}">${formatNumber(receivable)}</strong></div>
+      <div class="mauto-card card-payable"><span>미지급 잔액</span><strong data-raw="${payable}">${formatNumber(payable)}</strong></div>
+      <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total" data-raw="${fixed}">${formatNumber(fixed)}</strong></div>
+      ${(() => { const net = funds + receivable - payable - fixed; return `<div class="mauto-card card-net" style="border-top-color:${net>=0?"#16a34a":"#dc2626"};"><span>예상 잔액</span><strong id="mauto-net-total" style="color:${net>=0?"#16a34a":"#dc2626"};">${net>=0?"+":""}${formatNumber(net)}</strong></div>`; })()}
     </div>
     ${mautoPasteSection("funds", "가용자금",
       renderMautoFundsTable(),
@@ -7390,12 +7391,24 @@ function renderMautoTab() {
       const key = chk.dataset.chkKey;
       mautoFixedChecked[key] = chk.checked;
       saveFixedChecked();
-      let total = 0;
+      let fixedTotal = 0;
       sec.querySelectorAll(".mauto-fixed-chk:checked").forEach(c => {
-        total += parseInt(c.dataset.amt, 10) || 0;
+        fixedTotal += parseInt(c.dataset.amt, 10) || 0;
       });
       const cardEl = document.getElementById("mauto-fixed-card-total");
-      if (cardEl) cardEl.textContent = formatNumber(total);
+      if (cardEl) { cardEl.textContent = formatNumber(fixedTotal); cardEl.dataset.raw = fixedTotal; }
+      // 예상 잔액 재계산
+      const netEl = document.getElementById("mauto-net-total");
+      const grid = netEl?.closest(".mauto-summary-grid");
+      if (netEl && grid) {
+        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
+        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
+        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
+        const net = fundsVal + rcvVal - payVal - fixedTotal;
+        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
+        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
+        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
+      }
     });
   });
 
