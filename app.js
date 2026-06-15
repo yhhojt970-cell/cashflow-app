@@ -7015,7 +7015,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
 
       // 날짜 소계 행 (체크박스 포함)
       const subtotalRow = `<tr style="background:#f8fafc;">
-        <td style="${tdSt}text-align:center;width:28px;"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${escapeAttr(chkKey)}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
+        <td style="${tdSt}text-align:center;width:28px;"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${chkKey}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
         <td colspan="2" style="${tdSt}font-weight:700;color:#374151;">${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
         <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${grpExpected ? formatNumber(grpExpected) : ""}</td>
         <td style="${tdSt}"></td>
