@@ -180,6 +180,33 @@ const MAUTO_TAX_SOURCE_KEY = "mauto-tax-source-v1";
 let mautoTaxSources  = {}; // { [filename]: { filename, sideType, savedAt, rows[] } }
 let mautoTaxInvoices = []; // 재빌드 캐시
 let mautoFixedRules  = null; // null=미로드, []=로드완료(항목없음), [...]=로드완료(항목있음)
+const MAUTO_FIXED_CHECKED_KEY = "mauto-fixed-checked-v1";
+let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
+function loadFixedChecked() {
+  try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
+}
+function saveFixedChecked() {
+  try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch(_) {}
+}
+function calcFixedCheckedTotal(monthData) {
+  const today = new Date();
+  const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
+  let total = 0;
+  (monthData || []).forEach(({ ym, items }) => {
+    const byDate = {};
+    items.forEach(item => {
+      const d = item.예정결제일?.date || "미정";
+      if (!byDate[d]) byDate[d] = 0;
+      byDate[d] += item.예정금액 || 0;
+    });
+    Object.entries(byDate).forEach(([date, amt]) => {
+      const key = `${ym}||${date}`;
+      const isChecked = mautoFixedChecked[key] !== undefined ? mautoFixedChecked[key] : (ym === todayYM);
+      if (isChecked) total += amt;
+    });
+  });
+  return total;
+}
 function saveMautoTaxSource() { try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {} }
 function loadMautoTaxSource() {
   try { const r = localStorage.getItem(MAUTO_TAX_SOURCE_KEY); mautoTaxSources = r ? JSON.parse(r) : {}; }
@@ -6939,12 +6966,12 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
   });
 }
 
-function renderMautoFixedAutoView(fixedRules, classifiedRows) {
+function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = null) {
   const items = (fixedRules || []).filter(r => r["결제예정일"]);
   if (!items.length) {
     return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">📐 분류규칙에 결제예정일이 설정된 항목이 없습니다.<br>분류규칙 관리 → 항목 수정 → <strong>결제예정일</strong>(N일) 입력 후 "불러오기"를 누르세요.</div>`;
   }
-  const monthData = buildFixedFromRules(items, classifiedRows || []);
+  const monthData = prebuiltData || buildFixedFromRules(items, classifiedRows || []);
   if (!monthData.length) {
     return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">입출금 내역을 업로드하면 월별 실적이 자동으로 채워집니다.</div>`;
   }
@@ -6954,6 +6981,8 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
   const CAT_COLOR = { 이자:"#dbeafe", 인출금:"#fef9c3", 카드:"#f3e8ff", 세금:"#fee2e2", 세계:"#d1fae5", 복리:"#ffedd5" };
 
   // 미완료 항목이 있는 월 or 이번 달/미래 → 기본 펼침 / 완료된 과거 달 → 접힘
+  const today2 = new Date();
+  const todayYM2 = `${today2.getFullYear()}-${String(today2.getMonth()+1).padStart(2,"0")}`;
   const renderMonth = ({ year, month, ym, items: monthItems, monthTotal, isPast, isCurrent, allDone }) => {
     const today = new Date();
     const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
@@ -6980,9 +7009,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
       const grpActual  = grpItems.reduce((s, i) => s + i.totalAmount, 0);
       const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
+      const chkKey = `${ym}||${date}`;
+      const defaultChecked = ym === todayYM2;
+      const isChecked = mautoFixedChecked[chkKey] !== undefined ? mautoFixedChecked[chkKey] : defaultChecked;
 
-      // 날짜 소계 행
+      // 날짜 소계 행 (체크박스 포함)
       const subtotalRow = `<tr style="background:#f8fafc;">
+        <td style="${tdSt}text-align:center;width:28px;"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${escapeAttr(chkKey)}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
         <td colspan="2" style="${tdSt}font-weight:700;color:#374151;">${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
         <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${grpExpected ? formatNumber(grpExpected) : ""}</td>
         <td style="${tdSt}"></td>
@@ -6994,6 +7027,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
         const paid = item.status === "완료";
         const catBg = CAT_COLOR[item.고정분류] ? `background:${CAT_COLOR[item.고정분류]};` : "";
         return `<tr style="${paid ? "opacity:0.55;" : ""}${catBg}">
+          <td style="${tdSt}"></td>
           <td style="${tdSt}padding-left:14px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
           <td style="${tdSt}text-align:center;color:#9ca3af;font-size:11px;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
           <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? `${formatNumber(item.예정금액)}${item.예정금액출처==="auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : ""}` : "-"}</td>
@@ -7012,6 +7046,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows) {
     const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
     const tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr>
+          <th style="${thSt}text-align:center;width:28px;">☑</th>
           <th style="${thSt}text-align:left;">항목</th>
           <th style="${thSt}text-align:center;">기준일</th>
           <th style="${thSt}text-align:right;">예정금액</th>
@@ -7151,7 +7186,17 @@ function renderMautoTab() {
   if (!sec) return;
   mautoData = normalizeMautoData(mautoData);
   const funds = (mautoData.funds || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-  const fixed = (mautoData.fixed || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  let fixed = 0;
+  let _fixedMonthDataCache = null;
+  if (mautoFixedRules !== null) {
+    const ruleItems = (mautoFixedRules || []).filter(r => r["결제예정일"]);
+    if (ruleItems.length) {
+      _fixedMonthDataCache = buildFixedFromRules(ruleItems, mautoClassifiedRows);
+      fixed = calcFixedCheckedTotal(_fixedMonthDataCache);
+    }
+  } else {
+    fixed = (mautoData.fixed || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  }
 
   // 세금계산서 데이터가 있으면 buildArRecap으로 미수/미지급 자동 계산
   const hasTax = mautoTaxInvoices && mautoTaxInvoices.length > 0;
@@ -7260,7 +7305,7 @@ function renderMautoTab() {
       <div class="mauto-card card-funds"><span>가용자금</span><strong>${formatNumber(funds)}</strong></div>
       <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong>${formatNumber(receivable)}</strong></div>
       <div class="mauto-card card-payable"><span>미지급 잔액</span><strong>${formatNumber(payable)}</strong></div>
-      <div class="mauto-card card-fixed"><span>고정지출</span><strong>${formatNumber(fixed)}</strong></div>
+      <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total">${formatNumber(fixed)}</strong></div>
     </div>
     ${mautoPasteSection("funds", "가용자금",
       renderMautoFundsTable(),
@@ -7273,7 +7318,7 @@ function renderMautoTab() {
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       mautoFixedRules !== null
-        ? renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows)
+        ? renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, _fixedMonthDataCache)
         : renderMautoFixedTable(mautoData.fixed),
       "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true,
       `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">📐 ${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
@@ -7333,6 +7378,21 @@ function renderMautoTab() {
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 고정지출 날짜별 체크박스 → 카드 합계 실시간 업데이트
+  sec.querySelectorAll(".mauto-fixed-chk").forEach(chk => {
+    chk.addEventListener("change", () => {
+      const key = chk.dataset.chkKey;
+      mautoFixedChecked[key] = chk.checked;
+      saveFixedChecked();
+      let total = 0;
+      sec.querySelectorAll(".mauto-fixed-chk:checked").forEach(c => {
+        total += parseInt(c.dataset.amt, 10) || 0;
+      });
+      const cardEl = document.getElementById("mauto-fixed-card-total");
+      if (cardEl) cardEl.textContent = formatNumber(total);
+    });
+  });
 
   // 고정지출 자동계산 — 분류규칙 결제예정일 기반
   document.getElementById("mautoFixedRulesBtn")?.addEventListener("click", async () => {
@@ -11043,6 +11103,7 @@ async function init() {
   if (hasMiraeSources()) rebuildDaesaFromSources();
   // 엠오토 세금계산서 소스 로드 + 제외 거래처 로드
   loadMautoTaxSource();
+  loadFixedChecked();
   loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
   switchTab("home");
