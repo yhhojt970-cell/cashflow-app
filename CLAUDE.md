@@ -253,6 +253,39 @@ availableFunds = {
 
 ---
 
+### 2026-06-16: 엠오토 미지급 업체별 보기 + 고정지출 예정금액 인라인 수정
+
+**기능 추가 (`app.js`):**
+- `renderMautoPayablesByVendor(payRows)`: 엠오토 미지급 업체별 집계 뷰
+  - 잔액 절댓값 내림차순 정렬 (잔액 큰 업체 위로)
+  - 업체 행 클릭 → 연월별 상세 펼침/접힘 (기존 toggle 핸들러 재사용)
+  - 총합계 행에 업체 수 표시
+  - `mautoPayViewMode = "ym" | "vendor"` 상태 변수 추가
+  - 미지급 섹션 헤더 **[연월별] [업체별]** 토글 버튼 — 전환 시 섹션 열린 상태 유지
+- 고정지출 예정금액 인라인 직접 수정 (localStorage 영구저장):
+  - `MAUTO_FIXED_AMOUNT_KEY = "mauto-fixed-amount-overrides-v1"` — `{ "YYYY-MM||거래처명||예정일": amount }`
+  - `applyFixedAmountOverrides(monthData)`: `buildFixedFromRules` 결과에 오버라이드 적용
+  - 항목 행 예정금액 셀 → `<input>` 교체 (클릭 즉시 수정)
+    - 빈칸 저장 시 자동계산 복원 / 수정된 항목은 주황 하단선 + `수정` 뱃지
+  - blur/Enter 시 소계 행·카드 합계·예상 잔액 실시간 갱신
+  - **⚠️ localStorage 전용 — 다른 컴퓨터와 공유 안 됨** (구글시트 연동 미구현)
+
+**공유 범위 정리 (2026-06-16 기준):**
+| 데이터 | 저장 위치 | 공유 여부 |
+|--------|-----------|-----------|
+| 입출금 분류 결과 | `엠오토_분류` 시트 | ✅ 공유 |
+| 분류규칙 | `분류규칙` 시트 | ✅ 공유 |
+| 가용자금·미수금·미지급·고정지출(붙여넣기) | `엠오토_json` 시트 | ✅ 공유 |
+| 세금계산서 파일 | `mauto-tax-source-v1` | ❌ 로컬만 |
+| 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 |
+| 체크박스 상태 | `mauto-fixed-checked-v1` | ❌ 로컬만 |
+| 예정금액 수동 수정 | `mauto-fixed-amount-overrides-v1` | ❌ 로컬만 |
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260615ah`)  
+**커밋:** `bfa583e`, `067ec64`
+
+---
+
 ### 2026-06-15 (추가): 엠오토 탭 부가세 보고서 + 모바일 반응형 + 버그 수정
 
 **기능 추가 (`app.js`, `style.css`):**
