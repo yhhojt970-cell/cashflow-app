@@ -7081,7 +7081,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
 
   const html = monthData.map(renderMonth).join("");
 
-  return `<div style="padding:10px 4px;max-height:600px;overflow-y:auto;">${html}</div>`;
+  return `<div style="padding:10px 4px;max-height:600px;overflow-y:auto;">
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <button type="button" id="fixedAutoExpandAll" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;">전체 펼치기</button>
+      <button type="button" id="fixedAutoCollapseAll" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;">전체 접기</button>
+    </div>
+    ${html}
+  </div>`;
 }
 
 function renderMautoFixedTable(rows) {
@@ -7420,6 +7426,18 @@ function renderMautoTab() {
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 고정지출 월 전체 펼치기 / 접기
+  document.getElementById("fixedAutoExpandAll")?.addEventListener("click", () => {
+    sec.querySelectorAll("#mauto-section-fixed details").forEach(d => { d.open = true; });
+    sec.querySelectorAll(".mauto-fixed-dg-item").forEach(r => { r.style.display = ""; });
+    sec.querySelectorAll(".mauto-fixed-dg-icon").forEach(i => { i.textContent = "▼"; });
+  });
+  document.getElementById("fixedAutoCollapseAll")?.addEventListener("click", () => {
+    sec.querySelectorAll("#mauto-section-fixed details").forEach(d => { d.open = false; });
+    sec.querySelectorAll(".mauto-fixed-dg-item").forEach(r => { r.style.display = "none"; });
+    sec.querySelectorAll(".mauto-fixed-dg-icon").forEach(i => { i.textContent = "▶"; });
+  });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
   sec.querySelectorAll(".mauto-fixed-dg-hdr").forEach(hdr => {
