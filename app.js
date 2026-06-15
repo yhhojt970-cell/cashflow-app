@@ -203,6 +203,7 @@ let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
 let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
+let mautoPayViewMode = "ym"; // "ym" | "vendor"
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
 }
@@ -6887,6 +6888,75 @@ function renderMautoAccountingTable(rows, kind) {
   </div>`;
 }
 
+// 엠오토 미지급 업체별 보기 (거래처 기준 집계, 잔액 절댓값 내림차순)
+function renderMautoPayablesByVendor(payRows) {
+  const rows = payRows || [];
+  if (!rows.length) {
+    return `<div class="mauto-table-wrap">
+      <table class="mauto-table">
+        <thead><tr><th>상호</th><th>연월</th><th class="mauto-num">매입합계</th><th class="mauto-num">출금</th><th class="mauto-num">잔액</th></tr></thead>
+        <tbody><tr><td colspan="5" class="mauto-empty">데이터 없음</td></tr></tbody>
+      </table>
+    </div>`;
+  }
+
+  // 업체별 그룹화
+  const vendors = new Map();
+  rows.forEach(row => {
+    const vk = row.company || "(업체 없음)";
+    if (!vendors.has(vk)) vendors.set(vk, []);
+    vendors.get(vk).push(row);
+  });
+
+  // 잔액 절댓값 내림차순 정렬 (잔액 큰 업체 위로)
+  const sorted = [...vendors.entries()].sort((a, b) =>
+    Math.abs(sumMautoRows(b[1]).balance) - Math.abs(sumMautoRows(a[1]).balance)
+  );
+
+  const body = sorted.map(([company, vRows], idx) => {
+    const vSum = sumMautoRows(vRows);
+    const vKey = `vendor-pay:${idx}`;
+    const sortedVRows = [...vRows].sort((a, b) =>
+      (a.year || 9999) - (b.year || 9999) || (a.month || 99) - (b.month || 99)
+    );
+    const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(vKey)}" style="cursor:pointer;">
+      <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(company)}</td>
+      <td></td>
+      ${mautoNumericCell(vSum.total)}
+      ${mautoNumericCell(vSum.inout)}
+      ${mautoNumericCell(vSum.balance, "mauto-balance-cell")}
+    </tr>`;
+    const detailRows = sortedVRows.map(row => `
+      <tr data-mauto-yr="${escapeHtml(vKey)}">
+        <td></td>
+        <td style="font-size:12px;color:#6b7280;">${row.year || ""}년 ${row.month || ""}월</td>
+        ${mautoNumericCell(row.total)}
+        ${mautoNumericCell(row.inout)}
+        ${mautoNumericCell(row.balance, "mauto-balance-cell")}
+      </tr>`).join("");
+    return headerRow + detailRows;
+  }).join("");
+
+  const total = sumMautoRows(rows);
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table" data-kind="payables-vendor">
+      <thead><tr>
+        <th>상호</th><th>연월</th>
+        <th class="mauto-num">매입합계</th>
+        <th class="mauto-num">출금</th>
+        <th class="mauto-num">잔액</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr>
+        <td colspan="2">총합계 (${sorted.length}개 업체)</td>
+        ${mautoNumericCell(total.total)}
+        ${mautoNumericCell(total.inout)}
+        ${mautoNumericCell(total.balance, "mauto-balance-cell")}
+      </tr></tfoot>
+    </table>
+  </div>`;
+}
+
 function getMautoFixedDateLabel(row) {
   if (row.date) return row.date;
   if (row.year && row.month && row.day)
@@ -7282,8 +7352,10 @@ function renderMautoTab() {
     const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
     const rcvExLabel = mautoExcludeVendorsRcv.length ? `🚫 제외 ${mautoExcludeVendorsRcv.length}개` : `🚫 제외 설정`;
     const payExLabel = mautoExcludeVendorsPay.length ? `🚫 제외 ${mautoExcludeVendorsPay.length}개` : `🚫 제외 설정`;
+    const payViewToggle = `<button type="button" id="mautoPayViewYm" style="${exStyleBase}${mautoPayViewMode==="ym"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="연월별로 보기">연월별</button>` +
+      `<button type="button" id="mautoPayViewVendor" style="${exStyleBase}${mautoPayViewMode==="vendor"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="업체별로 보기">업체별</button>`;
     rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyleBase}" title="미수금 제외 거래처 설정">${rcvExLabel}</button>`;
-    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyleBase}" title="미지급 제외 거래처 설정">${payExLabel}</button>`;
+    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyleBase}" title="미지급 제외 거래처 설정">${payExLabel}</button>` + payViewToggle;
     if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
     if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
   } else {
@@ -7386,7 +7458,9 @@ function renderMautoTab() {
       rcvWarn + renderMautoAccountingTable(rcvRows, "receivables"),
       "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", true, rcvBadge)}
     ${mautoPasteSection("payables", "미지급",
-      payWarn + renderMautoAccountingTable(payRows, "payables"),
+      payWarn + (mautoPayViewMode === "vendor"
+        ? renderMautoPayablesByVendor(payRows)
+        : renderMautoAccountingTable(payRows, "payables")),
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       mautoFixedRules !== null
@@ -7478,6 +7552,21 @@ function renderMautoTab() {
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 미지급 연월별/업체별 토글
+  const _reopenPayables = () => {
+    const ps = document.getElementById("mauto-section-payables");
+    if (ps) ps.style.display = "";
+    sec.querySelector(".card-payable")?.classList.add("mauto-card-active");
+  };
+  document.getElementById("mautoPayViewYm")?.addEventListener("click", () => {
+    if (mautoPayViewMode === "ym") return;
+    mautoPayViewMode = "ym"; renderMautoTab(); _reopenPayables();
+  });
+  document.getElementById("mautoPayViewVendor")?.addEventListener("click", () => {
+    if (mautoPayViewMode === "vendor") return;
+    mautoPayViewMode = "vendor"; renderMautoTab(); _reopenPayables();
+  });
 
   // 고정지출 월 전체 펼치기 / 접기
   document.getElementById("fixedAutoExpandAll")?.addEventListener("click", () => {
