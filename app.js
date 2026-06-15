@@ -200,6 +200,9 @@ let mautoTaxInvoices = []; // 재빌드 캐시
 let mautoFixedRules  = null; // null=미로드, []=로드완료(항목없음), [...]=로드완료(항목있음)
 const MAUTO_FIXED_CHECKED_KEY = "mauto-fixed-checked-v1";
 let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
+let mautoVatView = false;
+let mautoVatMode = "반기";
+let mautoVatYear = new Date().getFullYear();
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
 }
@@ -7306,6 +7309,7 @@ function renderMautoTab() {
           🧾 매입세금계산서
           <input type="file" id="mautoTaxPurchaseFileInput" accept=".xls,.xlsx" hidden />
         </label>
+        <button type="button" id="mautoVatBtn" class="daesa-vat-btn${mautoVatView ? " active" : ""}" title="부가세 납부세액 집계 보고서 (반기/월간/연간)">📊 부가세</button>
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
     </div>
@@ -7370,6 +7374,7 @@ function renderMautoTab() {
       <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total" data-raw="${fixed}">${formatNumber(fixed)}</strong></div>
       ${(() => { const net = funds + receivable - payable - fixed; return `<div class="mauto-card card-net" style="border-top-color:${net>=0?"#16a34a":"#dc2626"};"><span>예상 잔액</span><strong id="mauto-net-total" style="color:${net>=0?"#16a34a":"#dc2626"};">${net>=0?"+":""}${formatNumber(net)}</strong></div>`; })()}
     </div>
+    ${mautoVatView ? renderMautoVatView() : ""}
     ${mautoPasteSection("funds", "가용자금",
       renderMautoFundsTable(),
       "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)", false)}
@@ -7709,6 +7714,19 @@ function renderMautoTab() {
         if (d) d.open = true;
       });
     });
+  });
+
+  document.getElementById("mautoVatBtn")?.addEventListener("click", () => {
+    mautoVatView = !mautoVatView;
+    renderMautoTab();
+  });
+  document.getElementById("mautoVatModeFilter")?.addEventListener("change", e => {
+    mautoVatMode = e.target.value;
+    renderMautoTab();
+  });
+  document.getElementById("mautoVatYearFilter")?.addEventListener("change", e => {
+    mautoVatYear = Number(e.target.value);
+    renderMautoTab();
   });
 
   setupMautoToggleHandlers(sec);
@@ -9887,6 +9905,111 @@ function renderVatView() {
         </table>
       </div>
       <p class="vat-note muted">※ 집계 기준: 세금계산서 작성일자(작성연월). 구분이 비어있는 행(이자·인출 등)은 제외됩니다.</p>
+    </div>
+  `;
+}
+
+// 엠오토 부가세 보고서 (mautoTaxInvoices 기반, 반기 기본)
+function renderMautoVatView() {
+  if (!mautoTaxInvoices.length) {
+    return `<div class="vat-view-wrap" id="mauto-vat-view" style="padding:20px 16px;text-align:center;color:#9ca3af;">
+      세금계산서 데이터가 없습니다. 상단 <strong>🧾 매출세금계산서</strong> / <strong>🧾 매입세금계산서</strong> 버튼으로 파일을 업로드하세요.
+    </div>`;
+  }
+
+  const vatMap = buildVatSummary(mautoTaxInvoices);
+  const mode   = mautoVatMode;
+  const year   = mautoVatYear;
+
+  // 연도 옵션: 데이터 있는 연도 + 현재 연도
+  const dataYears = [...new Set([...vatMap.keys()].map(ym => Number(ym.slice(0, 4))))].sort((a, b) => b - a);
+  if (!dataYears.includes(year)) dataYears.unshift(year);
+  const yearOpts = dataYears.map(y => `<option value="${y}" ${y === year ? "selected" : ""}>${y}년</option>`).join("");
+
+  const periods = buildVatPeriods(year, mode);
+
+  const rows = periods.map(p => {
+    const agg = { 매출공급: 0, 매출세액: 0, 매입공급: 0, 매입세액: 0 };
+    for (const ym of p.months) {
+      const e = vatMap.get(ym);
+      if (e) { agg.매출공급 += e.매출공급; agg.매출세액 += e.매출세액; agg.매입공급 += e.매입공급; agg.매입세액 += e.매입세액; }
+    }
+    agg.납부세액 = agg.매출세액 - agg.매입세액;
+    return { label: p.label, ...agg };
+  });
+
+  const total = rows.reduce((s, r) => {
+    s.매출공급 += r.매출공급; s.매출세액 += r.매출세액;
+    s.매입공급 += r.매입공급; s.매입세액 += r.매입세액;
+    s.납부세액 += r.납부세액;
+    return s;
+  }, { 매출공급: 0, 매출세액: 0, 매입공급: 0, 매입세액: 0, 납부세액: 0 });
+
+  const fn = n => formatNumber(n);
+  const 납부cls = n => n < 0 ? "vat-refund" : n > 0 ? "vat-pay" : "";
+
+  const bodyRows = rows.map(r => `
+    <tr>
+      <td class="vat-period-cell">${r.label}</td>
+      <td class="vat-num-cell">${fn(r.매출공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(r.매출세액)}</td>
+      <td class="vat-num-cell">${fn(r.매입공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(r.매입세액)}</td>
+      <td class="vat-num-cell vat-result-cell ${납부cls(r.납부세액)}">${r.납부세액 < 0 ? "▲ " + fn(-r.납부세액) : fn(r.납부세액)}</td>
+    </tr>
+  `).join("");
+
+  const totalRow = `
+    <tr class="vat-total-row">
+      <td class="vat-period-cell"><strong>합계</strong></td>
+      <td class="vat-num-cell">${fn(total.매출공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(total.매출세액)}</td>
+      <td class="vat-num-cell">${fn(total.매입공급)}</td>
+      <td class="vat-num-cell vat-tax-cell">${fn(total.매입세액)}</td>
+      <td class="vat-num-cell vat-result-cell ${납부cls(total.납부세액)}">${total.납부세액 < 0 ? "▲ " + fn(-total.납부세액) : fn(total.납부세액)}</td>
+    </tr>
+  `;
+
+  const dataCount = mautoTaxInvoices.filter(r => {
+    const t = String(r["구분"] || "").trim();
+    return (t === "매출" || t === "매입") && rowToYearMonth(r["작성일자"])?.startsWith(String(year));
+  }).length;
+
+  return `
+    <div class="vat-view-wrap" id="mauto-vat-view">
+      <div class="vat-toolbar">
+        <strong>부가세 납부세액 집계 (엠오토)</strong>
+        <span class="daesa-toolbar-sep"></span>
+        <label>연도 <select id="mautoVatYearFilter">${yearOpts}</select></label>
+        <label>기간 <select id="mautoVatModeFilter">
+          <option value="월간" ${mode === "월간" ? "selected" : ""}>월간</option>
+          <option value="반기" ${mode === "반기" ? "selected" : ""}>반기 (기본)</option>
+          <option value="연간" ${mode === "연간" ? "selected" : ""}>연간</option>
+        </select></label>
+        <span class="muted" style="font-size:12px;">${year}년 ${dataCount}건 / 세금계산서 총 ${mautoTaxInvoices.length}건</span>
+      </div>
+      <div class="table-responsive">
+        <table class="vat-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="vat-th-period">기간</th>
+              <th colspan="2" class="vat-th-group vat-th-sales">매출</th>
+              <th colspan="2" class="vat-th-group vat-th-purchase">매입</th>
+              <th rowspan="2" class="vat-th-result">납부(환급)세액</th>
+            </tr>
+            <tr>
+              <th class="vat-th-sub">공급가액</th>
+              <th class="vat-th-sub vat-th-tax">세액</th>
+              <th class="vat-th-sub">공급가액</th>
+              <th class="vat-th-sub vat-th-tax">세액</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot>${totalRow}</tfoot>
+        </table>
+      </div>
+      <p class="vat-note muted">※ 집계 기준: 세금계산서 작성일자(작성연월). 구분이 비어있는 행은 제외됩니다.<br>
+      ※ 엠오토(개인사업자) 기본 신고기간: 반기 (1기 1~6월 / 2기 7~12월)</p>
     </div>
   `;
 }
