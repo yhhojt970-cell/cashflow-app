@@ -3942,6 +3942,7 @@ td {
 .mauto-card.card-receivable { border-top-color: #059669; }
 .mauto-card.card-payable { border-top-color: #d97706; }
 .mauto-card.card-fixed { border-top-color: #7c3aed; }
+.mauto-card.mauto-card-active { background: #f0f9ff; box-shadow: 0 0 0 2px #2563eb; }
 .mauto-card.card-expected { border-top-color: #0f172a; background: #f8fafc; }
 .mauto-card.card-expected.positive strong { color: #1d4ed8; }
 .mauto-card.card-expected.negative strong { color: #dc2626; }

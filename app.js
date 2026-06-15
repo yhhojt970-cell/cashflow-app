@@ -7331,6 +7331,34 @@ function renderMautoTab() {
       `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">📐 ${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
   </div>`;
 
+  // 카드 클릭 → 해당 섹션 토글 (기본 숨김)
+  const CARD_SECTION_MAP = {
+    'card-funds':      'mauto-section-funds',
+    'card-receivable': 'mauto-section-receivables',
+    'card-payable':    'mauto-section-payables',
+    'card-fixed':      'mauto-section-fixed',
+  };
+  sec.querySelectorAll('.mauto-section').forEach(s => { s.style.display = 'none'; });
+  sec.querySelectorAll('.mauto-card').forEach(card => {
+    const cls = [...card.classList].find(c => CARD_SECTION_MAP[c]);
+    if (!cls) return;
+    card.style.cursor = 'pointer';
+    card.title = '클릭하여 상세 보기';
+    card.addEventListener('click', () => {
+      const targetId = CARD_SECTION_MAP[cls];
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      const isOpen = target.style.display !== 'none';
+      sec.querySelectorAll('.mauto-section').forEach(s => { s.style.display = 'none'; });
+      sec.querySelectorAll('.mauto-card').forEach(c => c.classList.remove('mauto-card-active'));
+      if (!isOpen) {
+        target.style.display = '';
+        card.classList.add('mauto-card-active');
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  });
+
   sec.querySelectorAll(".mauto-paste-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const area = document.getElementById(`mauto-paste-area-${btn.dataset.mautoSection}`);
