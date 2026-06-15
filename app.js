@@ -6857,17 +6857,12 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
   const today = new Date();
   const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
 
-  // 자동 월 생성: 오늘 기준 3개월 전 ~ 6개월 후
+  // 표시 범위: 전월 ~ 현월 ~ 다음월 (3개월)
   const monthSet = new Set();
-  for (let i = -3; i <= 6; i++) {
+  for (let i = -1; i <= 1; i++) {
     const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
     monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   }
-  // classifiedRows 월도 포함 (범위 밖 과거 데이터 보존)
-  (classifiedRows || []).forEach(r => {
-    if (!r._date || !/^\d{4}-\d{2}/.test(r._date)) return;
-    monthSet.add(r._date.slice(0, 7));
-  });
 
   const months = [...monthSet].sort().reverse(); // 최신 먼저
 
@@ -10555,6 +10550,8 @@ async function importRulesFromExcel(file) {
     await postSheetWebApp("upsertRules", { rows });
     rulesState.msg = `${rows.length}건 가져오기 완료`;
     await loadRules();
+    // 새 규칙으로 저장된 입출금 전체 재분류 (거래처명 매칭 반영)
+    if (typeof rebuildMautoRows === "function") rebuildMautoRows();
   } catch (e) {
     rulesState.msg = `가져오기 실패: ${e.message}`;
   } finally {
