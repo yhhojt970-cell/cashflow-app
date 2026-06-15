@@ -7863,6 +7863,13 @@ function setupTabs() {
       if (target === "pnl") { renderPnlTab(); loadPnlRemote(); }
       if (target === "mauto") {
         renderMautoTab();
+        // 고정지출 분류규칙 자동 로드 (탭 첫 진입 시)
+        if (mautoFixedRules === null && SHEET_APP_SCRIPT_URL) {
+          fetchRulesFromApi("엠오토").then(rules => {
+            mautoFixedRules = rules;
+            renderMautoTab();
+          }).catch(() => { mautoFixedRules = []; });
+        }
         console.log("[엠오토] 탭 진입 — 원격 로드 시작 (setupTabs)");
         if (SHEET_APP_SCRIPT_URL) {
           loadMautoDataRemote().then(remote => {
