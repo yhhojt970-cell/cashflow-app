@@ -28,6 +28,48 @@ body {
   padding: 10px 14px 12px;
 }
 
+/* ── 모바일 반응형 (전역) ────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-shell {
+    min-width: 320px;
+    padding: 6px 8px 10px;
+  }
+  .app-header {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .app-header h1 { font-size: 1.05rem; }
+  .header-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+  }
+  .header-action-button {
+    font-size: 0.72rem;
+    padding: 5px 7px;
+  }
+  .ctrl-combined {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    padding-bottom: 3px;
+  }
+  .tab-button {
+    white-space: nowrap;
+    font-size: 12px;
+    padding: 5px 9px;
+  }
+  .filter-row { flex-wrap: wrap; gap: 6px; }
+  .filter-row label { font-size: 12px; }
+  .filter-row input[type="search"],
+  .filter-row select { font-size: 12px; padding: 4px 6px; }
+}
+
 .app-header {
   display: flex;
   justify-content: space-between;
@@ -4715,6 +4757,80 @@ td {
 .pnl-id-sel-btn { padding: 3px 10px; font-size: 12px; border: 1px solid var(--border, #d1d9e8); border-radius: 5px; background: #fff; cursor: pointer; color: var(--text); }
 .pnl-id-sel-btn:hover { background: #f0f4ff; }
 .pnl-id-sel-cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ── 엠오토 상단 버튼 영역 ──────────────────────────────── */
+.mauto-top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* ── 엠오토 모바일 반응형 ────────────────────────────────── */
+@media (max-width: 768px) {
+  .mauto-container { padding: 0 4px; }
+
+  .mauto-top-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mauto-top-bar h2 { font-size: 16px; }
+  .mauto-top-bar p  { font-size: 12px; }
+
+  .mauto-top-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    margin-top: 6px;
+  }
+  .mauto-top-actions .header-action-button,
+  .mauto-top-actions .mauto-clear-btn {
+    text-align: center;
+    font-size: 11px;
+    padding: 6px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mauto-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .mauto-card { padding: 8px 10px; }
+  .mauto-card span { font-size: 10px; }
+  .mauto-card strong { font-size: 13px; }
+
+  .mauto-section { border-radius: 6px; }
+  .mauto-section-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 8px 10px;
+  }
+  .mauto-section-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .mauto-ctrl-btn  { font-size: 11px; padding: 3px 7px; }
+  .mauto-paste-btn { font-size: 11px; padding: 4px 8px; }
+
+  .mauto-paste-area { padding: 8px 10px; }
+  .mauto-paste-hint { font-size: 11px; }
+  .mauto-textarea   { font-size: 12px; min-height: 80px; }
+
+  .mauto-table th,
+  .mauto-table td { padding: 5px 6px; font-size: 11px; }
+}
+
+@media (max-width: 480px) {
+  .mauto-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mauto-card strong { font-size: 12px; }
+  .mauto-card span   { font-size: 9px; }
+}
 
 .pnl-id-calc-col { background: #eef2ff; color: #3730a3; font-weight: 600; }
 

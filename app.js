@@ -7100,7 +7100,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       ? `<span style="font-size:11px;color:#16a34a;margin-left:6px;">✓ 완료</span>`
       : (isPast ? `<span style="font-size:11px;color:#ef4444;margin-left:6px;">● 미결</span>` : "");
     const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
-    const tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+    const tableHtml = `<div style="overflow-x:auto;"><table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:center;width:28px;">☑</th>
           <th style="${thSt}text-align:left;">항목</th>
@@ -7111,7 +7111,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
           <th style="${thSt}text-align:center;">상태</th>
         </tr></thead>
         <tbody>${bodyRows}</tbody>
-      </table>`;
+      </table></div>`;
     return `<details style="margin-bottom:12px;" ${collapsed ? "" : "open"}>
       <summary style="cursor:pointer;font-weight:700;font-size:13px;color:${isCurrent?"#2563eb":"#374151"};padding:4px 0 6px;border-bottom:${headerBorder};list-style:none;display:flex;align-items:center;gap:6px;">
         <span>${collapsed ? "▶" : "▼"}</span>
@@ -7293,17 +7293,17 @@ function renderMautoTab() {
         <h2>엠오토</h2>
         <p>엠오토 전용 현금흐름</p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
+      <div class="mauto-top-actions">
+        <label class="header-action-button" style="cursor:pointer;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
           📥 입출금 분류
           <input type="file" id="mautoClassifyFileInput" accept=".xls,.xlsx,.xlsm,.csv" hidden />
         </label>
-        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="국세청 전자세금계산서 조회 파일 (매출)">
-          🧾 매출 세금계산서
+        <label class="header-action-button" style="cursor:pointer;" title="국세청 전자세금계산서 조회 파일 (매출)">
+          🧾 매출세금계산서
           <input type="file" id="mautoTaxSalesFileInput" accept=".xls,.xlsx" hidden />
         </label>
-        <label class="header-action-button" style="cursor:pointer;font-size:13px;" title="국세청 전자세금계산서 조회 파일 (매입)">
-          🧾 매입 세금계산서
+        <label class="header-action-button" style="cursor:pointer;" title="국세청 전자세금계산서 조회 파일 (매입)">
+          🧾 매입세금계산서
           <input type="file" id="mautoTaxPurchaseFileInput" accept=".xls,.xlsx" hidden />
         </label>
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
