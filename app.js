@@ -6893,9 +6893,10 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
 
   const months = [...monthSet].sort().reverse(); // 최신 먼저
 
-  // 같은 거래처명+결제예정일 규칙이 여러 개(매칭키별)여도 표시는 1개로 중복 제거
+  // 비활성(활성여부=N) 제외 + 같은 거래처명+결제예정일 중복 제거
   const seenFixed = new Set();
   const dedupedRules = fixedRules.filter(rule => {
+    if (String(rule["활성여부"] || "Y").toUpperCase() === "N") return false;
     const k = `${rule["거래처명"]}||${rule["결제예정일"]}`;
     if (seenFixed.has(k)) return false;
     seenFixed.add(k);
@@ -6933,7 +6934,11 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
     const [year, month] = ym.split("-");
     const isPast = ym < todayYM;
     const isCurrent = ym === todayYM;
-    const items = dedupedRules.map(rule => {
+    const monthRules = dedupedRules.filter(rule => {
+      const 지급월List = rule["지급월"] ? String(rule["지급월"]).split(",").map(s => s.trim()).filter(Boolean) : [];
+      return 지급월List.length === 0 || 지급월List.includes(String(parseInt(month)));
+    });
+    const items = monthRules.map(rule => {
       const matched = (classifiedRows || []).filter(r => {
         const d = r._date || r.date || "";
         if (!d || !r.거래처명) return false;
@@ -10415,6 +10420,11 @@ function renderRulesPanel() {
           ${DIV_OPTIONS.map(v => `<option value="${v}"${data["구분"]===v?" selected":""}>${v || "(없음)"}</option>`).join("")}
         </select></td>
         <td><input class="rules-inp rules-inp-sm" name="결제예정일" type="number" min="1" max="31" placeholder="없음" value="${escapeAttr(String(data["결제예정일"]||""))}" ${dis} style="width:52px;" title="매월 N일 결제 (고정지출 자동계산용)" /></td>
+        <td><input class="rules-inp" name="지급월" placeholder="1,7 또는 3,6,9,12" value="${escapeAttr(data["지급월"]||"")}" ${dis} style="width:90px;" title="빈칸=매월 / 1,7=반기 / 3,6,9,12=분기" /></td>
+        <td><select class="rules-inp" name="활성여부" ${dis} style="width:48px;">
+          <option value="Y"${String(data["활성여부"]||"Y").toUpperCase()!=="N"?" selected":""}>Y</option>
+          <option value="N"${String(data["활성여부"]||"Y").toUpperCase()==="N"?" selected":""}>N</option>
+        </select></td>
         <td><input class="rules-inp" name="고정분류" placeholder="이자/인출금/카드" value="${escapeAttr(data["고정분류"]||"")}" ${dis} style="width:80px;" /></td>
         <td><input class="rules-inp rules-inp-sm" name="예정금액" type="number" min="0" placeholder="평균금액" value="${escapeAttr(String(data["예정금액"]||""))}" ${dis} style="width:80px;" /></td>
         <td><input class="rules-inp rules-inp-sm" name="우선순위" type="number" min="1" value="${escapeAttr(String(data["우선순위"]||"10"))}" ${dis} /></td>
@@ -10441,6 +10451,8 @@ function renderRulesPanel() {
         <td>${escapeAttr(r["거래처명"]||"")}</td>
         <td>${escapeAttr(r["구분"]||"")}</td>
         <td style="text-align:right;color:${r["결제예정일"]?"#2563eb":"#9ca3af"};">${r["결제예정일"] ? `매월 ${r["결제예정일"]}일` : ""}</td>
+        <td style="color:#6b7280;font-size:11px;">${escapeAttr(r["지급월"]||"")}</td>
+        <td style="text-align:center;">${String(r["활성여부"]||"Y").toUpperCase()==="N" ? '<span style="color:#ef4444;font-size:11px;">N</span>' : '<span style="color:#16a34a;font-size:11px;">Y</span>'}</td>
         <td style="color:#6b7280;">${escapeAttr(r["고정분류"]||"")}</td>
         <td style="text-align:right;color:#6b7280;">${r["예정금액"] ? formatNumber(Number(r["예정금액"])) : ""}</td>
         <td style="text-align:right;">${escapeAttr(String(r["우선순위"]||""))}</td>
@@ -10486,12 +10498,12 @@ function renderRulesPanel() {
         <div class="rules-table-wrap">
           <table class="rules-table">
             <thead><tr>
-              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>결제예정일</th><th>고정분류</th><th>예정금액</th><th>우선순위</th><th>액션</th>
+              <th>사업체</th><th>매칭방식</th><th>매칭키</th><th>거래처명</th><th>구분</th><th>결제예정일</th><th>지급월</th><th>활성</th><th>고정분류</th><th>예정금액</th><th>우선순위</th><th>액션</th>
             </tr></thead>
             <tbody>
               ${rowsHtml}
               ${newRowHtml}
-              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
             </tbody>
           </table>
         </div>`}` : ""}
@@ -10569,6 +10581,8 @@ function renderRulesPanel() {
         거래처명: get("거래처명"),
         구분: get("구분"),
         결제예정일: get("결제예정일") || "",
+        지급월: get("지급월") || "",
+        활성여부: get("활성여부") || "Y",
         고정분류: get("고정분류") || "",
         예정금액: get("예정금액") || "",
         우선순위: get("우선순위") || "10",
@@ -10602,6 +10616,8 @@ async function importRulesFromExcel(file) {
         결제예정일: String(r["결제예정일"] ?? "").trim(),
         고정분류:   String(r["고정분류"]   ?? "").trim(),
         예정금액:   String(r["예정금액"]   ?? "").trim(),
+        지급월:     String(r["지급월"]     ?? "").trim(),
+        활성여부:   String(r["활성여부"]   ?? "Y").trim() || "Y",
       };
       ruleObj._rule_key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
       return ruleObj;
