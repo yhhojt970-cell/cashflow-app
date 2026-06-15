@@ -10593,6 +10593,8 @@ function renderRulesPanel() {
     ? `<span style="font-size:12px;color:#6b7280;margin-left:6px;">${filtered.length}건${rulesState.bizFilter !== "전체" ? ` (${rulesState.bizFilter})` : ""}</span>`
     : "";
 
+  // 스크롤 위치 보존 (재렌더 후 복원)
+  const _prevScroll = panel.querySelector(".rules-table-wrap")?.scrollTop || 0;
 
   panel.innerHTML = `
     <div class="rules-panel-inner">
@@ -10631,6 +10633,12 @@ function renderRulesPanel() {
           </table>
         </div>`}` : ""}
     </div>`;
+
+  // 스크롤 위치 복원
+  if (_prevScroll) {
+    const wrap = panel.querySelector(".rules-table-wrap");
+    if (wrap) wrap.scrollTop = _prevScroll;
+  }
 
   // 이벤트 바인딩
   panel.querySelector("#rulesToggleBtn")?.addEventListener("click", () => {
