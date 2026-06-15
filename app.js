@@ -6991,7 +6991,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
   const renderMonth = ({ year, month, ym, items: monthItems, monthTotal, isPast, isCurrent, allDone }) => {
     const today = new Date();
     const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
-    const collapsed = isPast && allDone;
+    const collapsed = !isCurrent; // 현재 월만 기본 펼침
 
     // 날짜 오름차순 정렬 (날짜 없는 항목은 맨 뒤)
     const sorted = [...monthItems].sort((a, b) => {
@@ -7015,13 +7015,14 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
       const chkKey = `${ym}||${date}`;
+      const dgKey  = `${ym}||${date}`;
       const defaultChecked = ym === todayYM2;
       const isChecked = mautoFixedChecked[chkKey] !== undefined ? mautoFixedChecked[chkKey] : defaultChecked;
 
-      // 날짜 소계 행 (체크박스 포함)
-      const subtotalRow = `<tr style="background:#f8fafc;">
-        <td style="${tdSt}text-align:center;width:28px;"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${chkKey}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
-        <td colspan="2" style="${tdSt}font-weight:700;color:#374151;">${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
+      // 날짜 소계 행 (체크박스 + 아코디언 토글)
+      const subtotalRow = `<tr class="mauto-fixed-dg-hdr" data-dg="${dgKey}" style="background:#f8fafc;cursor:pointer;">
+        <td style="${tdSt}text-align:center;width:28px;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${chkKey}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
+        <td colspan="2" style="${tdSt}font-weight:700;color:#374151;"><span class="mauto-fixed-dg-icon">▼</span> ${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
         <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${grpExpected ? formatNumber(grpExpected) : ""}</td>
         <td style="${tdSt}"></td>
         <td style="${tdSt}text-align:right;font-weight:700;">${grpActual ? formatNumber(grpActual) : ""}</td>
@@ -7031,9 +7032,9 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       const itemRows = grpItems.map(item => {
         const paid = item.status === "완료";
         const catBg = CAT_COLOR[item.고정분류] ? `background:${CAT_COLOR[item.고정분류]};` : "";
-        return `<tr style="${paid ? "opacity:0.55;" : ""}${catBg}">
+        return `<tr class="mauto-fixed-dg-item" data-dg="${dgKey}" style="${paid ? "opacity:0.55;" : ""}${catBg}">
           <td style="${tdSt}"></td>
-          <td style="${tdSt}padding-left:14px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
+          <td style="${tdSt}padding-left:22px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
           <td style="${tdSt}text-align:center;color:#9ca3af;font-size:11px;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
           <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? `${formatNumber(item.예정금액)}${item.예정금액출처==="auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : ""}` : "-"}</td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
@@ -7384,6 +7385,19 @@ function renderMautoTab() {
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
+  sec.querySelectorAll(".mauto-fixed-dg-hdr").forEach(hdr => {
+    hdr.addEventListener("click", e => {
+      if (e.target.type === "checkbox") return;
+      const key = hdr.dataset.dg;
+      const rows = sec.querySelectorAll(`.mauto-fixed-dg-item[data-dg="${key}"]`);
+      const icon = hdr.querySelector(".mauto-fixed-dg-icon");
+      const isOpen = rows[0]?.style.display !== "none";
+      rows.forEach(r => r.style.display = isOpen ? "none" : "");
+      if (icon) icon.textContent = isOpen ? "▶" : "▼";
+    });
+  });
 
   // 고정지출 날짜별 체크박스 → 카드 합계 실시간 업데이트
   sec.querySelectorAll(".mauto-fixed-chk").forEach(chk => {
