@@ -6880,11 +6880,12 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
   months.forEach(ym => {
     dedupedRules.forEach(rule => {
       const name = rule["거래처명"];
-      const matched = (classifiedRows || []).filter(r =>
-        r._date && r.거래처명 === name && r._date.slice(0, 7) === ym
-      );
+      const matched = (classifiedRows || []).filter(r => {
+        const d = r._date || r.date || "";
+        return d && r.거래처명 === name && d.slice(0, 7) === ym;
+      });
       if (matched.length) {
-        const total = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
+        const total = matched.reduce((s, r) => s + Math.abs(Number(r._debit || r.debit || 0) || Number(r._credit || r.credit || 0)), 0);
         if (total > 0) {
           if (!vendorActuals[name]) vendorActuals[name] = [];
           vendorActuals[name].push(total);
@@ -6907,12 +6908,13 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
     const isCurrent = ym === todayYM;
     const items = dedupedRules.map(rule => {
       const matched = (classifiedRows || []).filter(r => {
-        if (!r._date || !r.거래처명) return false;
-        if (r._date.slice(0, 7) !== ym) return false;
+        const d = r._date || r.date || "";
+        if (!d || !r.거래처명) return false;
+        if (d.slice(0, 7) !== ym) return false;
         return r.거래처명 === rule["거래처명"];
       });
-      const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || 0) || Number(r._credit || 0)), 0);
-      const dates = [...new Set(matched.map(r => r._date).filter(Boolean))].sort();
+      const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || r.debit || 0) || Number(r._credit || r.credit || 0)), 0);
+      const dates = [...new Set(matched.map(r => (r._date || r.date || "")).filter(Boolean))].sort();
       const dayNum = parseInt(rule["결제예정일"]) || null;
       const 예정결제일 = dayNum ? getScheduledPaymentDate(parseInt(year), parseInt(month), dayNum) : null;
       // 예정금액: 실적 평균(2개월↑) 우선 → 규칙 수동값 fallback
