@@ -200,6 +200,8 @@ let mautoTaxInvoices = []; // 재빌드 캐시
 let mautoFixedRules  = null; // null=미로드, []=로드완료(항목없음), [...]=로드완료(항목있음)
 const MAUTO_FIXED_CHECKED_KEY = "mauto-fixed-checked-v1";
 let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
+const MAUTO_FIXED_AMOUNT_KEY = "mauto-fixed-amount-overrides-v1";
+let mautoFixedAmountOverrides = {}; // { "YYYY-MM||거래처명||예정일": amount }
 let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
@@ -209,6 +211,24 @@ function loadFixedChecked() {
 }
 function saveFixedChecked() {
   try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch(_) {}
+}
+function loadFixedAmountOverrides() {
+  try { const s = localStorage.getItem(MAUTO_FIXED_AMOUNT_KEY); mautoFixedAmountOverrides = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedAmountOverrides = {}; }
+}
+function saveFixedAmountOverrides() {
+  try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch(_) {}
+}
+function applyFixedAmountOverrides(monthData) {
+  (monthData || []).forEach(({ ym, items }) => {
+    items.forEach(item => {
+      const key = `${ym}||${item.거래처명}||${item.예정일 || "0"}`;
+      if (mautoFixedAmountOverrides[key] !== undefined) {
+        item.예정금액 = mautoFixedAmountOverrides[key];
+        item.예정금액출처 = "override";
+      }
+    });
+  });
+  return monthData;
 }
 function calcFixedCheckedTotal(monthData) {
   const today = new Date();
@@ -7159,11 +7179,26 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       const itemRows = grpItems.map(item => {
         const paid = item.status === "완료";
         const catBg = CAT_COLOR[item.고정분류] ? `background:${CAT_COLOR[item.고정분류]};` : "";
+        const amtKey = `${ym}||${item.거래처명}||${item.예정일 || "0"}`;
+        const isOverride = item.예정금액출처 === "override";
+        const amtBadge = item.예정금액출처 === "auto"
+          ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>'
+          : isOverride ? '<span style="font-size:9px;color:#f59e0b;margin-left:2px;">수정</span>'
+          : "";
+        const amtBorderColor = isOverride ? "#f59e0b" : "#d1d5db";
         return `<tr class="mauto-fixed-dg-item" data-dg="${dgKey}" style="${paid ? "opacity:0.55;" : ""}${catBg}">
           <td style="${tdSt}"></td>
           <td style="${tdSt}padding-left:22px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
           <td style="${tdSt}text-align:center;color:#9ca3af;font-size:11px;">${item.예정일 ? `${item.예정일}일` : "-"}</td>
-          <td style="${tdSt}text-align:right;color:#9ca3af;">${item.예정금액 ? `${formatNumber(item.예정금액)}${item.예정금액출처==="auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : ""}` : "-"}</td>
+          <td style="${tdSt}text-align:right;">
+            <input type="text" class="mauto-fixed-amt-input"
+              data-amt-key="${escapeHtml(amtKey)}"
+              data-amt-orig="${item.예정금액 || 0}"
+              value="${item.예정금액 ? escapeHtml(formatNumber(item.예정금액)) : ""}"
+              style="width:72px;text-align:right;border:none;border-bottom:1px dashed ${amtBorderColor};background:transparent;font-size:inherit;color:inherit;padding:0 2px;cursor:text;"
+              title="클릭하여 수정 (빈칸 저장 시 자동계산으로 복원)"
+            />${amtBadge}
+          </td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
           <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : (isPast ? "color:#ef4444;font-weight:700;" : "color:#9ca3af;")}">${paid ? "✓" : (isPast ? "미결" : "-")}</td>
@@ -7331,6 +7366,7 @@ function renderMautoTab() {
     const ruleItems = (mautoFixedRules || []).filter(r => r["결제예정일"]);
     if (ruleItems.length) {
       _fixedMonthDataCache = buildFixedFromRules(ruleItems, mautoClassifiedRows);
+      applyFixedAmountOverrides(_fixedMonthDataCache);
       fixed = calcFixedCheckedTotal(_fixedMonthDataCache);
     }
   } else {
@@ -7663,6 +7699,71 @@ function renderMautoTab() {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); }
       if (e.key === "Escape") {
         input.value = formatNumber(mautoData.funds[idx]?.amount || 0);
+        input.blur();
+      }
+    });
+  });
+
+  // 고정지출 예정금액 직접 수정
+  sec.querySelectorAll(".mauto-fixed-amt-input").forEach(input => {
+    input.addEventListener("focus", () => {
+      const raw = parseNum(input.value) || 0;
+      input.value = raw || "";
+      input.select();
+      input.style.borderBottomColor = "#2563eb";
+    });
+    const saveAmt = () => {
+      const key = input.dataset.amtKey;
+      const amt = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10) || 0;
+      if (amt > 0) {
+        mautoFixedAmountOverrides[key] = amt;
+      } else {
+        delete mautoFixedAmountOverrides[key];
+      }
+      saveFixedAmountOverrides();
+      input.value = amt ? formatNumber(amt) : "";
+      input.style.borderBottomColor = amt ? "#f59e0b" : "#d1d5db";
+      // 소계 행(날짜별 예정금액 합) 실시간 업데이트
+      const dgKey = input.closest("[data-dg]")?.dataset.dg;
+      if (dgKey) {
+        const hdr = [...sec.querySelectorAll(".mauto-fixed-dg-hdr")].find(r => r.dataset.dg === dgKey);
+        if (hdr) {
+          let grpTotal = 0;
+          sec.querySelectorAll(".mauto-fixed-dg-item").forEach(row => {
+            if (row.dataset.dg === dgKey) {
+              grpTotal += parseNum(row.querySelector(".mauto-fixed-amt-input")?.value || "") || 0;
+            }
+          });
+          const cells = hdr.querySelectorAll("td");
+          if (cells[3]) cells[3].textContent = grpTotal ? formatNumber(grpTotal) : "";
+          const chk = hdr.querySelector(".mauto-fixed-chk");
+          if (chk) chk.dataset.amt = String(grpTotal);
+        }
+      }
+      // 카드 합계 + 예상 잔액 업데이트
+      let fixedTotal = 0;
+      sec.querySelectorAll(".mauto-fixed-chk:checked").forEach(c => {
+        fixedTotal += parseInt(c.dataset.amt, 10) || 0;
+      });
+      const cardEl = document.getElementById("mauto-fixed-card-total");
+      if (cardEl) { cardEl.textContent = formatNumber(fixedTotal); cardEl.dataset.raw = fixedTotal; }
+      const netEl = document.getElementById("mauto-net-total");
+      const grid = netEl?.closest(".mauto-summary-grid");
+      if (netEl && grid) {
+        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
+        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
+        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
+        const net = fundsVal + rcvVal - payVal - fixedTotal;
+        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
+        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
+        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
+      }
+    };
+    input.addEventListener("blur", saveAmt);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") {
+        input.value = Number(input.dataset.amtOrig) ? formatNumber(Number(input.dataset.amtOrig)) : "";
         input.blur();
       }
     });
@@ -11474,6 +11575,7 @@ async function init() {
   // 엠오토 세금계산서 소스 로드 + 제외 거래처 로드
   loadMautoTaxSource();
   loadFixedChecked();
+  loadFixedAmountOverrides();
   loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
   switchTab("home");
