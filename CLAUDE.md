@@ -253,6 +253,37 @@ availableFunds = {
 
 ---
 
+### 2026-06-15 (추가): 엠오토 탭 부가세 보고서 + 모바일 반응형 + 버그 수정
+
+**기능 추가 (`app.js`, `style.css`):**
+- `renderMautoVatView()`: 엠오토 세금계산서 기반 부가세 납부세액 집계 보고서
+  - 기간 모드: **반기(기본, 개인사업자 기준)** / 월간 / 연간
+  - 엠오토 탭 상단 **📊 부가세** 버튼으로 토글 (카드 그리드 아래 표시)
+  - `mautoVatView / mautoVatMode / mautoVatYear` 상태 변수 추가
+  - `buildVatSummary` / `buildVatPeriods` 기존 함수 재사용
+  - 세금계산서 없으면 파일 업로드 안내 메시지
+- 엠오토 탭 모바일 반응형 (`@media max-width: 768px/480px`):
+  - `.app-shell` min-width 1180px → 320px로 해제
+  - 탭 바: `overflow-x: auto` (가로 스크롤, 한 줄 유지)
+  - 엠오토 상단 버튼 4개 → 2×2 그리드
+  - 카드 그리드: 768px=3열, 480px=2열
+  - `.mauto-top-actions` CSS 클래스 (inline style 제거)
+  - 고정지출 자동계산 테이블: `overflow-x: auto` 래퍼 + `min-width: 480px`
+
+**버그 수정 (`app.js`):**
+- **분류규칙 관리 스크롤 위치 초기화**: `renderRulesPanel()` 호출 후 `.rules-table-wrap` scrollTop 0으로 리셋되던 문제
+  - `panel.innerHTML` 교체 전 `_prevScroll` 저장 → 교체 후 복원
+- **고정지출 완료 항목 체크박스 자동 해제**: 날짜 그룹 내 모든 항목 `status=완료` 시
+  - 체크박스 `disabled` + 체크 해제 + opacity 35%
+  - `calcFixedCheckedTotal`: 완료 그룹 예정금액에서 자동 제외
+- **고정지출 합계 항상 0**: 탭 버튼 클릭(`setupTabs`) 시 `mautoFixedRules` 자동 로드 누락
+  - `switchTab`에만 있던 `fetchRulesFromApi("엠오토")` 호출을 `setupTabs` mauto 분기에도 추가
+
+**수정 파일:** `app.js`, `style.css`, `index.html` (버전 `?v=20260615af`)  
+**커밋:** `cb23a63`, `950a156`, `2a5fe9d`, `f01bd2f`, `9a6be27`
+
+---
+
 ### 2026-06-15: Phase 4-B 고정지출 자동계산 완성
 
 **기능 추가 (`app.js`):**
