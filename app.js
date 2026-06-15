@@ -217,10 +217,13 @@ function calcFixedCheckedTotal(monthData) {
     const byDate = {};
     items.forEach(item => {
       const d = item.예정결제일?.date || "미정";
-      if (!byDate[d]) byDate[d] = 0;
-      byDate[d] += item.예정금액 || 0;
+      if (!byDate[d]) byDate[d] = { amt: 0, items: [] };
+      byDate[d].amt += item.예정금액 || 0;
+      byDate[d].items.push(item);
     });
-    Object.entries(byDate).forEach(([date, amt]) => {
+    Object.entries(byDate).forEach(([date, { amt, items: grpItems }]) => {
+      // 날짜 그룹 내 모든 항목이 완료(✓)이면 예정금액에서 제외
+      if (grpItems.every(i => i.status === "완료")) return;
       const key = `${ym}||${date}`;
       const isChecked = mautoFixedChecked[key] !== undefined ? mautoFixedChecked[key] : (ym === todayYM);
       if (isChecked) total += amt;
@@ -7069,12 +7072,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
       const chkKey = `${ym}||${date}`;
       const dgKey  = `${ym}||${date}`;
-      const defaultChecked = ym === todayYM2;
-      const isChecked = mautoFixedChecked[chkKey] !== undefined ? mautoFixedChecked[chkKey] : defaultChecked;
+      const allGrpDone = grpItems.every(i => i.status === "완료");
+      const defaultChecked = !allGrpDone && (ym === todayYM2);
+      const isChecked = allGrpDone ? false : (mautoFixedChecked[chkKey] !== undefined ? mautoFixedChecked[chkKey] : defaultChecked);
 
       // 날짜 소계 행 (체크박스 + 아코디언 토글)
       const subtotalRow = `<tr class="mauto-fixed-dg-hdr" data-dg="${dgKey}" style="background:#f8fafc;cursor:pointer;">
-        <td style="${tdSt}text-align:center;width:28px;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${chkKey}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:14px;height:14px;" /></td>
+        <td style="${tdSt}text-align:center;width:28px;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-fixed-chk" data-chk-key="${chkKey}" data-amt="${grpExpected}" ${isChecked ? "checked" : ""} ${allGrpDone ? "disabled title=\"모든 항목 완료\"" : ""} style="cursor:${allGrpDone ? "default" : "pointer"};accent-color:#2563eb;width:14px;height:14px;${allGrpDone ? "opacity:0.35;" : ""}" /></td>
         <td colspan="2" style="${tdSt}font-weight:700;color:#374151;"><span class="mauto-fixed-dg-icon">▼</span> ${dateLabel}${isAdj ? ' <span style="color:#f59e0b;font-size:10px;">*조정</span>' : ""}</td>
         <td style="${tdSt}text-align:right;font-weight:700;color:#9ca3af;">${grpExpected ? formatNumber(grpExpected) : ""}</td>
         <td style="${tdSt}"></td>
