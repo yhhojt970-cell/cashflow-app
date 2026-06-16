@@ -11766,6 +11766,60 @@ let pnlData     = [];
 let pnlSubTab   = "input";
 let pnlInputYear  = new Date().getFullYear();
 let pnlInputMonth = new Date().getMonth() + 1;
+
+// ── 경영손익 결재 Firebase 알림 ────────────────────────────────
+const PNL_STEP_EMAILS = [
+  "yhj@mauto.co.kr",  // 기안 (여희정)
+  "kdy@mauto.co.kr",  // 합의1 (김도연)
+  "osc@mauto.co.kr",  // 합의2 (오성철)
+  "jug@mauto.co.kr",  // 최종결재 (장운기)
+];
+
+let _pnlFireDb = null;
+function _initPnlFirebase() {
+  if (_pnlFireDb) return _pnlFireDb;
+  try {
+    const cfg = {
+      apiKey: "AIzaSyC7kPGuahfBGk5Z-A7tNMVFzm14HCV_R-8",
+      authDomain: "staff-directory-app-9e17b.firebaseapp.com",
+      databaseURL: "https://staff-directory-app-9e17b-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "staff-directory-app-9e17b",
+    };
+    const existing = (typeof firebase !== "undefined" && firebase.apps || []).find(a => a.name === "pnl-notif");
+    const app = existing || firebase.initializeApp(cfg, "pnl-notif");
+    _pnlFireDb = app.database();
+  } catch(e) { console.warn("[pnl-notif] Firebase init 실패:", e); }
+  return _pnlFireDb;
+}
+
+function _pnlEk(email) { return email.toLowerCase().replace(/\./g, ",").replace(/@/g, "|"); }
+
+function writePnlPendingToFirebase() {
+  const db = _initPnlFirebase();
+  if (!db) return;
+  const nonDraft = pnlData.filter(e => e.approvalStatus && e.approvalStatus !== "draft");
+  const qRows    = Object.values(pnlQuarterApproval || {}).filter(q => q && q.approvalStatus && q.approvalStatus !== "draft");
+
+  PNL_STEP_EMAILS.forEach((email, idx) => {
+    let total = 0;
+    if (idx === 0) {
+      // 기안자: 결재 진행 중 건수 (본인이 기안했지만 아직 결재완료 아닌 것)
+      const si = s => PNL_STATUS_ORDER.indexOf(s || "draft");
+      total = nonDraft.filter(e => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length
+            + qRows.filter(e   => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length;
+    } else {
+      const step = PNL_APPROVAL_STEPS[idx];
+      const check = e => {
+        const s = PNL_STATUS_ORDER.indexOf(e.approvalStatus || "draft");
+        if (idx === 1 || idx === 2) return s >= 1 && !e[step.dateKey];
+        if (idx === 3) return !!e.agree1Date && !!e.agree2Date && !e.ceoDate;
+        return false;
+      };
+      total = nonDraft.filter(check).length + qRows.filter(check).length;
+    }
+    db.ref("pnlPending/" + _pnlEk(email)).set(total > 0 ? total : null).catch(() => {});
+  });
+}
 let pnlRptYear    = new Date().getFullYear();
 let pnlRptMonth   = new Date().getMonth() + 1;
 let pnlRptMode    = "monthly";   // "monthly" | "quarterly" | "halfyear" | "annual"
@@ -12913,6 +12967,7 @@ function renderPnlReport(el) {
         entry.docNo = `MA-PNL-${entry.year}${String(entry.month).padStart(2,"0")}-001`;
       }
       upsertPnlEntry(entry);
+      writePnlPendingToFirebase();
       pnlToast(`${step.role} 서명 완료`);
       renderPnlReport(el);
     });
@@ -12931,6 +12986,7 @@ function renderPnlReport(el) {
       entry.approvalStatus = stepIdx > 0 ? PNL_APPROVAL_STEPS[stepIdx-1].nextStatus : "draft";
       if (stepIdx === 0) entry.docNo = "";
       upsertPnlEntry(entry);
+      writePnlPendingToFirebase();
       renderPnlReport(el);
     });
   });
@@ -13207,6 +13263,7 @@ function renderPnlQuarterlyReport(el) {
       pnlQuarterApproval[qKey] = qApproval;
       savePnlQuarterApprovalLocal();
       _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
+      writePnlPendingToFirebase();
       pnlToast(`${step.role} 서명 완료`);
       renderPnlReport(el);
     });
@@ -13226,6 +13283,7 @@ function renderPnlQuarterlyReport(el) {
       pnlQuarterApproval[qKey] = qApproval;
       savePnlQuarterApprovalLocal();
       _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
+      writePnlPendingToFirebase();
       renderPnlReport(el);
     });
   });
