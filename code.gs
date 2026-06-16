@@ -26,6 +26,7 @@ const PNL_SHEET            = "경영손익_data";
 const RULES_SHEET          = "분류규칙";
 const CLASSIFIED_SHEET     = "엠오토_분류";
 const MAUTO_TAX_SHEET      = "엠오토_세금계산서";
+const MAUTO_SOURCE_SHEET   = "엠오토_소스";
 
 // ── 미수금 이메일 설정 ───────────────────────────────────────
 const RCV_MANAGER_EMAIL_MAP = {
@@ -131,6 +132,11 @@ function doGet(e) {
     return jsonOutput({ rows: getSheetRows(MAUTO_TAX_SHEET) });
   }
 
+  // 엠오토 입출금 원본 행 (컴퓨터 간 공유)
+  if (action === "getMautoSourceRows") {
+    return jsonOutput({ rows: getSheetRows(MAUTO_SOURCE_SHEET) });
+  }
+
   // action 없음 → 미지급 raw (기본값)
   return jsonOutput({ data: getSheetRows(PAYABLES_SHEET) });
 }
@@ -230,6 +236,13 @@ function doPost(e) {
   if (action === "upsertMautoTaxInvoices") {
     if (!rows.length) return jsonOutput({ ok: true, count: 0 });
     upsertRowsByKey(MAUTO_TAX_SHEET, "_row_key", rows);
+    return jsonOutput({ ok: true, count: rows.length });
+  }
+
+  // ── 엠오토 입출금 원본 행 저장 (_txKey 기준 upsert, 컴퓨터 간 공유) ──
+  if (action === "upsertMautoSourceRows") {
+    if (!rows.length) return jsonOutput({ ok: true, count: 0 });
+    upsertRowsByKey(MAUTO_SOURCE_SHEET, "_txKey", rows);
     return jsonOutput({ ok: true, count: rows.length });
   }
 

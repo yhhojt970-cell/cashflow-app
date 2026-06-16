@@ -253,6 +253,25 @@ availableFunds = {
 
 ---
 
+### 2026-06-16 (5): 입출금 원본 행 구글시트 공유 연동 (`엠오토_소스` 시트)
+
+**문제:** 입출금 파일 업로드 시 파싱된 원본 거래 행(`mauto-source-files-v1`)이 localStorage에만 저장되어 다른 컴퓨터에서 규칙 변경 후 재분류가 불가능함.
+
+**해법:**
+- `code.gs`: `MAUTO_SOURCE_SHEET = "엠오토_소스"` 시트 상수 추가
+  - `getMautoSourceRows` GET action 추가 → `엠오토_소스` 시트 전체 반환
+  - `upsertMautoSourceRows` POST action 추가 → `_txKey` 기준 upsert
+- `app.js`:
+  - `saveSourceFiles()`: localStorage 저장 후 3초 debounce로 `엠오토_소스` 시트에 upsert (공유 필드: `_txKey, fileKey, filename, date, time, _memo, _memo2, _bank, _account, credit, debit`)
+  - `loadMautoSourceRemote()` 함수 신규 추가: 로컬에 없는 `_txKey` 행만 병합 → `rebuildMautoRows()` 호출 → `renderMautoTab()`
+  - `switchTab("mauto")` + `setupTabs` mauto 분기: 탭 진입 시 `loadMautoSourceRemote()` 자동 호출
+
+**⚠️ Apps Script 재배포 필요** (code.gs 변경)
+
+**수정 파일:** `app.js`, `code.gs`, `index.html` (버전 `?v=20260616e`)
+
+---
+
 ### 2026-06-16 (4): 고정지출 체크박스·예정금액 수동수정 구글시트 공유 연동
 
 **문제:** 고정지출 체크박스 상태(`mauto-fixed-checked-v1`)와 예정금액 수동 수정(`mauto-fixed-amount-overrides-v1`)이 localStorage에만 저장되어 다른 컴퓨터에서 반영 안 됨.
@@ -340,7 +359,7 @@ availableFunds = {
 | 미수/미지급 제외설정 (`excludeRcv`/`excludePay`) | `엠오토_json` 시트 내 JSON | ✅ 공유 (2026-06-16 수정) |
 | 체크박스 상태 | `엠오토_json` 시트 내 JSON (`fixedChecked`) | ✅ 공유 (2026-06-16 수정) |
 | 예정금액 수동 수정 | `엠오토_json` 시트 내 JSON (`fixedAmountOverrides`) | ✅ 공유 (2026-06-16 수정) |
-| 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 (분류결과는 공유됨) |
+| 입출금 원본 행 (파싱 데이터) | `엠오토_소스` 시트 | ✅ 공유 (2026-06-16 수정) |
 
 **수정 파일:** `app.js`, `index.html` (버전 `?v=20260615ah`)  
 **커밋:** `bfa583e`, `067ec64`
