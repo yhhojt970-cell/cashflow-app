@@ -253,6 +253,34 @@ availableFunds = {
 
 ---
 
+### 2026-06-16 (2): 엠오토 세금계산서 구글시트 공유 + 대사 탭 자동 로드
+
+**문제:** 다른 컴퓨터에서 엠오토 탭 세금계산서가 없어 미수/미지급 잔액이 0으로 표시됨. 대사 탭도 소스 파일 없으면 수동 버튼 클릭 필요.
+
+**수정 (`app.js`):**
+- `saveMautoTaxSource()`: localStorage 저장 후 구글시트 debounce 저장(3초) 추가
+  - `postSheetWebApp("upsertMautoTaxInvoices", { rows: mautoTaxInvoices })` → `엠오토_세금계산서` 시트 upsert
+- `loadMautoTaxRemote()` 함수 신규 추가: `getMautoTaxInvoices` action으로 구글시트에서 세금계산서 로드
+  - 로컬에 없는 행만 `mautoTaxInvoices`에 병합 → `renderMautoTab()` 갱신
+  - 가상 소스 항목 `__remote__` 생성 (파일 뱃지에 "원격 로드"로 표시)
+- `switchTab("mauto")`: 탭 진입 시 `loadMautoTaxRemote()` 자동 호출 추가
+- `switchTab("daesa")`: 로컬 소스 없고(`!hasMiraeSources()`) 데이터 미로드 시 `loadDaesaData()` 자동 호출
+
+**수정 (`code.gs`):**
+- `MAUTO_TAX_SHEET = "엠오토_세금계산서"` 시트명 상수 추가
+- `doGet`: `getMautoTaxInvoices` action 추가 → `엠오토_세금계산서` 시트 전체 반환
+- `doPost`: `upsertMautoTaxInvoices` action 추가 → `_row_key` 기준 upsert
+
+**공유 범위 변경:**
+- 세금계산서 파일: `mauto-tax-source-v1` ❌ → `엠오토_세금계산서` 시트 ✅
+- 대사 탭: 소스 파일 없으면 자동으로 구글시트에서 로드
+
+**⚠️ Apps Script 재배포 필요** (code.gs 변경)
+
+**수정 파일:** `app.js`, `code.gs`, `index.html` (버전 `?v=20260616b`)
+
+---
+
 ### 2026-06-16: 엠오토 미지급 업체별 보기 + 고정지출 예정금액 인라인 수정
 
 **기능 추가 (`app.js`):**
@@ -270,14 +298,14 @@ availableFunds = {
   - blur/Enter 시 소계 행·카드 합계·예상 잔액 실시간 갱신
   - **⚠️ localStorage 전용 — 다른 컴퓨터와 공유 안 됨** (구글시트 연동 미구현)
 
-**공유 범위 정리 (2026-06-16 기준):**
+**공유 범위 정리 (2026-06-16 수정 기준):**
 | 데이터 | 저장 위치 | 공유 여부 |
 |--------|-----------|-----------|
 | 입출금 분류 결과 | `엠오토_분류` 시트 | ✅ 공유 |
 | 분류규칙 | `분류규칙` 시트 | ✅ 공유 |
 | 가용자금·미수금·미지급·고정지출(붙여넣기) | `엠오토_json` 시트 | ✅ 공유 |
-| 세금계산서 파일 | `mauto-tax-source-v1` | ❌ 로컬만 |
-| 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 |
+| 세금계산서 파일(파싱 행) | `엠오토_세금계산서` 시트 | ✅ 공유 (2026-06-16 수정) |
+| 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 (분류결과는 공유됨) |
 | 체크박스 상태 | `mauto-fixed-checked-v1` | ❌ 로컬만 |
 | 예정금액 수동 수정 | `mauto-fixed-amount-overrides-v1` | ❌ 로컬만 |
 

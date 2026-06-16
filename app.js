@@ -252,11 +252,44 @@ function calcFixedCheckedTotal(monthData) {
   });
   return total;
 }
-function saveMautoTaxSource() { try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {} }
+let _mautoTaxSaveTimer = null;
+function saveMautoTaxSource() {
+  try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {}
+  // 구글시트 debounce 저장 (3초) — 컴퓨터 간 공유
+  if (SHEET_APP_SCRIPT_URL) {
+    clearTimeout(_mautoTaxSaveTimer);
+    _mautoTaxSaveTimer = setTimeout(() => {
+      const rows = mautoTaxInvoices.filter(r => r._row_key);
+      if (rows.length) postSheetWebApp("upsertMautoTaxInvoices", { rows }).catch(() => {});
+    }, 3000);
+  }
+}
 function loadMautoTaxSource() {
   try { const r = localStorage.getItem(MAUTO_TAX_SOURCE_KEY); mautoTaxSources = r ? JSON.parse(r) : {}; }
   catch (_) { mautoTaxSources = {}; }
 }
+// 구글시트 엠오토_세금계산서 시트에서 로드 → 로컬에 없는 행 병합 (컴퓨터 간 공유)
+async function loadMautoTaxRemote() {
+  if (!SHEET_APP_SCRIPT_URL) return;
+  try {
+    const res = await fetchSheetWebApp({ action: "getMautoTaxInvoices" });
+    const remote = (res && (res.rows || res.data)) || [];
+    if (!remote.length) return;
+    const localKeys = new Set(mautoTaxInvoices.map(r => r._row_key).filter(Boolean));
+    const newRows = remote.filter(r => r._row_key && !localKeys.has(r._row_key));
+    if (!newRows.length) return;
+    mautoTaxInvoices = [...mautoTaxInvoices, ...newRows];
+    // 가상 소스 항목(원격 로드 표시용)이 없으면 생성
+    if (!mautoTaxSources["__remote__"]) {
+      mautoTaxSources["__remote__"] = { filename: "원격 로드", sideType: "both", savedAt: new Date().toISOString(), rows: [] };
+    }
+    mautoTaxSources["__remote__"].rows = newRows;
+    mautoTaxSources["__remote__"].savedAt = new Date().toISOString();
+    try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {}
+    renderMautoTab();
+  } catch (_) {}
+}
+
 function rebuildMautoTaxInvoices() {
   const seen = new Map();
   for (const src of Object.values(mautoTaxSources)) {
@@ -4182,6 +4215,9 @@ function switchTab(tabId) {
         renderMautoTab();
       }).catch(() => { mautoFixedRules = []; });
     }
+    // 세금계산서 원격 로드 (로컬에 없는 행 보충 — 컴퓨터 간 공유)
+    if (SHEET_APP_SCRIPT_URL) loadMautoTaxRemote();
+
     // 입출금 분류 원격 로드 → 로컬과 병합 (다른 사람이 저장한 데이터 반영)
     if (SHEET_APP_SCRIPT_URL) {
       fetchSheetWebApp({ action: "getClassifiedRows" }).then(res => {
@@ -4226,6 +4262,11 @@ function switchTab(tabId) {
     } else {
       console.warn("[엠오토] SHEET_APP_SCRIPT_URL 없음 — 원격 로드 건너뜀");
     }
+  }
+
+  // 대사 탭: 로컬 소스 파일 없고 GSheets 데이터도 안 불러왔으면 자동 로드
+  if (tabId === "daesa" && !daesaState.loaded && !hasMiraeSources() && SHEET_APP_SCRIPT_URL) {
+    loadDaesaData();
   }
 
   if (tabId === "pnl") {
