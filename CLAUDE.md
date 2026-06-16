@@ -253,6 +253,22 @@ availableFunds = {
 
 ---
 
+### 2026-06-16 (4): 고정지출 체크박스·예정금액 수동수정 구글시트 공유 연동
+
+**문제:** 고정지출 체크박스 상태(`mauto-fixed-checked-v1`)와 예정금액 수동 수정(`mauto-fixed-amount-overrides-v1`)이 localStorage에만 저장되어 다른 컴퓨터에서 반영 안 됨.
+
+**해법 (`app.js`):**
+- `saveFixedChecked()`: localStorage 저장 후 `_scheduleMautoRemoteSave()` 추가 호출
+- `saveFixedAmountOverrides()`: localStorage 저장 후 `_scheduleMautoRemoteSave()` 추가 호출
+- `_scheduleMautoRemoteSave()`: payload에 `fixedChecked`, `fixedAmountOverrides` 추가 포함 (`엠오토_json` A1 셀 JSON에 저장)
+- `loadMautoDataRemote().then()` 핸들러 (switchTab + setupTabs 2곳): 원격 데이터에서 `fixedChecked`/`fixedAmountOverrides` 추출하여 전역 변수 및 localStorage 갱신
+
+**저장 위치:** `엠오토_json` 시트 A1 셀 JSON 내 `fixedChecked` / `fixedAmountOverrides` 필드 — code.gs 수정 불필요
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260616d`)
+
+---
+
 ### 2026-06-16 (3): 엠오토 제외설정 구글시트 공유 연동
 
 **문제:** 미수/미지급 탭의 제외설정(`mautoExcludeVendorsRcv`, `mautoExcludeVendorsPay`)이 localStorage에만 저장되어 다른 컴퓨터/사용자에서 공유 안 됨.
@@ -322,9 +338,9 @@ availableFunds = {
 | 가용자금·미수금·미지급·고정지출(붙여넣기) | `엠오토_json` 시트 | ✅ 공유 |
 | 세금계산서 파일(파싱 행) | `엠오토_세금계산서` 시트 | ✅ 공유 (2026-06-16 수정) |
 | 미수/미지급 제외설정 (`excludeRcv`/`excludePay`) | `엠오토_json` 시트 내 JSON | ✅ 공유 (2026-06-16 수정) |
+| 체크박스 상태 | `엠오토_json` 시트 내 JSON (`fixedChecked`) | ✅ 공유 (2026-06-16 수정) |
+| 예정금액 수동 수정 | `엠오토_json` 시트 내 JSON (`fixedAmountOverrides`) | ✅ 공유 (2026-06-16 수정) |
 | 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 (분류결과는 공유됨) |
-| 체크박스 상태 | `mauto-fixed-checked-v1` | ❌ 로컬만 |
-| 예정금액 수동 수정 | `mauto-fixed-amount-overrides-v1` | ❌ 로컬만 |
 
 **수정 파일:** `app.js`, `index.html` (버전 `?v=20260615ah`)  
 **커밋:** `bfa583e`, `067ec64`

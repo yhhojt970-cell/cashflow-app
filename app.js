@@ -212,12 +212,14 @@ function loadFixedChecked() {
 }
 function saveFixedChecked() {
   try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch(_) {}
+  _scheduleMautoRemoteSave();
 }
 function loadFixedAmountOverrides() {
   try { const s = localStorage.getItem(MAUTO_FIXED_AMOUNT_KEY); mautoFixedAmountOverrides = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedAmountOverrides = {}; }
 }
 function saveFixedAmountOverrides() {
   try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch(_) {}
+  _scheduleMautoRemoteSave();
 }
 function applyFixedAmountOverrides(monthData) {
   (monthData || []).forEach(({ ym, items }) => {
@@ -4257,6 +4259,8 @@ function switchTab(tabId) {
         }
         if (Array.isArray(remote.excludeRcv)) { mautoExcludeVendorsRcv = remote.excludeRcv; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv)); } catch (_) {} }
         if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
+        if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
+        if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
         mautoData = normalizeMautoData(remote);
         console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
         try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
@@ -6684,6 +6688,8 @@ function _scheduleMautoRemoteSave() {
           ...mautoData,
           excludeRcv: mautoExcludeVendorsRcv,
           excludePay: mautoExcludeVendorsPay,
+          fixedChecked: mautoFixedChecked,
+          fixedAmountOverrides: mautoFixedAmountOverrides,
         }
       });
     } catch (e) {
