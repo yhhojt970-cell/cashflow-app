@@ -4315,6 +4315,14 @@ function switchTab(tabId) {
         if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
         if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
         if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
+        if (Array.isArray(remote.taxInvoices) && remote.taxInvoices.length) {
+          const localKeys = new Set(mautoTaxInvoices.map(r => r._row_key).filter(Boolean));
+          const newRows = remote.taxInvoices.filter(r => r._row_key && !localKeys.has(r._row_key));
+          if (newRows.length) {
+            mautoTaxInvoices = [...mautoTaxInvoices, ...newRows];
+            try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {}
+          }
+        }
         mautoData = normalizeMautoData(remote);
         console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
         try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
@@ -6744,6 +6752,7 @@ function _scheduleMautoRemoteSave() {
           excludePay: mautoExcludeVendorsPay,
           fixedChecked: mautoFixedChecked,
           fixedAmountOverrides: mautoFixedAmountOverrides,
+          taxInvoices: mautoTaxInvoices,
         }
       });
     } catch (e) {
