@@ -253,6 +253,22 @@ availableFunds = {
 
 ---
 
+### 2026-06-16 (3): 엠오토 제외설정 구글시트 공유 연동
+
+**문제:** 미수/미지급 탭의 제외설정(`mautoExcludeVendorsRcv`, `mautoExcludeVendorsPay`)이 localStorage에만 저장되어 다른 컴퓨터/사용자에서 공유 안 됨.
+
+**해법 (`app.js`):**
+- `saveMautoExcludeVendors(side)`: localStorage 저장 후 `_scheduleMautoRemoteSave()` 추가 호출
+- `_scheduleMautoRemoteSave()`: `{ data: mautoData }` → `{ data: { ...mautoData, excludeRcv, excludePay } }` 로 수정 (제외설정 포함 저장)
+- `loadMautoDataRemote().then()` 핸들러 (switchTab + setupTabs 2곳 모두):
+  - `normalizeMautoData(remote)` 호출 전 `remote.excludeRcv` / `remote.excludePay` 추출하여 전역 변수 및 localStorage 갱신
+
+**저장 위치:** `엠오토_json` 시트 A1 셀 JSON 내 `excludeRcv` / `excludePay` 필드 — code.gs 수정 불필요
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260616c`)
+
+---
+
 ### 2026-06-16 (2): 엠오토 세금계산서 구글시트 공유 + 대사 탭 자동 로드
 
 **문제:** 다른 컴퓨터에서 엠오토 탭 세금계산서가 없어 미수/미지급 잔액이 0으로 표시됨. 대사 탭도 소스 파일 없으면 수동 버튼 클릭 필요.
@@ -305,6 +321,7 @@ availableFunds = {
 | 분류규칙 | `분류규칙` 시트 | ✅ 공유 |
 | 가용자금·미수금·미지급·고정지출(붙여넣기) | `엠오토_json` 시트 | ✅ 공유 |
 | 세금계산서 파일(파싱 행) | `엠오토_세금계산서` 시트 | ✅ 공유 (2026-06-16 수정) |
+| 미수/미지급 제외설정 (`excludeRcv`/`excludePay`) | `엠오토_json` 시트 내 JSON | ✅ 공유 (2026-06-16 수정) |
 | 입출금 파일 원본 | `mauto-source-files-v1` | ❌ 로컬만 (분류결과는 공유됨) |
 | 체크박스 상태 | `mauto-fixed-checked-v1` | ❌ 로컬만 |
 | 예정금액 수동 수정 | `mauto-fixed-amount-overrides-v1` | ❌ 로컬만 |

@@ -165,6 +165,7 @@ function saveMautoExcludeVendors(side) {
     if (side === "rcv") localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv));
     else              localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay));
   } catch (_) {}
+  _scheduleMautoRemoteSave();
 }
 function loadMautoExcludeVendors() {
   try {
@@ -4254,6 +4255,8 @@ function switchTab(tabId) {
           if (hasLocalData) _scheduleMautoRemoteSave();
           return;
         }
+        if (Array.isArray(remote.excludeRcv)) { mautoExcludeVendorsRcv = remote.excludeRcv; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv)); } catch (_) {} }
+        if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
         mautoData = normalizeMautoData(remote);
         console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
         try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
@@ -6676,7 +6679,13 @@ function _scheduleMautoRemoteSave() {
   clearTimeout(_mautoSaveTimer);
   _mautoSaveTimer = setTimeout(async () => {
     try {
-      await postSheetWebApp("saveMautoData", { data: mautoData });
+      await postSheetWebApp("saveMautoData", {
+        data: {
+          ...mautoData,
+          excludeRcv: mautoExcludeVendorsRcv,
+          excludePay: mautoExcludeVendorsPay,
+        }
+      });
     } catch (e) {
       console.warn("[엠오토] 구글시트 저장 실패:", e);
     }
@@ -8111,6 +8120,8 @@ function setupTabs() {
               if (hasLocalData) _scheduleMautoRemoteSave();
               return;
             }
+            if (Array.isArray(remote.excludeRcv)) { mautoExcludeVendorsRcv = remote.excludeRcv; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv)); } catch (_) {} }
+            if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
             mautoData = normalizeMautoData(remote);
             console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
             try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
