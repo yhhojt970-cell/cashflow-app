@@ -294,7 +294,11 @@ async function loadMautoTaxRemote() {
   try {
     const res = await fetchSheetWebApp({ action: "getMautoTaxInvoices" });
     const remote = (res && (res.rows || res.data)) || [];
-    if (!remote.length) return;
+    if (!remote.length) {
+      // GSheets 비어있고 로컬에 데이터 있으면 → 로컬 → GSheets 자동 업로드 (최초 1회)
+      if (mautoTaxInvoices.length) saveMautoTaxSource();
+      return;
+    }
     const localKeys = new Set(mautoTaxInvoices.map(r => r._row_key).filter(Boolean));
     const newRows = remote.filter(r => r._row_key && !localKeys.has(r._row_key));
     if (!newRows.length) return;
@@ -316,7 +320,12 @@ async function loadMautoSourceRemote() {
   try {
     const res = await fetchSheetWebApp({ action: "getMautoSourceRows" });
     const remote = (res && (res.rows || res.data)) || [];
-    if (!remote.length) return;
+    if (!remote.length) {
+      // GSheets 비어있고 로컬에 데이터 있으면 → 로컬 → GSheets 자동 업로드 (최초 1회)
+      const localRows = Object.values(mautoSourceFiles).flatMap(f => f.rows || []);
+      if (localRows.length) saveSourceFiles();
+      return;
+    }
     const localKeys = new Set(
       Object.values(mautoSourceFiles).flatMap(f => (f.rows || []).map(r => r._txKey)).filter(Boolean)
     );
