@@ -264,6 +264,39 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script type="module">
+// Firebase: 결재 대기 건수를 메인앱(staff-directory-app)에 전달
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref as fbRef, set as fbSet } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+const _fbCfg = {
+  apiKey: "AIzaSyC7kPGuahfBGk5Z-A7tNMVFzm14HCV_R-8",
+  authDomain: "staff-directory-app-9e17b.firebaseapp.com",
+  databaseURL: "https://staff-directory-app-9e17b-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "staff-directory-app-9e17b",
+};
+const _fbApp = getApps().length ? getApps()[0] : initializeApp(_fbCfg);
+const _fbDb  = getDatabase(_fbApp);
+function _emailToKey(email) { return email.toLowerCase().replace(/\./g, ",").replace(/@/g, "|"); }
+window._writePnlPending = function() {
+  if (typeof APPROVAL_STEPS === "undefined" || typeof pnlData === "undefined") return;
+  APPROVAL_STEPS.forEach((step, idx) => {
+    const ek = _emailToKey(step.email);
+    const monthly   = (pnlData         || []).filter(e => _needsActionForStep(e, idx)).length;
+    const quarterly = (pnlQuarterlyRows || []).filter(e => _needsActionForStep(e, idx)).length;
+    const total = monthly + quarterly;
+    fbSet(fbRef(_fbDb, `pnlPending/${ek}`), total > 0 ? total : null).catch(() => {});
+  });
+};
+function _needsActionForStep(entry, stepIdx) {
+  if (!entry) return false;
+  const si = (typeof STATUS_ORDER !== "undefined" ? STATUS_ORDER : ["draft","기안","합의1","합의2","결재완료"]).indexOf(entry.approvalStatus || "draft");
+  if (stepIdx === 0) return si === 0;
+  const step = APPROVAL_STEPS[stepIdx];
+  if (stepIdx === 1 || stepIdx === 2) return si >= 1 && !entry[step.dateKey];
+  if (stepIdx === 3) return !!entry.agree1Date && !!entry.agree2Date && !entry.ceoDate;
+  return false;
+}
+</script>
 <script>
 // ── 설정 (현금흐름관리 앱과 동일한 Apps Script URL 및 Token) ──
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw9T3kGOQ5xPZ2wwy0Np0LSt-mHoudhvN39Zv2KNimE5ORKKEd_mghZXHua1D_i6LVF/exec";
@@ -447,6 +480,7 @@ async function loadData() {
     return;
   }
   render();
+  if (window._writePnlPending) window._writePnlPending();
 }
 
 // ── 렌더 분기 ──
@@ -867,6 +901,7 @@ async function signQuarterEntry(qKey, stepIdx, qRow) {
   const i = pnlQuarterlyRows.findIndex(r => r._key === qKey);
   if (i >= 0) Object.assign(pnlQuarterlyRows[i], { approvalStatus: newStatus, [step.dateKey]: today });
   render();
+  if (window._writePnlPending) window._writePnlPending();
 }
 
 // ── 대시보드 렌더 ──
@@ -1044,6 +1079,7 @@ async function signEntry(year, month, stepIdx) {
   const i = pnlData.findIndex(d => d.year === year && d.month === month);
   if (i >= 0) Object.assign(pnlData[i], { approvalStatus: newStatus, [step.dateKey]: today, docNo: autoDocNo });
   render();
+  if (window._writePnlPending) window._writePnlPending();
 }
 
 document.getElementById("reportView").addEventListener("click", async e => {
