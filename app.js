@@ -8173,6 +8173,30 @@ function setupTabs() {
         console.log("[엠오토] 탭 진입 — 원격 로드 시작 (setupTabs)");
         if (SHEET_APP_SCRIPT_URL) loadMautoTaxRemote();
         if (SHEET_APP_SCRIPT_URL) loadMautoSourceRemote();
+        // 입출금 분류 원격 로드 (setupTabs 경로)
+        if (SHEET_APP_SCRIPT_URL) {
+          fetchSheetWebApp({ action: "getClassifiedRows" }).then(res => {
+            const remote = (res && (res.rows || res.data)) || [];
+            if (!remote.length) return;
+            const localMap = new Map(mautoClassifiedRows.map(r => [r._txKey, r]));
+            let added = 0;
+            remote.forEach(r => {
+              if (!r._txKey) return;
+              if (!localMap.has(r._txKey)) { localMap.set(r._txKey, r); added++; }
+              else {
+                const local = localMap.get(r._txKey);
+                if (!local.savedAt || (r.savedAt && r.savedAt > local.savedAt)) {
+                  localMap.set(r._txKey, { ...local, 거래처명: r.거래처명, 구분: r.구분, excluded: r.excluded, 매칭근거: r.매칭근거, savedAt: r.savedAt });
+                }
+              }
+            });
+            if (added > 0 || remote.length) {
+              mautoClassifiedRows = [...localMap.values()].sort((a,b) => (a.date||"") < (b.date||"") ? -1 : 1);
+              try { localStorage.setItem(MAUTO_CLASSIFIED_KEY, JSON.stringify(mautoClassifiedRows)); } catch(_) {}
+              renderMautoTab();
+            }
+          }).catch(() => {});
+        }
         if (SHEET_APP_SCRIPT_URL) {
           loadMautoDataRemote().then(remote => {
             console.log("[엠오토] 원격 응답:", remote === null ? "null" : JSON.stringify(remote).slice(0, 300));
@@ -8184,6 +8208,8 @@ function setupTabs() {
             }
             if (Array.isArray(remote.excludeRcv)) { mautoExcludeVendorsRcv = remote.excludeRcv; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_RCV, JSON.stringify(mautoExcludeVendorsRcv)); } catch (_) {} }
             if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
+            if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
+            if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
             mautoData = normalizeMautoData(remote);
             console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
             try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
