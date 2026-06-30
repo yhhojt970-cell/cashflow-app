@@ -15,10 +15,14 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'Pretendard','Nanum Gothic',sans-serif;
   background: var(--bg);
   color: var(--text);
   overflow-x: auto;
+}
+
+button, input, select, textarea {
+  font-family: 'Pretendard','Nanum Gothic',sans-serif;
 }
 
 .app-shell {
@@ -792,7 +796,7 @@ body {
 }
 .vendor-memo-popover {
   background: #fff;
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 20px 24px;
   min-width: 320px;
   max-width: 420px;
@@ -1079,7 +1083,7 @@ body {
   position: fixed;
   width: 304px;
   background: var(--surface);
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 12px;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
   border: 1px solid #d9e1eb;
@@ -1562,7 +1566,7 @@ body {
   position: fixed;
   max-height: calc(100vh - 24px);
   padding: 14px;
-  border-radius: 16px;
+  border-radius: 18px;
   background: #fff;
   border: 1px solid #d9e1eb;
   box-shadow: 0 20px 44px rgba(15, 23, 42, 0.2);
@@ -1682,7 +1686,7 @@ body {
   position: fixed;
   width: 264px;
   padding: 12px;
-  border-radius: 14px;
+  border-radius: 18px;
   background: #fff;
   border: 1px solid #d9e1eb;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
@@ -1805,25 +1809,38 @@ body {
 
 .tab-bar {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-button {
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: var(--surface-strong);
+  padding: 0 14px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: #f1f5f9;
   cursor: pointer;
-  color: var(--text);
-  font-size: 0.86rem;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-family: 'Pretendard','Nanum Gothic',sans-serif;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tab-button:hover:not(.active) {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .tab-button.active {
-  background: var(--accent);
-  color: white;
-  border-color: rgba(37, 99, 235, 0.3);
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .tab-content {
@@ -2302,7 +2319,7 @@ td {
 
 .rcv-email-dialog {
   background: #fff;
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 18px 20px;
   width: 100%;
   max-width: 460px;
@@ -2543,7 +2560,7 @@ td {
   display: flex; align-items: center; justify-content: center;
 }
 .raw-diff-dialog {
-  background: #fff; border-radius: 16px; width: min(560px, 94vw);
+  background: #fff; border-radius: 18px; width: min(560px, 94vw);
   max-height: 80vh; overflow-y: auto; padding: 24px; box-shadow: 0 8px 40px rgba(0,0,0,0.18);
 }
 .raw-diff-header { margin-bottom: 16px; }
@@ -2568,7 +2585,7 @@ td {
   display: flex; align-items: center; justify-content: center;
 }
 .bank-match-dialog {
-  background: #fff; border-radius: 16px; width: min(900px, 96vw);
+  background: #fff; border-radius: 18px; width: min(900px, 96vw);
   max-height: 88vh; display: flex; flex-direction: column;
   box-shadow: 0 8px 40px rgba(0,0,0,0.18);
 }
@@ -2737,7 +2754,7 @@ td {
 }
 .daesa-modal {
   background: #fff;
-  border-radius: 14px;
+  border-radius: 18px;
   max-width: 1200px;
   width: 100%;
   max-height: 90vh;
@@ -4339,13 +4356,13 @@ td {
   display: flex; align-items: center; justify-content: center; padding: 16px;
 }
 .pnl-import-dialog {
-  background: #fff; border-radius: 14px; width: 100%; max-width: 1000px;
+  background: #fff; border-radius: 18px; width: 100%; max-width: 1000px;
   max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,.25);
 }
 .pnl-id-header {
   display: flex; align-items: center; gap: 10px; padding: 16px 20px;
-  background: var(--pnl-navy,#0F1F3D); color: #fff; border-radius: 14px 14px 0 0;
+  background: var(--pnl-navy,#0F1F3D); color: #fff; border-radius: 18px 18px 0 0;
 }
 .pnl-id-title { font-weight: 700; font-size: 15px; flex: 1; }
 .pnl-id-header select {

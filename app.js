@@ -1,4 +1,4 @@
-const partners = [];
+﻿const partners = [];
 
 let receivables = [];
 
@@ -792,7 +792,7 @@ function showPayablesRawDiffDialog(diff, onConfirm) {
           <div class="raw-diff-accordion-body" style="margin-top: 10px; padding-left: 10px; border-left: 2px solid #e5e7eb;">
             ${removedItems.length ? `
               <div class="raw-diff-group" style="margin-bottom: 15px;">
-                <div class="raw-diff-section-title removed-title" style="margin-bottom:5px;">🗑 사라진 항목 (${removedItems.length}건) — 완료 처리 추천</div>
+                <div class="raw-diff-section-title removed-title" style="margin-bottom:5px;">사라진 항목 (${removedItems.length}건) — 완료 처리 추천</div>
                 ${removedItems.map(d => `
                   <div class="raw-diff-row">
                     <span class="raw-diff-label">${escapeHtml(d.label)}</span>
@@ -805,7 +805,7 @@ function showPayablesRawDiffDialog(diff, onConfirm) {
             
             ${changedItems.length ? `
               <div class="raw-diff-group">
-                <div class="raw-diff-section-title changed-title" style="margin-bottom:5px;">✏️ 금액 변경 항목 (${changedItems.length}건)</div>
+                <div class="raw-diff-section-title changed-title" style="margin-bottom:5px;">금액 변경 항목 (${changedItems.length}건)</div>
                 ${changedItems.map(d => `
                   <div class="raw-diff-row">
                     <span class="raw-diff-label">${escapeHtml(d.label)}</span>
@@ -886,7 +886,7 @@ function openRawDiffEmailDialog(diff) {
     emailOverlay.querySelector(".diff-email-send").disabled = true;
     try {
       await postSheetWebApp("sendRawDiffEmail", { diff, recipients, testMode });
-      statusEl.textContent = `✅ ${recipients.map(r => r.name).join(", ")} 님께 발송 완료`;
+      statusEl.textContent = `${recipients.map(r => r.name).join(", ")} 님께 발송 완료`;
       setTimeout(() => emailOverlay.remove(), 2000);
     } catch (e) {
       statusEl.style.color = "#b71c1c";
@@ -952,7 +952,7 @@ function openWarningEmailDialog(warnings, reportRows, planKey) {
       await postSheetWebApp("sendPaymentWarningEmail", {
         warnings, planLabel, recipients, testMode,
       });
-      statusEl.textContent = `✅ ${recipients.map(r => r.name).join(", ")} 님께 발송 완료`;
+      statusEl.textContent = `${recipients.map(r => r.name).join(", ")} 님께 발송 완료`;
       setTimeout(() => emailOverlay.remove(), 2000);
     } catch (e) {
       statusEl.style.color = "#b71c1c";
@@ -3741,7 +3741,7 @@ function fundsSection(id, title, tableHtml, hint) {
   return `<div class="funds-section" id="fs-${id}">
     <div class="funds-sec-header">
       <span class="funds-sec-title">${title}</span>
-      <button type="button" class="funds-paste-btn" data-fs="${id}">📋 붙여넣기 입력</button>
+      <button type="button" class="funds-paste-btn" data-fs="${id}">붙여넣기 입력</button>
     </div>
     <div class="funds-paste-area hidden" id="fpa-${id}">
       <div class="funds-paste-hint">${hint}</div>
@@ -3795,8 +3795,8 @@ function renderAvailableFunds() {
   );
   const pvSection = `<div class="funds-ref-section">
     <div class="funds-sec-header funds-ref-header">
-      <span class="funds-sec-title" style="color:#64748b;font-weight:600;font-size:12px;">📎 구매자금 사용가능 업체 (참고)</span>
-      <button type="button" class="funds-paste-btn" data-fs="pv">📋 붙여넣기 입력</button>
+      <span class="funds-sec-title" style="color:#64748b;font-weight:600;font-size:12px;">구매자금 사용가능 업체 (참고)</span>
+      <button type="button" class="funds-paste-btn" data-fs="pv">붙여넣기 입력</button>
     </div>
     <div class="funds-paste-area hidden" id="fpa-pv">
       <div class="funds-paste-hint">헤더: 작성일자 / 업체명 / 금액</div>
@@ -3826,7 +3826,7 @@ function renderAvailableFunds() {
   sec.innerHTML = `<div class="funds-container">
     <div class="funds-top-bar">
       <h2 class="funds-title">가용자금 현황</h2>
-      <button type="button" id="fundsClearBtn" class="funds-clear-btn">🗑 전체 초기화</button>
+      <button type="button" id="fundsClearBtn" class="funds-clear-btn">전체 초기화</button>
     </div>
 
     <!-- 요약 카드 -->
@@ -4189,35 +4189,35 @@ function renderDashboard() {
 
       <div class="dashboard-summary-cards">
         <div class="dashboard-card funds" data-tab="funds">
-          <div class="card-icon">💰</div>
+          <div class="card-icon"></div>
           <div class="card-label">가용자금 합계</div>
           <div class="card-value">${formatNumber(s.grandTotal || s.totalAccountBalance)}</div>
           <div class="card-footer">B2B 가능 ${formatNumber(b2bAvail)}</div>
         </div>
 
         <div class="dashboard-card receivables" data-tab="receivables">
-          <div class="card-icon">📈</div>
+          <div class="card-icon"></div>
           <div class="card-label">수금예상(미수금)</div>
           <div class="card-value">${formatNumber(summary.totalOutstanding)}</div>
           <div class="card-footer">${receivables.length}개 업체</div>
         </div>
 
         <div class="dashboard-card payables" data-tab="payables">
-          <div class="card-icon">📉</div>
+          <div class="card-icon"></div>
           <div class="card-label">외상대지급(미지급)</div>
           <div class="card-value">${formatNumber(summary.totalUnpaid)}</div>
           <div class="card-footer">${payables.length}건</div>
         </div>
 
         <div class="dashboard-card fixed" data-tab="fixed">
-          <div class="card-icon">🏠</div>
+          <div class="card-icon"></div>
           <div class="card-label">고정지출</div>
           <div class="card-value">${formatNumber(summary.totalFixed)}</div>
           <div class="card-footer">이번 달 납부 예정</div>
         </div>
 
         <div class="dashboard-card expected highlight">
-          <div class="card-icon">⚖️</div>
+          <div class="card-icon"></div>
           <div class="card-label">예상 잔액</div>
           <div class="card-value">${formatNumber(totalExpected)}</div>
           <div class="card-footer">최종 가용 예상</div>
@@ -4766,7 +4766,7 @@ function renderReceivables() {
         <div class="panel-title-inline">
           <h3>미수금 목록</h3>
           ${filtered.length ? `<span class="rcv-summary-text">${filtered.length}건 · ${formatNumber(totalBalance)}원</span>` : ""}
-          <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">📧 메일 발송</button>
+          <button type="button" class="rcv-email-btn" title="미수현황 메일 발송">메일 발송</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           ${(() => { const s = calculateSummary(); return `<div class="tab-mini-stats"><span class="tms-item"><span class="tms-lbl">매출</span><span class="tms-val">${formatNumber(s.totalReceivable)}</span></span><span class="tms-sep">|</span><span class="tms-item tms-green"><span class="tms-lbl">미수금 잔액</span><span class="tms-val">${formatNumber(s.totalOutstanding)}</span></span></div>`; })()}
@@ -5613,7 +5613,7 @@ function renderPayables() {
           <div class="payable-table-actions">
             <button type="button" class="table-action-button subtle" data-action="expand-all">전체 펼치기</button>
             <button type="button" class="table-action-button subtle" data-action="collapse-all">전체 접기</button>
-            <button type="button" class="table-action-button subtle" id="completedReportBtn">✅ 완료 보고서</button>
+            <button type="button" class="table-action-button subtle" id="completedReportBtn">완료 보고서</button>
           </div>
         </div>
       </div>
@@ -5855,7 +5855,7 @@ function showPaymentPlanHistoryDialog(targetItems, partnerKey, monthKey) {
 
   overlay.innerHTML = `
     <div class="raw-diff-dialog" style="max-height:85vh; overflow-y:auto; width: 450px;">
-      <h3 style="margin-top:0; display:flex; align-items:center; gap:8px;">🕒 상세 변경 타임라인</h3>
+      <h3 style="margin-top:0; display:flex; align-items:center; gap:8px;">상세 변경 타임라인</h3>
       <p style="font-size:13px; color:#555; margin-bottom:15px;">
         <strong>${targetItems[0]?.name || "알 수 없음"}</strong> (${formatMonthKey(monthKey)}) 건의 상세 변경 이력입니다.
       </p>
@@ -6474,7 +6474,7 @@ function renderFixedExpenses() {
     `).join("");
 
     const isToday = key === todayKey;
-    const todayBadge = isToday ? `<span style="display:inline-flex;align-items:center;background:#fef2f2;color:#ef4444;border:1px solid #fca5a5;font-size:11px;font-weight:700;padding:2px 6px;border-radius:12px;margin-left:6px;">🚨 D-Day</span>` : "";
+    const todayBadge = isToday ? `<span style="display:inline-flex;align-items:center;background:#fef2f2;color:#ef4444;border:1px solid #fca5a5;font-size:11px;font-weight:700;padding:2px 6px;border-radius:12px;margin-left:6px;">D-Day</span>` : "";
 
     return `
       <tr class="fx-date-header ${isToday ? 'fx-today-header' : ''}" data-group="${groupId}" style="${isToday ? 'background-color:#fff1f2;' : ''}">
@@ -6531,12 +6531,12 @@ function renderFixedExpenses() {
         </div>
         <div class="fx-panel-controls" style="display:flex;align-items:center;gap:16px;">
           <div class="fx-btn-group" style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="fixedPasteToggle" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;color:#1d4ed8;">📋 붙여넣기</button>
-            <button id="fixedClearBtn" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#ef4444;">🗑 초기화</button>
-            <button id="fixedSelectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">☑️ 전체선택</button>
-            <button id="fixedDeselectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔲 전체해제</button>
-            <button id="fixedExpandAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔽 전체 펼치기</button>
-            <button id="fixedCollapseAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">🔼 전체 접기</button>
+            <button id="fixedPasteToggle" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;color:#1d4ed8;">붙여넣기</button>
+            <button id="fixedClearBtn" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#ef4444;">초기화</button>
+            <button id="fixedSelectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">전체선택</button>
+            <button id="fixedDeselectAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">전체해제</button>
+            <button id="fixedExpandAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">전체 펼치기</button>
+            <button id="fixedCollapseAll" class="fx-ctrl-btn" style="padding:6px 12px;font-size:13px;font-weight:600;background:#fff;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;color:#334155;">전체 접기</button>
           </div>
           <div class="fx-total-chip" style="background:#eff6ff;padding:8px 16px;border-radius:10px;border:1px solid #bfdbfe;display:flex;align-items:center;">
             <span class="fx-total-label" style="font-size:13px;color:#1e40af;margin-right:8px;font-weight:700;">선택 합계</span>
@@ -7504,9 +7504,9 @@ function renderMautoTab() {
     payable    = payRows.reduce((s, r) => s + r.balance, 0);
     const taxCnt = mautoTaxInvoices.length;
     const exStyleBase = `font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;`;
-    const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">📄 세금계산서 ${taxCnt}건 기준</span>`;
-    const rcvExLabel = mautoExcludeVendorsRcv.length ? `🚫 제외 ${mautoExcludeVendorsRcv.length}개` : `🚫 제외 설정`;
-    const payExLabel = mautoExcludeVendorsPay.length ? `🚫 제외 ${mautoExcludeVendorsPay.length}개` : `🚫 제외 설정`;
+    const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">세금계산서 ${taxCnt}건 기준</span>`;
+    const rcvExLabel = mautoExcludeVendorsRcv.length ? `제외 ${mautoExcludeVendorsRcv.length}개` : `제외 설정`;
+    const payExLabel = mautoExcludeVendorsPay.length ? `제외 ${mautoExcludeVendorsPay.length}개` : `제외 설정`;
     const payViewToggle = `<button type="button" id="mautoPayViewYm" style="${exStyleBase}${mautoPayViewMode==="ym"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="연월별로 보기">연월별</button>` +
       `<button type="button" id="mautoPayViewVendor" style="${exStyleBase}${mautoPayViewMode==="vendor"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="업체별로 보기">업체별</button>`;
     rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyleBase}" title="미수금 제외 거래처 설정">${rcvExLabel}</button>`;
@@ -7529,18 +7529,18 @@ function renderMautoTab() {
       </div>
       <div class="mauto-top-actions">
         <label class="header-action-button" style="cursor:pointer;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
-          📥 입출금 분류
+          입출금 분류
           <input type="file" id="mautoClassifyFileInput" accept=".xls,.xlsx,.xlsm,.csv" hidden />
         </label>
         <label class="header-action-button" style="cursor:pointer;" title="국세청 전자세금계산서 조회 파일 (매출)">
-          🧾 매출세금계산서
+          매출세금계산서
           <input type="file" id="mautoTaxSalesFileInput" accept=".xls,.xlsx" hidden />
         </label>
         <label class="header-action-button" style="cursor:pointer;" title="국세청 전자세금계산서 조회 파일 (매입)">
-          🧾 매입세금계산서
+          매입세금계산서
           <input type="file" id="mautoTaxPurchaseFileInput" accept=".xls,.xlsx" hidden />
         </label>
-        <button type="button" id="mautoVatBtn" class="daesa-vat-btn${mautoVatView ? " active" : ""}" title="부가세 납부세액 집계 보고서 (반기/월간/연간)">📊 부가세</button>
+        <button type="button" id="mautoVatBtn" class="daesa-vat-btn${mautoVatView ? " active" : ""}" title="부가세 납부세액 집계 보고서 (반기/월간/연간)">부가세</button>
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
     </div>
@@ -7550,7 +7550,7 @@ function renderMautoTab() {
       return `
     <details data-accordion-id="mauto-tax-files" style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
       <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#92400e;list-style:none;display:flex;align-items:center;gap:6px;">
-        <span>▶</span> 🧾 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)
+        <span>▶</span> 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)
       </summary>
       <div style="padding:4px 12px 8px;">
       ${taxEntries.map(f => `
@@ -7570,7 +7570,7 @@ function renderMautoTab() {
       return `
     <details data-accordion-id="mauto-bank-files" style="margin:6px 0;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:12px;">
       <summary style="padding:8px 12px;cursor:pointer;font-weight:600;color:#374151;list-style:none;display:flex;align-items:center;gap:6px;">
-        <span>▶</span> 📁 업로드된 파일 ${fileEntries.length}개
+        <span>▶</span> 업로드된 파일 ${fileEntries.length}개
       </summary>
       <div style="padding:4px 12px 8px;">
       ${fileEntries.map(([key, f]) => `
@@ -7590,7 +7590,7 @@ function renderMautoTab() {
       const unmatched = mautoClassifiedRows.filter(r => !r.excluded && !r.거래처명);
       return `
     <div style="margin:8px 0;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-      <span style="font-weight:600;color:#166534;">✅ ${mautoClassifiedRows.length}건 저장됨</span>
+      <span style="font-weight:600;color:#166534;">${mautoClassifiedRows.length}건 저장됨</span>
       <span style="color:#374151;">매출 ${active.filter(r=>r.구분==="매출").length}건 / 매입 ${active.filter(r=>r.구분==="매입").length}건</span>
       ${unmatched.length ? `<span style="color:#d97706;font-weight:600;">⚠ 미매칭 ${unmatched.length}건</span>` : ""}
       ${excl.length ? `<span style="color:#9ca3af;">제외 ${excl.length}건</span>` : ""}
@@ -7622,7 +7622,7 @@ function renderMautoTab() {
         ? renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, _fixedMonthDataCache)
         : renderMautoFixedTable(mautoData.fixed),
       "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true,
-      `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">📐 ${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
+      `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
   </div>`;
 
   // 카드 클릭 → 해당 섹션 토글 (기본 숨김)
@@ -7683,7 +7683,7 @@ function renderMautoTab() {
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;";
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:8px;padding:24px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);">
-        <h4 style="margin:0 0 8px;font-size:15px;">🚫 ${label} 제외 거래처 설정</h4>
+        <h4 style="margin:0 0 8px;font-size:15px;">${label} 제외 거래처 설정</h4>
         <p style="margin:0 0 12px;font-size:12px;color:#6b7280;">${label}에 표시하지 않을 거래처를 한 줄에 하나씩 입력하세요.</p>
         <textarea id="mautoExcludeTextarea" rows="7" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:8px;font-size:13px;resize:vertical;">${escapeHtml(currentList.join("\n"))}</textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
@@ -7778,7 +7778,7 @@ function renderMautoTab() {
   // 고정지출 자동계산 — 분류규칙 결제예정일 기반
   document.getElementById("mautoFixedRulesBtn")?.addEventListener("click", async () => {
     const btn = document.getElementById("mautoFixedRulesBtn");
-    if (btn) { btn.textContent = "📐 불러오는 중…"; btn.disabled = true; }
+    if (btn) { btn.textContent = "불러오는 중…"; btn.disabled = true; }
     try {
       mautoFixedRules = await fetchRulesFromApi("엠오토");
     } catch (e) {
@@ -9732,9 +9732,9 @@ function renderDaesaTab() {
       <button class="daesa-collapse-all-btn">전체 접기</button>
       <span class="daesa-count muted">${vendorEntries.length}개 업체 표시중 ${q ? `(검색: ${q})` : ""}</span>
       <span class="daesa-toolbar-sep"></span>
-      <button class="daesa-settlement-btn${daesaState.settlementView ? " active" : ""}">📊 정산표</button>
-      <button class="daesa-vat-btn${daesaState.vatView ? " active" : ""}">🧾 부가세</button>
-      <button class="daesa-arrecap-btn${daesaState.arRecapView ? " active" : ""}">📊 미수/미지급</button>
+      <button class="daesa-settlement-btn${daesaState.settlementView ? " active" : ""}">정산표</button>
+      <button class="daesa-vat-btn${daesaState.vatView ? " active" : ""}">부가세</button>
+      <button class="daesa-arrecap-btn${daesaState.arRecapView ? " active" : ""}">미수/미지급</button>
     </div>
     ${daesaState.settlementView ? renderSettlementView() : ""}
     ${daesaState.vatView ? renderVatView() : ""}
@@ -10038,7 +10038,7 @@ function renderArRecapView() {
     ? `<span class="arrecap-pending-badge">⚠ 귀속연월 미확인 ${확인필요.length}건</span>`
     : "";
   const inexactBadge = inexactVendors.length
-    ? `<span class="arrecap-inexact-badge" title="${inexactVendors.slice(0,10).join(', ')}${inexactVendors.length > 10 ? ' 외 ' + (inexactVendors.length-10) + '개' : ''}">🔗 업체마스터 미매칭 ${inexactVendors.length}개</span>`
+    ? `<span class="arrecap-inexact-badge" title="${inexactVendors.slice(0,10).join(', ')}${inexactVendors.length > 10 ? ' 외 ' + (inexactVendors.length-10) + '개' : ''}">업체마스터 미매칭 ${inexactVendors.length}개</span>`
     : "";
 
   const pendingHtml = 확인필요.length ? `
@@ -10058,7 +10058,7 @@ function renderArRecapView() {
 
   const inexactHtml = inexactVendors.length ? `
     <details class="arrecap-pending-wrap">
-      <summary class="arrecap-pending-summary">🔗 업체마스터 미매칭 ${inexactVendors.length}개 — 사업자번호 없어 이름으로만 묶임. 마스터에 사업자번호를 추가하면 교차매칭 정확도가 높아집니다.</summary>
+      <summary class="arrecap-pending-summary">업체마스터 미매칭 ${inexactVendors.length}개 — 사업자번호 없어 이름으로만 묶임. 마스터에 사업자번호를 추가하면 교차매칭 정확도가 높아집니다.</summary>
       <div style="padding:8px 12px;font-size:12px;color:#374151;">${inexactVendors.map(n => `<span style="display:inline-block;margin:2px 4px;padding:1px 8px;background:#fef9c3;border:1px solid #fde68a;border-radius:12px;">${escapeHtml(n)}</span>`).join("")}</div>
     </details>` : "";
 
@@ -10730,7 +10730,7 @@ function openVendorDaesaModal(code, name, daesaMap, netOffSet) {
         </div>
       </div>
       <div class="daesa-modal-footer">
-        <button class="daesa-modal-print">🖨 인쇄 / PDF</button>
+        <button class="daesa-modal-print">인쇄 / PDF</button>
         <button class="daesa-modal-close">닫기</button>
       </div>
     </div>
@@ -11074,7 +11074,7 @@ function renderRulesPanel() {
       <div class="rules-toolbar">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;">
           <button id="rulesToggleBtn" class="rules-btn" style="min-width:28px;">${toggleIcon}</button>
-          <strong style="font-size:14px;white-space:nowrap;">📐 분류규칙 관리</strong>
+          <strong style="font-size:14px;white-space:nowrap;">분류규칙 관리</strong>
           ${countBadge}
           ${rulesState.tableOpen ? `
           <span style="color:#d1d5db;">|</span>
@@ -11084,7 +11084,7 @@ function renderRulesPanel() {
           <button class="rules-btn" id="rulesReloadBtn" ${rulesState.loading?"disabled":""}>새로고침</button>
           <button class="rules-btn rules-add-btn" id="rulesAddBtn" ${rulesState.addingNew||rulesState.saving?"disabled":""}>+ 추가</button>
           <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
-            📂 Excel 가져오기
+            Excel 가져오기
             <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
           </label>` : ""}
         </div>
@@ -12025,11 +12025,11 @@ function renderPnlTab() {
   sec.innerHTML = `
     <div class="pnl-container">
       <div class="pnl-sub-tabs">
-        <button class="pnl-sub-btn${pnlSubTab==="input"?" active":""}" data-pnl-tab="input">📊 입력</button>
-        <button class="pnl-sub-btn${pnlSubTab==="report"?" active":""}" data-pnl-tab="report">📄 보고서</button>
-        <button class="pnl-sub-btn${pnlSubTab==="dashboard"?" active":""}" data-pnl-tab="dashboard">📈 대시보드</button>
-        <button class="pnl-sub-btn${pnlSubTab==="inventory"?" active":""}" data-pnl-tab="inventory">📦 재고</button>
-        <button class="pnl-sub-btn pnl-sync-btn" id="pnlSyncAll" title="로컬 데이터를 구글시트로 일괄 전송">☁️ 동기화</button>
+        <button class="pnl-sub-btn${pnlSubTab==="input"?" active":""}" data-pnl-tab="input">입력</button>
+        <button class="pnl-sub-btn${pnlSubTab==="report"?" active":""}" data-pnl-tab="report">보고서</button>
+        <button class="pnl-sub-btn${pnlSubTab==="dashboard"?" active":""}" data-pnl-tab="dashboard">대시보드</button>
+        <button class="pnl-sub-btn${pnlSubTab==="inventory"?" active":""}" data-pnl-tab="inventory">재고</button>
+        <button class="pnl-sub-btn pnl-sync-btn" id="pnlSyncAll" title="로컬 데이터를 구글시트로 일괄 전송">동기화</button>
       </div>
       <div id="pnl-sub-content"></div>
     </div>`;
@@ -12090,7 +12090,7 @@ function renderPnlInventory(el) {
     el.innerHTML = `
       <div class="pnl-inv-wrap">
         <div class="pnl-inv-top">
-          <span class="pnl-inv-title">📦 기초 / 기말 재고 관리</span>
+          <span class="pnl-inv-title">기초 / 기말 재고 관리</span>
           <select id="pnlInvYearSel">${yearOpts}</select>
         </div>
         <div class="pnl-inv-hint">
@@ -12101,9 +12101,9 @@ function renderPnlInventory(el) {
           <table class="pnl-inv-table">
             <thead><tr>
               <th>월</th>
-              <th>기초재고 ✏️</th>
-              <th>당기상품매입 ✏️</th>
-              <th>기말재고 ✏️</th>
+              <th>기초재고</th>
+              <th>당기상품매입</th>
+              <th>기말재고</th>
               <th>계산 매출원가</th>
               <th>저장</th>
             </tr></thead>
@@ -12416,7 +12416,7 @@ function openPnlImportDialog() {
   overlay.innerHTML = `
     <div class="pnl-import-dialog">
       <div class="pnl-id-header">
-        <span class="pnl-id-title">📊 Excel 일괄 입력 — 미리보기</span>
+        <span class="pnl-id-title">Excel 일괄 입력 — 미리보기</span>
         <select id="pnlIdYearSel">${yearOpts}</select>
         <button class="pnl-id-close" id="pnlIdClose">✕</button>
       </div>
@@ -12434,7 +12434,7 @@ function openPnlImportDialog() {
           <thead><tr>
             <th class="pnl-id-chk-head">저장</th>
             <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
-            <th>제조원가</th><th>영업외비용</th><th class="pnl-id-manual-col">목표매출 ✏️</th>
+            <th>제조원가</th><th>영업외비용</th><th class="pnl-id-manual-col">목표매출</th>
             <th class="pnl-id-calc-col">매출총이익</th>
             <th class="pnl-id-calc-col">영업이익</th>
             <th class="pnl-id-calc-col">경영이익</th>
@@ -12579,8 +12579,8 @@ function renderPnlInput(el) {
     { key:"interest",      id:"pnlInt",    label:"영업외비용",   displayVal: entry.interest      },
   ];
 
-  const incLabel = _pnlImportIncome ? "✅ 손익계산서" : "📊 손익계산서 업로드";
-  const cstLabel = _pnlImportCost   ? "✅ 원가명세서" : "📋 원가명세서 업로드";
+  const incLabel = _pnlImportIncome ? "손익계산서" : "손익계산서 업로드";
+  const cstLabel = _pnlImportCost   ? "원가명세서" : "원가명세서 업로드";
   const canPreview = _pnlImportIncome || _pnlImportCost;
 
   el.innerHTML = `
@@ -12831,7 +12831,7 @@ function renderPnlReport(el) {
         <select id="pnlRptYear">${yearOpts}</select>
         <select id="pnlRptMonth">${monOpts}</select>
         <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
-        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">인쇄 / PDF</button>
       </div>
 
       <!-- 보고서 본체 -->
@@ -13111,7 +13111,7 @@ function renderPnlQuarterlyReport(el) {
         <select id="pnlRptYear">${yearOpts}</select>
         <select id="pnlRptQtr">${qOpts}</select>
         <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
-        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">인쇄 / PDF</button>
       </div>
 
       <div class="pnl-page" id="pnlReportPage">
@@ -13359,7 +13359,7 @@ function renderPnlHalfYearReport(el) {
         <select id="pnlRptYear">${yearOpts}</select>
         <select id="pnlRptHalf">${halfOpts}</select>
         <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
-        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">인쇄 / PDF</button>
       </div>
       <div class="pnl-page" id="pnlReportPage">
         <div class="pnl-doc-header">
@@ -13462,7 +13462,7 @@ function renderPnlAnnualReport(el) {
         <button class="pnl-nav-btn" id="pnlRptPrev">◀</button>
         <select id="pnlRptYear">${yearOpts}</select>
         <button class="pnl-nav-btn" id="pnlRptNext">▶</button>
-        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">🖨️ 인쇄 / PDF</button>
+        <button class="pnl-btn pnl-btn-print" id="pnlPrintBtn">인쇄 / PDF</button>
       </div>
       <div class="pnl-page" id="pnlReportPage">
         <div class="pnl-doc-header">

@@ -4,26 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>현금흐름 관리</title>
-  <link rel="stylesheet" href="style.css?v=20260615ah" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css" />
+  <link rel="stylesheet" href="style.css?v=20260630" />
 </head>
 <body>
   <div class="app-shell">
     <header class="app-header">
       <h1>현금흐름 관리</h1>
       <div class="header-actions">
-        <button type="button" id="apiTokenButton" class="header-action-button" title="API 인증 토큰 설정">🔑 토큰</button>
-        <a id="sheetLinkButton" class="header-action-button" target="_blank" title="연결된 구글 시트로 이동" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">📗 구글시트</a>
-        
+        <button type="button" id="apiTokenButton" class="header-action-button" title="API 인증 토큰 설정">토큰</button>
+        <a id="sheetLinkButton" class="header-action-button" target="_blank" title="연결된 구글 시트로 이동" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;">구글시트</a>
+
         <!-- 마스터 관리 드롭다운 -->
         <div class="dropdown">
-          <button type="button" id="masterMenuButton" class="header-action-button">🛠 마스터 관리</button>
+          <button type="button" id="masterMenuButton" class="header-action-button">마스터 관리</button>
           <div id="masterDropdownMenu" class="dropdown-menu">
-            <button class="dropdown-item" id="vendorMasterImportButton"><i>🏢</i> 업체마스터 업로드</button>
-            <button class="dropdown-item" id="ledgerVendorImportButton"><i>📋</i> 원장 → 업체마스터</button>
+            <button class="dropdown-item" id="vendorMasterImportButton">업체마스터 업로드</button>
+            <button class="dropdown-item" id="ledgerVendorImportButton">원장 → 업체마스터</button>
             <div class="dropdown-divider"></div>
-            <button class="dropdown-item" id="bizDivImportButton"><i>🏗</i> 사업부문마스터 업로드</button>
+            <button class="dropdown-item" id="bizDivImportButton">사업부문마스터 업로드</button>
             <div class="dropdown-divider"></div>
-            <button class="dropdown-item" id="rulesManageButton"><i>📐</i> 분류규칙 관리</button>
+            <button class="dropdown-item" id="rulesManageButton">분류규칙 관리</button>
           </div>
         </div>
 

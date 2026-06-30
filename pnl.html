@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>미래오토메이션(주) — 경영손익</title>
 <!-- v20260514k -->
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css" />
 <style>
 :root {
   --navy:    #0F1F3D;
@@ -21,7 +21,8 @@
   --muted:   #6B7280;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2E; min-height:100vh; }
+body { font-family:'Pretendard','Nanum Gothic',sans-serif; background:var(--bg); color:#1A1A2E; min-height:100vh; }
+button, input, select, textarea { font-family:'Pretendard','Nanum Gothic',sans-serif; }
 
 /* 툴바 */
 .toolbar {
@@ -73,7 +74,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
   color:var(--gold-lt); font-size:10px; letter-spacing:3px; padding:3px 10px;
   border-radius:20px; margin-bottom:14px;
 }
-.doc-title { font-family:'Noto Serif KR',serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:4px; }
+.doc-title { font-family:'Pretendard','Nanum Gothic',sans-serif; font-size:22px; font-weight:700; color:#fff; margin-bottom:4px; }
 .doc-sub { font-size:12px; color:rgba(255,255,255,.5); letter-spacing:1px; }
 .meta-row { display:flex; gap:28px; margin-top:22px; flex-wrap:wrap; }
 .meta-item { display:flex; flex-direction:column; gap:2px; }
@@ -89,7 +90,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .kpi-card.hl { background:var(--navy); border-color:var(--navy); }
 .kpi-lbl { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
 .hl .kpi-lbl { color:rgba(255,255,255,.5); }
-.kpi-val { font-family:'DM Mono',monospace; font-size:18px; font-weight:500; }
+.kpi-val { font-family:ui-monospace,'SF Mono',Consolas,monospace; font-size:18px; font-weight:700; }
 .hl .kpi-val { color:#fff; }
 .kpi-unit { font-size:11px; color:var(--muted); margin-top:3px; }
 .hl .kpi-unit { color:rgba(255,255,255,.4); }
@@ -103,7 +104,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .section { margin-bottom:28px; }
 .sec-title {
   display:flex; align-items:center; gap:10px;
-  font-family:'Noto Serif KR',serif; font-size:15px; font-weight:700; color:var(--navy);
+  font-family:'Pretendard','Nanum Gothic',sans-serif; font-size:15px; font-weight:700; color:var(--navy);
   margin-bottom:14px; padding-bottom:8px; border-bottom:2px solid var(--navy);
 }
 .sec-title small { font-size:11px; font-weight:400; color:var(--muted); margin-left:6px; font-family:inherit; }
@@ -119,7 +120,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .fr:last-child { border-bottom:none; }
 .fr:hover { background:#fafafa; }
 .fr-lbl { display:flex; align-items:center; gap:6px; }
-.fr-val { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; }
+.fr-val { font-family:ui-monospace,'SF Mono',Consolas,monospace; font-size:13px; font-weight:600; }
 .fr-sub { background:#eef3ff; }
 .fr-sub .fr-lbl { font-weight:700; color:var(--navy); }
 .fr-total { background:var(--navy); }
@@ -166,7 +167,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .dash-kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px; }
 .dash-kpi { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px; }
 .dash-kpi-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
-.dash-kpi-val { font-family:'DM Mono',monospace; font-size:16px; font-weight:600; word-break:break-all; }
+.dash-kpi-val { font-family:ui-monospace,'SF Mono',Consolas,monospace; font-size:16px; font-weight:600; word-break:break-all; }
 .dash-kpi-sub { font-size:10px; color:var(--muted); margin-top:3px; }
 .charts-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
 .chart-wide { grid-column:1/-1; }
@@ -182,7 +183,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 .dash-tbl { width:100%; border-collapse:collapse; font-size:12px; }
 .dash-tbl th { background:var(--navy); color:#fff; padding:8px 10px; text-align:right; white-space:nowrap; }
 .dash-tbl th:first-child { text-align:left; }
-.dash-tbl td { padding:7px 10px; border-bottom:1px solid #f1f5f9; text-align:right; font-family:'DM Mono',monospace; }
+.dash-tbl td { padding:7px 10px; border-bottom:1px solid #f1f5f9; text-align:right; font-family:ui-monospace,'SF Mono',Consolas,monospace; }
 .dash-tbl td:first-child { text-align:left; font-family:inherit; font-weight:600; }
 .dash-tbl .tr-sub td { background:#eef3ff; }
 
@@ -240,7 +241,7 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
 <body>
 
 <div class="toolbar">
-  <span class="toolbar-title">📊 경영손익 보고</span>
+  <span class="toolbar-title">경영손익 보고</span>
   <div style="display:flex;gap:4px" id="rptModes">
     <button class="tab-btn active" data-rmode="monthly">월간</button>
     <button class="tab-btn" data-rmode="quarterly">분기</button>
@@ -252,10 +253,10 @@ body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:#1A1A2
   <select id="selPeriod" style="min-width:72px"></select>
   <span id="pendingBadge" class="pending-badge" style="display:none"></span>
   <div class="tab-btns">
-    <button class="tab-btn active" id="btnReport">📄 보고서</button>
-    <button class="tab-btn" id="btnDash">📈 대시보드</button>
+    <button class="tab-btn active" id="btnReport">보고서</button>
+    <button class="tab-btn" id="btnDash">대시보드</button>
   </div>
-  <button class="print-btn no-print" onclick="window.print()">🖨️ 인쇄</button>
+  <button class="print-btn no-print" onclick="window.print()">인쇄</button>
 </div>
 
 <div class="page">
