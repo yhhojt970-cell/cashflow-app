@@ -19,6 +19,9 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow-x: auto;
+  /* 한글은 단어 단위로 줄바꿈(어절 유지) → 제목·카드가 단어 중간에서 안 끊김 */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 button, input, select, textarea {

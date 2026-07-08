@@ -7895,7 +7895,7 @@ function renderMautoTab() {
 
   // 파일 개별 삭제
   sec.querySelectorAll(".mauto-file-del-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const key = decodeURIComponent(btn.dataset.fkey || "");
       if (!key || !mautoSourceFiles[key]) return;
       const label = mautoSourceFiles[key].filename;
@@ -7904,6 +7904,7 @@ function renderMautoTab() {
         .filter(d => d.open).map(d => d.dataset.accordionId);
       delete mautoSourceFiles[key];
       saveSourceFiles();
+      if (!rulesState.rows.length) await loadRules();
       rebuildMautoRows();
       renderMautoTab();
       openDetails.forEach(id => {
@@ -8371,6 +8372,13 @@ function mergeClassifiedRows(existing, incoming) {
 function rebuildMautoRows() {
   const rules = (rulesState.rows || []).filter(r => String(r["사업체"] || "") === "엠오토");
 
+  // ⚠️ 분류규칙(rulesState.rows)이 아직 로드되지 않은 상태(예: 엠오토 탭만 진입한 모바일)에서
+  // 재분류하면 규칙 매칭 행들의 거래처명·구분이 전부 빈값이 되어, 서버에서 불러온
+  // 올바른 분류 결과(mautoClassifiedRows)를 통째로 덮어써 미수/미지급/고정지출이 깨진다.
+  // 규칙이 하나도 없으면 재빌드를 건너뛰어 기존 분류 결과를 보존한다.
+  // (규칙이 없으면 어차피 재분류해도 전부 미분류이므로 손실 없음)
+  if (!rules.length) return;
+
   // 1. 모든 파일 행 합치기
   let allRows = Object.values(mautoSourceFiles).flatMap(f => f.rows || []);
 
@@ -8705,7 +8713,8 @@ function openMautoClassifyDialog(bankRows, rules) {
       }
     }
     saveUserEdits();
-    // 불변(source) + 사용자편집 → 전체 재빌드
+    // 불변(source) + 사용자편집 → 전체 재빌드 (규칙 없으면 재빌드가 스킵되므로 먼저 로드)
+    if (!rulesState.rows.length) await loadRules();
     rebuildMautoRows();
     overlay.remove();
 
