@@ -84,6 +84,10 @@ function saveClassifiedRows() {
         .map(r => {
           const out = {};
           CLASSIFIED_SHARE_FIELDS.forEach(f => { out[f] = r[f] ?? ""; });
+          // 안전장치: 금액이 비었으면 _txKey(date|time|credit|debit|memo)에서 복구해 0금액 서버 오염 방지
+          const p = String(r._txKey || "").split("|");
+          if (!(Number(out.credit) > 0) && Number(p[2]) > 0) out.credit = Number(p[2]);
+          if (!(Number(out.debit)  > 0) && Number(p[3]) > 0) out.debit  = Number(p[3]);
           out.savedAt = out.savedAt || new Date().toISOString().slice(0,19);
           return out;
         });
