@@ -224,6 +224,7 @@ let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
 let mautoPayViewMode = "ym"; // "ym" | "vendor"
+let mautoToolsOpen = false; // 엠오토 상단 도구영역(제목~카드 사이) 접기 상태 (기본 접힘)
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
 }
@@ -7528,10 +7529,16 @@ function renderMautoTab() {
 
   sec.innerHTML = `<div class="mauto-container">
     <div class="mauto-top-bar">
-      <div>
-        <h2>엠오토</h2>
-        <p>엠오토 전용 현금흐름</p>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h2 style="margin:0;">엠오토</h2>
+        <button type="button" id="mautoToolsToggle" title="입력·업로드 도구 펼치기/접기"
+          style="font-size:12px;padding:3px 11px;border:1px solid #cbd5e1;border-radius:14px;background:#f1f5f9;color:#475569;cursor:pointer;white-space:nowrap;">
+          ${mautoToolsOpen ? "▲ 도구 접기" : "▼ 입력·업로드 도구"}
+        </button>
       </div>
+    </div>
+    <div id="mautoToolsPanel" style="display:${mautoToolsOpen ? "block" : "none"};">
+      <p style="color:var(--muted);margin:2px 0 8px;">엠오토 전용 현금흐름</p>
       <div class="mauto-top-actions">
         <label class="header-action-button" style="cursor:pointer;" title="입출금 내역 엑셀 파일을 분류규칙으로 자동 분류">
           입출금 분류
@@ -7548,7 +7555,6 @@ function renderMautoTab() {
         <button type="button" id="mautoVatBtn" class="daesa-vat-btn${mautoVatView ? " active" : ""}" title="부가세 납부세액 집계 보고서 (반기/월간/연간)">부가세</button>
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
-    </div>
     ${(() => {
       const taxEntries = Object.values(mautoTaxSources);
       if (!taxEntries.length) return "";
@@ -7603,6 +7609,7 @@ function renderMautoTab() {
       <button type="button" id="mautoClassifyClearBtn" style="font-size:12px;padding:3px 10px;border:1px solid #d1d5db;background:white;border-radius:4px;cursor:pointer;color:#6b7280;">지우기</button>
     </div>`;
     })()}
+    </div><!-- /mautoToolsPanel (도구 접기 영역 끝) -->
     <div class="mauto-summary-grid">
       <div class="mauto-card card-funds"><span>가용자금</span><strong data-raw="${funds}">${formatNumber(funds)}</strong></div>
       <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong data-raw="${receivable}">${formatNumber(receivable)}</strong></div>
@@ -8035,6 +8042,12 @@ function renderMautoTab() {
     });
   });
 
+  document.getElementById("mautoToolsToggle")?.addEventListener("click", e => {
+    mautoToolsOpen = !mautoToolsOpen;
+    const panel = document.getElementById("mautoToolsPanel");
+    if (panel) panel.style.display = mautoToolsOpen ? "block" : "none";
+    e.currentTarget.textContent = mautoToolsOpen ? "▲ 도구 접기" : "▼ 입력·업로드 도구";
+  });
   document.getElementById("mautoVatBtn")?.addEventListener("click", () => {
     mautoVatView = !mautoVatView;
     renderMautoTab();
