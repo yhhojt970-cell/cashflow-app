@@ -105,6 +105,9 @@ let mautoSourceFiles = {}; // { fileKey: { filename, savedAt, isMigration?, rows
 let mautoUserEdits   = {}; // { txKey: { 거래처명, 구분, excluded, isOverride, 매칭근거 } }
 let _sourceSaveTimer = null;
 const SOURCE_SHARE_FIELDS = ["_txKey","fileKey","filename","date","time","_memo","_memo2","_bank","_account","credit","debit"];
+// 은행 파싱 행은 언더바 필드(_date/_time/_credit/_debit)를 쓰므로, 공유 저장 시 언더바 값을 매핑한다.
+// (이 매핑이 없으면 credit/debit/date/time이 전부 빈값으로 저장돼 다른 컴퓨터 재빌드 시 금액이 0이 됨)
+const SOURCE_FIELD_ALIAS = { date: "_date", time: "_time", credit: "_credit", debit: "_debit" };
 function saveSourceFiles() {
   try { localStorage.setItem(MAUTO_SOURCE_FILES_KEY, JSON.stringify(mautoSourceFiles)); } catch (_) {}
   if (SHEET_APP_SCRIPT_URL) {
@@ -113,13 +116,33 @@ function saveSourceFiles() {
       const rows = Object.values(mautoSourceFiles).flatMap(f =>
         (f.rows || []).filter(r => r._txKey).map(r => {
           const out = { fileKey: f.filename || "" };
-          SOURCE_SHARE_FIELDS.forEach(k => { out[k] = r[k] ?? ""; });
+          SOURCE_SHARE_FIELDS.forEach(k => {
+            let v = r[k];
+            if ((v === undefined || v === null || v === "") && SOURCE_FIELD_ALIAS[k]) v = r[SOURCE_FIELD_ALIAS[k]];
+            out[k] = v ?? "";
+          });
           return out;
         })
       );
       if (rows.length) postSheetWebApp("upsertMautoSourceRows", { rows }).catch(() => {});
     }, 3000);
   }
+}
+
+// 원격/저장된 소스 행의 언더바 필드(_date/_time/_credit/_debit)를 채운다.
+// 값이 비어있으면 _txKey(_date|_time|_credit|_debit|_memo#seq)에서 복구한다.
+function normalizeSourceRow(r) {
+  const p = String(r._txKey || "").split("|");
+  const pick = (u, s, idx) => {
+    if (r[u] !== undefined && r[u] !== null && r[u] !== "") return r[u];
+    if (r[s] !== undefined && r[s] !== null && r[s] !== "") return r[s];
+    return p[idx] !== undefined ? p[idx] : "";
+  };
+  r._date   = pick("_date", "date", 0) || "";
+  r._time   = pick("_time", "time", 1) || "";
+  r._credit = Number(pick("_credit", "credit", 2)) || 0;
+  r._debit  = Number(pick("_debit",  "debit",  3)) || 0;
+  return r;
 }
 function loadSourceFiles()  { try { const r = localStorage.getItem(MAUTO_SOURCE_FILES_KEY); mautoSourceFiles = r ? JSON.parse(r) : {}; } catch (_) { mautoSourceFiles = {}; } }
 function saveUserEdits()    { try { localStorage.setItem(MAUTO_USER_EDITS_KEY, JSON.stringify(mautoUserEdits));   } catch (_) {} }
@@ -330,7 +353,7 @@ async function loadMautoSourceRemote() {
     const localKeys = new Set(
       Object.values(mautoSourceFiles).flatMap(f => (f.rows || []).map(r => r._txKey)).filter(Boolean)
     );
-    const newRows = remote.filter(r => r._txKey && !localKeys.has(r._txKey));
+    const newRows = remote.filter(r => r._txKey && !localKeys.has(r._txKey)).map(normalizeSourceRow);
     if (!newRows.length) return;
     // 파일 그룹별로 묶어서 mautoSourceFiles에 추가
     const groups = {};
@@ -8392,8 +8415,8 @@ function rebuildMautoRows() {
   // (규칙이 없으면 어차피 재분류해도 전부 미분류이므로 손실 없음)
   if (!rules.length) return;
 
-  // 1. 모든 파일 행 합치기
-  let allRows = Object.values(mautoSourceFiles).flatMap(f => f.rows || []);
+  // 1. 모든 파일 행 합치기 (언더바 금액필드가 비었으면 _txKey에서 복구 → 재빌드 금액 0 방지)
+  let allRows = Object.values(mautoSourceFiles).flatMap(f => f.rows || []).map(normalizeSourceRow);
 
   // 2. 거래키 기준 중복 제거 (첫 번째 발견 우선)
   const seen = new Map();
