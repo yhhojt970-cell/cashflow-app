@@ -967,7 +967,9 @@ async function loadSheetPayables() {
     // 1단계: 핵심 데이터(raw + 업체마스터)만 먼저 로드 → 빠르게 화면 표시
     const [vendorRows, rows] = await Promise.all([
       fetchVendorMasterRowsFromApi(),
-      SHEET_APP_SCRIPT_URL ? fetchSheetWebApp() : fetchPublicSheet(),
+      SHEET_APP_SCRIPT_URL
+        ? fetchSheetWebApp().then(b => Array.isArray(b) ? b : (b && (b.data || b.rows)) || [])
+        : fetchPublicSheet(),
     ]);
     setVendorMasterRows(vendorRows);
     // 담당자 마스터가 이미 로드된 경우, 업체마스터 기반 이름→코드 재매핑
@@ -3402,10 +3404,14 @@ function parseSheetNumber(value) {
   return Number(String(value).replace(/[^0-9.-]/g, "")) || 0;
 }
 
-async function fetchSheetWebApp() {
+async function fetchSheetWebApp(params = {}) {
   const url = new URL(SHEET_APP_SCRIPT_URL);
   const token = getApiToken();
   if (token) url.searchParams.set("token", token);
+  // 호출부에서 넘긴 action 등 파라미터를 URL 쿼리에 반영 (예: getMautoTaxInvoices)
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+  });
   const response = await fetch(url.toString());
   if (!response.ok) {
     throw new Error(`Apps Script 요청 실패: ${response.status}`);
@@ -3416,9 +3422,8 @@ async function fetchSheetWebApp() {
     console.warn("Apps Script 인증 실패 → 공개 시트로 폴백합니다.");
     return fetchPublicSheet();
   }
-  if (Array.isArray(body)) return body;
-  if (body.data && Array.isArray(body.data)) return body.data;
-  throw new Error("Apps Script 응답 형식이 올바르지 않습니다.");
+  // 원본 body를 그대로 반환 → action 응답({rows:[...]})·기본 응답({data:[...]})·배열 모두 호출부에서 처리
+  return body;
 }
 
 async function fetchAvailableFundsJson() {

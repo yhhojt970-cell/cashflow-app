@@ -253,6 +253,26 @@ availableFunds = {
 
 ---
 
+### 2026-07-08: 다른 컴퓨터에서 엠오토 미수/미지급 안 뜨는 근본 원인 수정 (`fetchSheetWebApp` action 무시 버그)
+
+**증상:** 입력 컴퓨터에선 엠오토 미수금/미지급이 정상 표시되는데, 다른 컴퓨터에선 항상 비어있음. 강력 새로고침(Ctrl+Shift+R) 해도 그대로 → 캐시 문제 아님.
+
+**진단:**
+- 엠오토 미수/미지급은 붙여넣기(`mautoData.receivables/payables`)가 아니라 **세금계산서 − 입출금분류로 계산**됨 (`renderMautoTab` 내 `hasTax` 분기 → `buildArRecap`).
+- 서버엔 세금계산서(`엠오토_세금계산서` 145건)·분류(`엠오토_분류`) 데이터가 정상 존재.
+- **진짜 원인:** `fetchSheetWebApp()`이 파라미터를 선언하지 않아, 호출부의 `fetchSheetWebApp({ action: "getMautoTaxInvoices" })` 인자를 **통째로 무시**. 항상 action 없는 기본 응답(미지급_raw)만 받아옴 → `_row_key` 없는 행 → `loadMautoTaxRemote` 병합 0건 → `mautoTaxInvoices` 계속 빈 배열 → `hasTax=false` → 미수/미지급 빈 화면.
+- 부가 버그: 함수가 `{rows:[...]}` 응답을 처리 못 하고 예외 throw (`getMautoTaxInvoices`/`getClassifiedRows`/`getMautoSourceRows` 모두 `{rows}` 형태).
+- 입력 컴퓨터는 `loadMautoTaxSource()`로 localStorage에서 로드돼 정상으로 보였음.
+
+**수정 (`app.js`):**
+- `fetchSheetWebApp(params = {})`: `params`의 `action` 등을 URL 쿼리에 반영. 반환값을 원본 `body`로 통일(`{rows}`·`{data}`·배열 모두 호출부에서 처리). 인증 실패 시 `fetchPublicSheet()` 폴백 유지.
+- `loadSheetPayables`의 no-arg 호출(970행): 배열 언랩 `Array.isArray(b) ? b : (b.data||b.rows||[])`로 기존 미지급 로드 호환 유지.
+- 이 수정으로 세금계산서뿐 아니라 **입출금분류·소스 행 원격 로드(컴퓨터 간 공유)도 처음으로 정상 동작**.
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260708a`)
+
+---
+
 ### 2026-06-16 (5): 입출금 원본 행 구글시트 공유 연동 (`엠오토_소스` 시트)
 
 **문제:** 입출금 파일 업로드 시 파싱된 원본 거래 행(`mauto-source-files-v1`)이 localStorage에만 저장되어 다른 컴퓨터에서 규칙 변경 후 재분류가 불가능함.
