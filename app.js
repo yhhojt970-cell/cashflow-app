@@ -8473,6 +8473,11 @@ function rebuildMautoRows() {
       if (edit.구분     !== undefined) base.구분      = edit.구분;
       if (edit.excluded !== undefined) base.excluded  = edit.excluded;
       if (edit.isOverride) { base.isOverride = true; base.매칭근거 = edit.매칭근거 || "수동"; }
+      // 비고 수동수정(여러 연월 분배 "25-12=..." 등) → 귀속연월 계산에 쓰는 _memo2 덮어씀
+      if (edit.memoOverride !== undefined && edit.memoOverride !== "") {
+        base._memo2 = edit.memoOverride;
+        base.memo = edit.memoOverride;
+      }
     }
     return base;
   });
@@ -8841,7 +8846,7 @@ function openMautoClassifyResultView(rows) {
       <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r.date)}</td>
       <td>${dir}</td>
       <td style="text-align:right;font-size:12px;">${formatNumber(r.credit || r.debit)}</td>
-      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.memo)}">${escapeHtml(r.memo.slice(0,24))}${r.memo.length>24?"…":""}</td>
+      <td style="font-size:12px;"><input type="text" class="mcl-memo-edit" data-txkey="${escapeHtml(r._txKey || "")}" value="${escapeHtml(r.memo || "")}" placeholder="비고" title="여러 연월 분배: 25-12=6000000 26-03=10000000" style="width:210px;font-size:12px;padding:3px 5px;border:1px solid #e5e7eb;border-radius:4px;" /></td>
       <td style="font-size:12px;">${escapeHtml(r.거래처명 || "")}</td>
       <td style="font-size:12px;">${escapeHtml(r.구분 || "")}</td>
       <td>${statusBadge}</td>
@@ -8854,6 +8859,9 @@ function openMautoClassifyResultView(rows) {
         <h3>분류 결과 목록</h3>
         <span class="bank-match-sub">${rows.length}건</span>
         <button type="button" class="bank-match-close">✕</button>
+      </div>
+      <div style="padding:6px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e40af;">
+        💡 한 건을 여러 달로 나눠 충당하려면 적요에 <b>연월=금액</b>을 쓰세요. 예) <code>25-12=6000000 26-03=10000000</code> → 25-12에 600만, 26-03에 1,000만 반영
       </div>
       <div class="table-responsive bank-match-table-wrap">
         <table class="bank-match-table">
@@ -8868,6 +8876,29 @@ function openMautoClassifyResultView(rows) {
   document.body.appendChild(overlay);
   overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
+
+  // 적요 편집 → memoOverride 저장(여러 연월 분배 포함) → 재빌드 → 미수/미지급 갱신
+  overlay.querySelectorAll(".mcl-memo-edit").forEach(inp => {
+    const orig = inp.value;
+    inp.addEventListener("blur", () => {
+      const txKey = inp.dataset.txkey;
+      const val = inp.value.trim();
+      if (!txKey || val === orig.trim()) return;
+      const prev = mautoUserEdits[txKey] || {};
+      mautoUserEdits[txKey] = { ...prev, memoOverride: val };
+      saveUserEdits();
+      rebuildMautoRows();
+      renderMautoTab();
+      // 분배 인식 여부 즉시 피드백
+      const allocs = parseMemoAllocations(val);
+      if (allocs.length) {
+        const sum = allocs.reduce((s, a) => s + a.amount, 0);
+        inp.style.borderColor = "#16a34a";
+        inp.title = `분배 ${allocs.length}건 인식 (합계 ${formatNumber(sum)})`;
+      }
+    });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") inp.blur(); });
+  });
 }
 
 function openBankImportDialog(bankRows) {
@@ -9219,6 +9250,24 @@ function parseYearMonthCode(raw) {
   }
   // 5) 인식 실패 → 확인필요로 살림
   return { 연도: null, 월: null, status: "확인필요", 원본 };
+}
+
+// 비고에서 "연월=금액" 명시적 분배를 추출 (한 입금/출금을 여러 귀속연월로 나눠 충당)
+// 예: "25-12=6000000 26-03=10000000" → [{ym:"2025-12",amount:6000000},{ym:"2026-03",amount:10000000}]
+// 구분자는 = 또는 : , 금액은 콤마 허용. 명시적 구분자(=/:)가 있어야만 인식(오탐 방지).
+function parseMemoAllocations(memo) {
+  const s = String(memo || "");
+  const re = /(\d{2})-(\d{1,2})\s*[=:]\s*([\d,]+)/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const yy = +m[1], mo = +m[2];
+    if (mo < 1 || mo > 12) continue;
+    const amt = Number(String(m[3]).replace(/,/g, "")) || 0;
+    if (amt <= 0) continue;
+    out.push({ ym: `${2000 + yy}-${String(mo).padStart(2, "0")}`, amount: amt });
+  }
+  return out;
 }
 
 // 원장 행 배열 → 거래처×귀속연월 정산 레코드 집계
@@ -9997,6 +10046,19 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
     if (!vendorName) continue;
 
     const memoSrc = r._memo2 || r._memo || r.memo || "";
+
+    // ── 여러 연월 분배: 비고에 "25-12=6000000 26-03=10000000" 형식이 있으면 그대로 분배 ──
+    const allocs = parseMemoAllocations(memoSrc);
+    if (allocs.length) {
+      const { key, displayName, exact } = getVendorKeyByName(vendorName);
+      if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName);
+      if (!exact) inexactKeys.add(key);
+      for (const a of allocs) {
+        충당맵.set(`${key}\t${a.ym}`, (충당맵.get(`${key}\t${a.ym}`) || 0) + a.amount);
+      }
+      continue;
+    }
+
     const parsed  = parseYearMonthCode(memoSrc);
     if (parsed.status === "확인필요") {
       확인필요.push({ vendor: vendorName, amt, memo: memoSrc, date: r.date, 매칭근거: r.매칭근거 });
