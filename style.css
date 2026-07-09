@@ -3432,6 +3432,9 @@ td {
     white-space: nowrap;
   }
   .card-footer { font-size: 0.66rem; }
+
+  /* 홈 현금흐름 일정표: 숫자 줄바꿈 방지 + 가로 스크롤 (셀이 좁아 숫자가 깨지던 문제) */
+  .tl-table th, .tl-table td { white-space: nowrap; padding: 8px 12px; }
 }
 
 .dashboard-details-row {
