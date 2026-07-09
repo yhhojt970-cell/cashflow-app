@@ -10042,7 +10042,12 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
   for (const r of (classifiedRows || [])) {
     if (r.excluded) continue;
     if (String(r.구분 || "").trim() !== 구분키) continue;
-    const amt = Number(r[amtField]) || 0;
+    let amt = Number(r[amtField]) || 0;
+    // 방어: 로컬 분류행 금액이 0이면 _txKey(_date|_time|credit|debit|memo)에서 복구 (옛 오염 데이터 자동 보정)
+    if (amt <= 0) {
+      const p = String(r._txKey || "").split("|");
+      amt = Number(p[amtField === "credit" ? 2 : 3]) || 0;
+    }
     if (amt <= 0) continue;
     const vendorName = (r.거래처명 || "").trim();
     if (!vendorName) continue;

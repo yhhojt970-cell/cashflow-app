@@ -46,14 +46,37 @@ button, input, select, textarea {
     gap: 6px;
   }
   .app-header h1 { font-size: 1.05rem; }
+  /* 헤더 버튼(토큰~전체거래처)을 한 줄로 두고 가로 스크롤 */
   .header-actions {
-    flex-wrap: wrap;
-    gap: 4px;
+    flex-wrap: nowrap;
+    gap: 5px;
     width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 3px;
   }
+  .header-actions > * { flex-shrink: 0; }
   .header-action-button {
     font-size: 0.72rem;
-    padding: 5px 7px;
+    padding: 5px 9px;
+    white-space: nowrap;
+  }
+  .header-actions select#partnerFilter {
+    min-width: 120px;
+    width: 130px;
+    padding: 5px 6px;
+  }
+  /* 헤더/탭 스크롤바 얇게 (자리 차지 최소화) */
+  .header-actions::-webkit-scrollbar, .tab-bar::-webkit-scrollbar { height: 3px; }
+  .header-actions::-webkit-scrollbar-thumb, .tab-bar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  /* 마스터 관리 드롭다운: 가로스크롤 컨테이너에 안 잘리도록 fixed로 띄움 */
+  .dropdown-menu {
+    position: fixed;
+    top: 96px;
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    margin-top: 0;
   }
   .ctrl-combined {
     flex-direction: column;
