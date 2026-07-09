@@ -119,12 +119,15 @@ function saveSourceFiles() {
     _sourceSaveTimer = setTimeout(() => {
       const rows = Object.values(mautoSourceFiles).flatMap(f =>
         (f.rows || []).filter(r => r._txKey).map(r => {
-          const out = { fileKey: f.filename || "" };
+          const out = {};
           SOURCE_SHARE_FIELDS.forEach(k => {
             let v = r[k];
             if ((v === undefined || v === null || v === "") && SOURCE_FIELD_ALIAS[k]) v = r[SOURCE_FIELD_ALIAS[k]];
             out[k] = v ?? "";
           });
+          // fileKey/filename은 행 객체에 없으므로 파일 그룹명으로 채운다 (안 그러면 다른 컴퓨터에서 "원격 로드"로 표시됨)
+          out.fileKey = f.filename || out.fileKey || "";
+          out.filename = f.filename || out.filename || "";
           return out;
         })
       );
@@ -4184,8 +4187,8 @@ function buildCashflowTimelineHtml(mode) {
           <button class="tl-mode-btn" data-mode="weekly" style="padding:4px 13px;border-radius:4px;border:none;cursor:pointer;font-size:12px;${wkActive}">주별</button>
         </div>
       </div>
-      <div style="max-height:420px;overflow-y:auto;">
-        <table class="tl-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+      <div style="max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;">
+        <table class="tl-table" style="width:100%;min-width:440px;border-collapse:collapse;font-size:13px;">
           <thead>
             <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
               <th style="padding:9px 14px;border-bottom:2px solid #e5e7eb;text-align:left;font-size:12px;color:#6b7280;font-weight:600;">날짜</th>
@@ -4282,6 +4285,13 @@ function renderDashboard() {
   }
 }
 
+// 검색/연도/월/상태 필터는 미수금·미지급·고정지출·대사에서만 사용 → 그 외 탭에선 숨겨 공간 절약
+const FILTER_BAR_TABS = new Set(["receivables", "payables", "fixed", "daesa"]);
+function updateFilterBarVisibility(tabId) {
+  const fr = document.querySelector(".filter-row");
+  if (fr) fr.style.display = FILTER_BAR_TABS.has(tabId) ? "" : "none";
+}
+
 function switchTab(tabId) {
   const buttons = document.querySelectorAll(".tab-button");
   const contents = document.querySelectorAll(".tab-content");
@@ -4293,6 +4303,8 @@ function switchTab(tabId) {
   contents.forEach(content => {
     content.classList.toggle("active", content.id === tabId);
   });
+
+  updateFilterBarVisibility(tabId);
 
   if (tabId === "mauto") {
     renderMautoTab();
@@ -8213,6 +8225,7 @@ function setupTabs() {
       document.querySelectorAll(".tab-content").forEach(section => {
         section.classList.toggle("active", section.id === target);
       });
+      updateFilterBarVisibility(target);
       if (target === "daesa") renderDaesaTab();
       if (target === "fixed") renderFixedExpenses();
       if (target === "pnl") { renderPnlTab(); loadPnlRemote(); }
@@ -11744,6 +11757,7 @@ async function init() {
   renderFilterControls();
   renderVendorMasterPanel();
   setupTabs();
+  updateFilterBarVisibility(document.querySelector(".tab-button.active")?.dataset.tab || "home");
   setupMasterMenu();
   setupVendorMasterImport();
   setupLedgerVendorImport();

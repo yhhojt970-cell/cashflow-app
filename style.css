@@ -3405,6 +3405,35 @@ td {
   color: #94a3b8;
 }
 
+/* ── 모바일: 대시보드 컴팩트화 (카드가 너무 크고 세로로 길어지는 문제) ── */
+@media (max-width: 768px) {
+  .dashboard-container { padding: 4px 0; }
+  .dashboard-header { margin-bottom: 10px; flex-wrap: wrap; gap: 2px; }
+  .dashboard-header h2 { font-size: 1.15rem; }
+  .last-updated { font-size: 0.68rem; }
+  .dashboard-summary-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .dashboard-card {
+    padding: 11px 12px;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .dashboard-card:hover { transform: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  /* 예상 잔액(강조)·마지막 홀수 카드는 한 줄 전체 폭 */
+  .dashboard-card.expected, .dashboard-card.highlight { grid-column: 1 / -1; }
+  .card-icon { font-size: 1.1rem; margin-bottom: 3px; }
+  .card-label { font-size: 0.72rem; margin-bottom: 1px; }
+  .card-value {
+    font-size: clamp(0.95rem, 5.2vw, 1.35rem);
+    margin-bottom: 2px;
+    white-space: nowrap;
+  }
+  .card-footer { font-size: 0.66rem; }
+}
+
 .dashboard-details-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
