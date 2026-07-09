@@ -6790,6 +6790,9 @@ function _scheduleMautoRemoteSave() {
   clearTimeout(_mautoSaveTimer);
   _mautoSaveTimer = setTimeout(async () => {
     try {
+      // ⚠️ taxInvoices는 절대 포함하지 말 것! 엠오토_json은 한 셀(A1)에 저장되는데
+      // 세금계산서 146건까지 넣으면 10만 자를 넘겨 Google Sheets 셀 한도(5만 자) 초과 →
+      // 저장 전체가 실패해 가용자금 등이 동기화 안 됨. 세금계산서는 엠오토_세금계산서 시트에 별도 저장됨.
       await postSheetWebApp("saveMautoData", {
         data: {
           ...mautoData,
@@ -6797,7 +6800,6 @@ function _scheduleMautoRemoteSave() {
           excludePay: mautoExcludeVendorsPay,
           fixedChecked: mautoFixedChecked,
           fixedAmountOverrides: mautoFixedAmountOverrides,
-          taxInvoices: mautoTaxInvoices,
         }
       });
     } catch (e) {
