@@ -13603,17 +13603,17 @@ function renderPnlHalfYearReport(el) {
           <div class="pnl-kpi">
             <div class="pnl-kpi-label">매출액</div>
             <div class="pnl-kpi-value">${_pf(entry.revenue)} 원</div>
-            ${c.tgtA !== null ? `<div class="pnl-kpi-sub">달성률 ${c.tgtA.toFixed(1)}%</div>` : ""}
+            ${c.targetAchieve !== null ? `<div class="pnl-kpi-sub">달성률 ${c.targetAchieve.toFixed(1)}%</div>` : ""}
           </div>
           <div class="pnl-kpi">
             <div class="pnl-kpi-label">매출총이익</div>
             <div class="pnl-kpi-value ${c.gross>=0?"pnl-pos":"pnl-neg"}">${_ps(c.gross)} 원</div>
-            <div class="pnl-kpi-sub">총이익률 ${c.gmR.toFixed(1)}%</div>
+            <div class="pnl-kpi-sub">총이익률 ${c.gmRate.toFixed(1)}%</div>
           </div>
           <div class="pnl-kpi pnl-kpi-hl">
             <div class="pnl-kpi-label">경영이익(손실)</div>
             <div class="pnl-kpi-value ${c.mgmt>=0?"pnl-pos":"pnl-neg"}">${_ps(c.mgmt)} 원</div>
-            <div class="pnl-kpi-sub">영업이익률 ${c.opR.toFixed(1)}%</div>
+            <div class="pnl-kpi-sub">영업이익률 ${c.opRate.toFixed(1)}%</div>
           </div>
         </div>
         <div class="pnl-section">
@@ -13706,17 +13706,17 @@ function renderPnlAnnualReport(el) {
           <div class="pnl-kpi">
             <div class="pnl-kpi-label">매출액</div>
             <div class="pnl-kpi-value">${_pf(entry.revenue)} 원</div>
-            ${c.tgtA !== null ? `<div class="pnl-kpi-sub">달성률 ${c.tgtA.toFixed(1)}%</div>` : ""}
+            ${c.targetAchieve !== null ? `<div class="pnl-kpi-sub">달성률 ${c.targetAchieve.toFixed(1)}%</div>` : ""}
           </div>
           <div class="pnl-kpi">
             <div class="pnl-kpi-label">매출총이익</div>
             <div class="pnl-kpi-value ${c.gross>=0?"pnl-pos":"pnl-neg"}">${_ps(c.gross)} 원</div>
-            <div class="pnl-kpi-sub">총이익률 ${c.gmR.toFixed(1)}%</div>
+            <div class="pnl-kpi-sub">총이익률 ${c.gmRate.toFixed(1)}%</div>
           </div>
           <div class="pnl-kpi pnl-kpi-hl">
             <div class="pnl-kpi-label">경영이익(손실)</div>
             <div class="pnl-kpi-value ${c.mgmt>=0?"pnl-pos":"pnl-neg"}">${_ps(c.mgmt)} 원</div>
-            <div class="pnl-kpi-sub">영업이익률 ${c.opR.toFixed(1)}%</div>
+            <div class="pnl-kpi-sub">영업이익률 ${c.opRate.toFixed(1)}%</div>
           </div>
         </div>
         <div class="pnl-section">
