@@ -11945,6 +11945,7 @@ function writePnlPendingToFirebase() {
   if (!db) return;
   const nonDraft = pnlData.filter(e => e.approvalStatus && e.approvalStatus !== "draft");
   const qRows    = Object.values(pnlQuarterApproval || {}).filter(q => q && q.approvalStatus && q.approvalStatus !== "draft");
+  const hRows    = Object.values(pnlHalfApproval || {}).filter(h => h && h.approvalStatus && h.approvalStatus !== "draft");
 
   PNL_STEP_EMAILS.forEach((email, idx) => {
     let total = 0;
@@ -11952,7 +11953,8 @@ function writePnlPendingToFirebase() {
       // 기안자: 결재 진행 중 건수 (본인이 기안했지만 아직 결재완료 아닌 것)
       const si = s => PNL_STATUS_ORDER.indexOf(s || "draft");
       total = nonDraft.filter(e => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length
-            + qRows.filter(e   => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length;
+            + qRows.filter(e   => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length
+            + hRows.filter(e   => { const s = si(e.approvalStatus); return s >= 1 && s < 4; }).length;
     } else {
       const step = PNL_APPROVAL_STEPS[idx];
       const check = e => {
@@ -11961,7 +11963,7 @@ function writePnlPendingToFirebase() {
         if (idx === 3) return !!e.agree1Date && !!e.agree2Date && !e.ceoDate;
         return false;
       };
-      total = nonDraft.filter(check).length + qRows.filter(check).length;
+      total = nonDraft.filter(check).length + qRows.filter(check).length + hRows.filter(check).length;
     }
     db.ref("pnlPending/" + _pnlEk(email)).set(total > 0 ? total : null).catch(() => {});
   });
@@ -11976,11 +11978,14 @@ let pnlDashPeriod = "monthly";
 let pnlInvYear  = new Date().getFullYear();
 let _pnlCharts  = {};
 const _pnlQtrSyncedKeys = new Set(); // 세션 중 구글시트 동기화 완료한 분기 키
+const _pnlHalfSyncedKeys = new Set(); // 세션 중 구글시트 동기화 완료한 반기 키
 let _pnlImportIncome = null;  // 손익계산서 파싱 결과 {month: {revenue,cogs,sga,interest}}
 let _pnlImportCost   = null;  // 원가명세서 파싱 결과 {month: {mfg}}
 let _pnlImportYear   = new Date().getFullYear();
 const PNL_Q_APPROVAL_KEY = "cashflow-app.pnl-quarter-approval-v1";
 let pnlQuarterApproval = {};  // { "2026_Q1": { approvalStatus, draftDate, ... } }
+const PNL_H_APPROVAL_KEY = "cashflow-app.pnl-half-approval-v1";
+let pnlHalfApproval = {};  // { "2026_H1": { approvalStatus, draftDate, ... } }
 
 // ── 로컬 스토리지 ─────────────────────────────────────────────
 function loadPnlLocal() {
@@ -11993,6 +11998,7 @@ function loadPnlLocal() {
     savePnlLocal();
   }
   loadPnlQuarterApprovalLocal();
+  loadPnlHalfApprovalLocal();
 }
 
 function savePnlLocal() {
@@ -12006,6 +12012,15 @@ function loadPnlQuarterApprovalLocal() {
 }
 function savePnlQuarterApprovalLocal() {
   try { localStorage.setItem(PNL_Q_APPROVAL_KEY, JSON.stringify(pnlQuarterApproval)); } catch (_) {}
+}
+function loadPnlHalfApprovalLocal() {
+  try {
+    const raw = localStorage.getItem(PNL_H_APPROVAL_KEY);
+    pnlHalfApproval = raw ? JSON.parse(raw) : {};
+  } catch (_) { pnlHalfApproval = {}; }
+}
+function savePnlHalfApprovalLocal() {
+  try { localStorage.setItem(PNL_H_APPROVAL_KEY, JSON.stringify(pnlHalfApproval)); } catch (_) {}
 }
 
 function _saveQtrToSheets(year, quarter, qKey, qApproval) {
@@ -12030,6 +12045,30 @@ function _saveQtrToSheets(year, quarter, qKey, qApproval) {
     ceoDate:        qApproval.ceoDate    || "",
     docNo:          qApproval.docNo      || "",
   }]}).catch(e => console.warn("[PNL-Q] Sheets 저장 실패:", e));
+}
+
+function _saveHalfToSheets(year, half, hKey, hApproval) {
+  const months = half === 1 ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+  const fins = (pnlData || []).filter(d => d.year === year && months.includes(d.month))
+    .reduce((a, d) => ({
+      revenue:       a.revenue       + (d.revenue       || 0),
+      targetRevenue: a.targetRevenue + (d.targetRevenue || 0),
+      cogs:          a.cogs          + (d.cogs          || 0),
+      mfg:           a.mfg           + (d.mfg           || 0),
+      sga:           a.sga           + (d.sga           || 0),
+      interest:      a.interest      + (d.interest      || 0),
+    }), { revenue: 0, targetRevenue: 0, cogs: 0, mfg: 0, sga: 0, interest: 0 });
+  postSheetWebApp("savePnlData", { rows: [{
+    _key: hKey,
+    year, half, month: 0,
+    ...fins,
+    approvalStatus: hApproval.approvalStatus,
+    draftDate:      hApproval.draftDate  || "",
+    agree1Date:     hApproval.agree1Date || "",
+    agree2Date:     hApproval.agree2Date || "",
+    ceoDate:        hApproval.ceoDate    || "",
+    docNo:          hApproval.docNo      || "",
+  }]}).catch(e => console.warn("[PNL-H] Sheets 저장 실패:", e));
 }
 
 function getPnlEntry(year, month) {
@@ -12111,6 +12150,15 @@ async function loadPnlRemote() {
       if (!m) return;
       _pnlQtrSyncedKeys.add(qKey);
       _saveQtrToSheets(+m[1], +m[2], qKey, qApproval);
+    });
+    // localStorage에만 있는 반기 서명 데이터를 구글시트에 동기화 (세션당 1회)
+    Object.entries(pnlHalfApproval).forEach(([hKey, hApproval]) => {
+      if (hApproval.approvalStatus === "draft") return;
+      if (_pnlHalfSyncedKeys.has(hKey)) return;
+      const m = hKey.match(/^(\d{4})_H([12])$/);
+      if (!m) return;
+      _pnlHalfSyncedKeys.add(hKey);
+      _saveHalfToSheets(+m[1], +m[2], hKey, hApproval);
     });
   } catch (e) { console.warn("[손익] 원격 로드 실패:", e); }
 }
@@ -13567,6 +13615,38 @@ function renderPnlHalfYearReport(el) {
   const pc      = prevH ? calcPnl(prevH) : null;
   const halfLabel = pnlRptHalf === 1 ? "상반기" : "하반기";
 
+  // 반기 결재 상태
+  const hKey = `${pnlRptYear}_H${pnlRptHalf}`;
+  const hApproval = pnlHalfApproval[hKey] || { approvalStatus:"draft", draftDate:"", agree1Date:"", agree2Date:"", ceoDate:"", docNo:"" };
+  const hStatusIdx = _pnlStatusIdx(hApproval.approvalStatus);
+
+  // 기존 서명 데이터가 있으면 세션 중 1회 구글시트 자동 동기화
+  if (hApproval.approvalStatus !== "draft" && !_pnlHalfSyncedKeys.has(hKey)) {
+    _pnlHalfSyncedKeys.add(hKey);
+    _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
+  }
+
+  function approvalBoxH(stepIdx) {
+    const step = PNL_APPROVAL_STEPS[stepIdx];
+    const done    = hStatusIdx > stepIdx;
+    const current = hStatusIdx === stepIdx && !!entry;
+    const date    = hApproval[step.dateKey] || "";
+    return `
+      <div class="pnl-ap-box">
+        <div class="pnl-ap-role">${step.role}</div>
+        <div class="pnl-ap-name">${step.name} ${step.title}</div>
+        <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
+        ${done
+          ? `<div class="pnl-stamp ${step.stampCls}">서명
+               <button class="pnl-revoke-btn" data-step="${stepIdx}" title="결재 취소">↩</button>
+             </div>`
+          : current
+            ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
+            : `<div class="pnl-stamp pnl-stamp-empty"></div>`
+        }
+      </div>`;
+  }
+
   function cmpRow(label, pv, cv, isSub) {
     const diff = cv - pv;
     const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
@@ -13597,6 +13677,14 @@ function renderPnlHalfYearReport(el) {
           <div class="pnl-company-badge">MIRAE AUTOMATION CO., LTD</div>
           <div class="pnl-doc-title">${pnlRptYear}년 ${halfLabel} &mdash; 반기 경영손익 보고서</div>
           <div class="pnl-doc-sub">${months[0]}월 ~ ${months[months.length-1]}월 합산 관리기준 손익</div>
+          <div class="pnl-meta-row">
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안부서</span><span class="pnl-meta-val">${PNL_META.department}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안자</span><span class="pnl-meta-val">${PNL_META.author.name} ${PNL_META.author.title}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">기안일</span><span class="pnl-meta-val">${hApproval.draftDate||"—"}</span></div>
+            <div class="pnl-meta-item"><span class="pnl-meta-lbl">문서번호</span>
+              <span class="pnl-meta-val" id="pnlHDocNoVal" contenteditable="${!!entry}" style="outline:none;cursor:${entry?"text":"default"}">${hApproval.docNo||"—"}</span>
+            </div>
+          </div>
         </div>
         <div class="pnl-doc-body">
         ${!entry ? `<div class="pnl-no-data">이 반기의 데이터가 없습니다. 월별 데이터를 먼저 저장해 주세요.</div>` : `
@@ -13643,6 +13731,14 @@ function renderPnlHalfYearReport(el) {
             </tbody>
           </table>
         </div>` : ""}
+
+        <!-- 결재란 -->
+        <div class="pnl-section">
+          <div class="pnl-sec-title"><span class="pnl-sec-num" style="font-size:11px">✓</span>결재</div>
+          <div class="pnl-ap-grid">
+            ${PNL_APPROVAL_STEPS.map((_,i) => approvalBoxH(i)).join("")}
+          </div>
+        </div>
         `}
         </div><!-- /pnl-doc-body -->
         <div class="pnl-doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
@@ -13661,6 +13757,55 @@ function renderPnlHalfYearReport(el) {
   document.getElementById("pnlRptYear")?.addEventListener("change", e => { pnlRptYear = +e.target.value; renderPnlReport(el); });
   document.getElementById("pnlRptHalf")?.addEventListener("change", e => { pnlRptHalf = +e.target.value; renderPnlReport(el); });
   document.getElementById("pnlPrintBtn")?.addEventListener("click", () => window.print());
+
+  // 반기 문서번호 인라인 편집
+  document.getElementById("pnlHDocNoVal")?.addEventListener("blur", e => {
+    if (!entry) return;
+    const val = e.target.textContent.trim();
+    if (val === "—") return;
+    hApproval.docNo = val;
+    pnlHalfApproval[hKey] = hApproval;
+    savePnlHalfApprovalLocal();
+  });
+
+  // 반기 서명 버튼
+  el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const stepIdx = +btn.dataset.step;
+      const step = PNL_APPROVAL_STEPS[stepIdx];
+      if (!entry) return;
+      hApproval[step.dateKey] = _todayKor();
+      hApproval.approvalStatus = step.nextStatus;
+      if (stepIdx === 0 && (!hApproval.docNo || hApproval.docNo === "—")) {
+        hApproval.docNo = `MA-PNL-${pnlRptYear}H${pnlRptHalf}-001`;
+      }
+      pnlHalfApproval[hKey] = hApproval;
+      savePnlHalfApprovalLocal();
+      _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
+      writePnlPendingToFirebase();
+      pnlToast(`${step.role} 서명 완료`);
+      renderPnlReport(el);
+    });
+  });
+
+  // 반기 취소(revoke) 버튼
+  el.querySelectorAll(".pnl-revoke-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      if (!confirm("결재를 취소하시겠습니까?")) return;
+      const stepIdx = +btn.dataset.step;
+      for (let i = stepIdx; i < PNL_APPROVAL_STEPS.length; i++) {
+        hApproval[PNL_APPROVAL_STEPS[i].dateKey] = "";
+      }
+      hApproval.approvalStatus = stepIdx > 0 ? PNL_APPROVAL_STEPS[stepIdx-1].nextStatus : "draft";
+      if (stepIdx === 0) hApproval.docNo = "";
+      pnlHalfApproval[hKey] = hApproval;
+      savePnlHalfApprovalLocal();
+      _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
+      writePnlPendingToFirebase();
+      renderPnlReport(el);
+    });
+  });
 }
 
 function renderPnlAnnualReport(el) {
