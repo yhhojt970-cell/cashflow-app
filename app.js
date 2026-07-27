@@ -12089,21 +12089,44 @@ function deletePnlEntry(year, month) {
   savePnlLocal();
 }
 
-let _pnlSaveTimer = null;
+const _pnlSaveTimers = new Map(); // 월(year_month)별 독립 디바운스 — 공용 타이머 쓰면 여러 달 연속저장 시 마지막 달만 시트에 반영됨
 function _schedulePnlSave(entry) {
-  clearTimeout(_pnlSaveTimer);
-  _pnlSaveTimer = setTimeout(async () => {
+  const key = `${entry.year}_${entry.month}`;
+  clearTimeout(_pnlSaveTimers.get(key));
+  _pnlSaveTimers.set(key, setTimeout(async () => {
+    _pnlSaveTimers.delete(key);
     if (!SHEET_APP_SCRIPT_URL) return;
     try {
+      // 인자로 받은 entry가 부분 객체일 수 있으므로, pnlData에 병합된 최신 전체 레코드를 전송
+      const full = getPnlEntry(entry.year, entry.month) || entry;
       await postSheetWebApp("savePnlData", {
         row: {
-          ...entry,
-          corrections: JSON.stringify(entry.corrections || []),
-          _key: `${entry.year}_${String(entry.month).padStart(2, "0")}`,
+          ...full,
+          corrections: JSON.stringify(full.corrections || []),
+          _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
         },
       });
     } catch (e) { console.warn("[손익] 구글시트 저장 실패:", e); }
-  }, 800);
+  }, 800));
+}
+
+// 여러 달을 한 번에 저장할 때(전체 저장 등) 개별 디바운스 대신 한 번의 배치 요청으로 즉시 동기화
+async function _flushPnlMonthsToSheets(year, months) {
+  months.forEach(m => clearTimeout(_pnlSaveTimers.get(`${year}_${m}`)));
+  months.forEach(m => _pnlSaveTimers.delete(`${year}_${m}`));
+  if (!SHEET_APP_SCRIPT_URL) return;
+  const pnlRows = months
+    .map(m => getPnlEntry(year, m))
+    .filter(Boolean)
+    .map(full => ({
+      ...full,
+      corrections: JSON.stringify(full.corrections || []),
+      _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
+    }));
+  if (!pnlRows.length) return;
+  try {
+    await postSheetWebApp("savePnlData", { rows: pnlRows });
+  } catch (e) { console.warn("[손익] 구글시트 일괄 저장 실패:", e); }
 }
 
 async function loadPnlRemote() {
@@ -12377,6 +12400,7 @@ function renderPnlInventory(el) {
 
     el.querySelector("#pnlInvSaveAll").addEventListener("click", () => {
       el.querySelectorAll("tbody tr").forEach(tr => saveRow(tr));
+      _flushPnlMonthsToSheets(pnlInvYear, Array.from({length: 12}, (_, i) => i + 1));
       pnlToast("재고 전체 저장 완료");
       render();
     });
@@ -12389,6 +12413,7 @@ function renderPnlInventory(el) {
         const { beginInventory, endInventory, ...rest } = existing;
         upsertPnlEntry(rest);
       });
+      _flushPnlMonthsToSheets(pnlInvYear, Array.from({length: 12}, (_, i) => i + 1));
       pnlToast("초기화 완료");
       render();
     });
