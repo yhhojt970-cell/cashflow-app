@@ -12374,8 +12374,11 @@ function renderPnlInventory(el) {
       const beginVal   = tr.querySelector("[data-f=begin]").value.trim();
       const endVal     = tr.querySelector("[data-f=end]").value.trim();
       const purchaseVal = parseN(tr.querySelector("[data-f=purchase]").value);
-      const existing   = getPnlEntry(pnlInvYear, m) || {};
-      const update     = { ...existing, year: pnlInvYear, month: m, purchaseAmount: purchaseVal };
+      const existing   = getPnlEntry(pnlInvYear, m);
+      // 원래 저장된 데이터도 없고 입력한 재고값도 없으면 — 아직 원격 데이터를 못 불러왔을 뿐일 수 있으므로
+      // 빈 레코드를 새로 만들지 않음 ("전체 저장" 시 로딩 안 된 달을 빈 값으로 덮어쓰는 사고 방지)
+      if (!existing && beginVal === "" && endVal === "" && !purchaseVal) return;
+      const update     = { ...(existing || {}), year: pnlInvYear, month: m, purchaseAmount: purchaseVal };
 
       if (beginVal !== "" || endVal !== "") {
         update.beginInventory = parseN(beginVal);
