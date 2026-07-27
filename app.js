@@ -12057,7 +12057,11 @@ function _schedulePnlSave(entry) {
     if (!SHEET_APP_SCRIPT_URL) return;
     try {
       await postSheetWebApp("savePnlData", {
-        row: { ...entry, _key: `${entry.year}_${String(entry.month).padStart(2, "0")}` },
+        row: {
+          ...entry,
+          corrections: JSON.stringify(entry.corrections || []),
+          _key: `${entry.year}_${String(entry.month).padStart(2, "0")}`,
+        },
       });
     } catch (e) { console.warn("[손익] 구글시트 저장 실패:", e); }
   }, 800);
@@ -12088,6 +12092,7 @@ async function loadPnlRemote() {
         draftDate: r.draftDate || "", agree1Date: r.agree1Date || "",
         agree2Date: r.agree2Date || "", ceoDate: r.ceoDate || "",
         docNo: r.docNo || "", ceoComment: r.ceoComment || "",
+        corrections: (() => { try { return JSON.parse(r.corrections || "[]"); } catch (_) { return []; } })(),
         ...(r.beginInventory != null && r.beginInventory !== "" ? { beginInventory: Number(r.beginInventory) } : {}),
         ...(r.endInventory   != null && r.endInventory   !== "" ? { endInventory:   Number(r.endInventory)   } : {}),
       };
@@ -12687,6 +12692,50 @@ function openPnlImportDialog() {
 }
 
 // ── 입력 탭 ──────────────────────────────────────────────────
+// ── 결재완료 후 수정 사유 다이얼로그 ──────────────────────────
+function openPnlCorrectionDialog(changes, onConfirm) {
+  document.querySelector(".pnl-correction-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "raw-diff-overlay pnl-correction-overlay";
+  overlay.innerHTML = `
+    <div class="raw-diff-dialog pnl-correction-dialog">
+      <div class="raw-diff-header">
+        <h3>결재 진행 중인 보고서 수정</h3>
+        <span class="raw-diff-sub">이미 서명이 진행된 보고서입니다. 수정 사유를 입력하면 저장과 동시에 결재가 취소되어 기안부터 다시 서명해야 합니다.</span>
+      </div>
+      <div class="raw-diff-section">
+        <div class="raw-diff-section-title changed-title">변경 항목</div>
+        ${changes.map(c => `
+          <div class="raw-diff-row">
+            <span class="raw-diff-label">${escapeHtml(c.label)}</span>
+            <span class="raw-diff-amounts">${_pf(c.oldValue)} → <strong>${_pf(c.newValue)}</strong></span>
+          </div>`).join("")}
+      </div>
+      <div class="pnl-correction-reason-wrap">
+        <label class="pnl-correction-reason-label">수정 사유 <span style="color:#dc2626">*</span></label>
+        <textarea id="pnlCorrectionReason" class="pnl-correction-reason-input" rows="3" placeholder="예: 판관비 과대 입력 정정 (중복 반영된 항목 제외)"></textarea>
+      </div>
+      <div class="raw-diff-actions">
+        <button type="button" class="diff-cancel-btn" id="pnlCorrectionCancelBtn">취소</button>
+        <button type="button" class="diff-confirm-btn" id="pnlCorrectionConfirmBtn">사유 저장 후 수정 반영</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const reasonInput = overlay.querySelector("#pnlCorrectionReason");
+  reasonInput.focus();
+  overlay.querySelector("#pnlCorrectionConfirmBtn").addEventListener("click", () => {
+    const reason = reasonInput.value.trim();
+    if (!reason) {
+      reasonInput.style.borderColor = "#dc2626";
+      reasonInput.placeholder = "수정 사유를 입력해야 저장할 수 있습니다";
+      return;
+    }
+    overlay.remove();
+    onConfirm(reason);
+  });
+  overlay.querySelector("#pnlCorrectionCancelBtn").addEventListener("click", () => overlay.remove());
+}
+
 function renderPnlInput(el) {
   const entry = getPnlEntry(pnlInputYear, pnlInputMonth) || {
     year: pnlInputYear, month: pnlInputMonth,
@@ -12779,6 +12828,17 @@ function renderPnlInput(el) {
         <button id="pnlDeleteBtn" class="pnl-btn pnl-btn-danger">삭제</button>
         <button id="pnlToReportBtn" class="pnl-btn pnl-btn-ghost">보고서로 →</button>
       </div>
+
+      ${(entry.corrections && entry.corrections.length) ? `
+      <div class="pnl-correction-history">
+        <div class="pnl-correction-history-title">📝 수정이력 (${entry.corrections.length}건)</div>
+        ${entry.corrections.slice().reverse().map(c => `
+          <div class="pnl-correction-item">
+            <div class="pnl-correction-item-head"><span>${c.date}</span><span class="pnl-correction-from">${c.fromStatus} 상태에서 수정</span></div>
+            <div class="pnl-correction-reason">${escapeHtml(c.reason)}</div>
+            <div class="pnl-correction-changes">${c.changes.map(ch => `${ch.label} ${_pf(ch.oldValue)}원 → ${_pf(ch.newValue)}원`).join(" · ")}</div>
+          </div>`).join("")}
+      </div>` : ""}
     </div>`;
 
   // 월 이동
@@ -12840,11 +12900,34 @@ function renderPnlInput(el) {
   });
 
   document.getElementById("pnlSaveBtn").addEventListener("click", () => {
-    const newEntry = { ...entry, ...getVals() };
-    if (!newEntry.approvalStatus) newEntry.approvalStatus = "draft";
-    upsertPnlEntry(newEntry);
-    pnlToast("저장되었습니다.");
-    renderPnlTab();
+    const newVals = getVals();
+    const wasSigned = (entry.approvalStatus || "draft") !== "draft";
+    if (!wasSigned) {
+      const newEntry = { ...entry, ...newVals };
+      if (!newEntry.approvalStatus) newEntry.approvalStatus = "draft";
+      upsertPnlEntry(newEntry);
+      pnlToast("저장되었습니다.");
+      renderPnlTab();
+      return;
+    }
+    // 이미 서명이 진행된 보고서 — 수정 사유 입력 필수
+    const changes = fields
+      .filter(f => (Number(entry[f.key]) || 0) !== newVals[f.key])
+      .map(f => ({ label: f.label, oldValue: Number(entry[f.key]) || 0, newValue: newVals[f.key] }));
+    if (!changes.length) { pnlToast("변경된 값이 없습니다."); return; }
+    openPnlCorrectionDialog(changes, reason => {
+      const newEntry = { ...entry, ...newVals };
+      PNL_APPROVAL_STEPS.forEach(step => { newEntry[step.dateKey] = ""; });
+      newEntry.approvalStatus = "draft";
+      newEntry.docNo = "";
+      newEntry.corrections = [...(entry.corrections || []), {
+        date: _todayKor(), reason, fromStatus: entry.approvalStatus, changes,
+      }];
+      upsertPnlEntry(newEntry);
+      writePnlPendingToFirebase();
+      pnlToast("수정사유가 저장되었습니다. 결재가 취소되어 기안부터 다시 서명해야 합니다.");
+      renderPnlTab();
+    });
   });
   document.getElementById("pnlDeleteBtn").addEventListener("click", () => {
     if (!getPnlEntry(pnlInputYear, pnlInputMonth)) { pnlToast("저장된 데이터가 없습니다."); return; }
@@ -13068,6 +13151,17 @@ function renderPnlReport(el) {
               <input type="text" id="pnlCeoComment" class="pnl-ceo-input" value="${escapeHtml(entry?.ceoComment||"")}" placeholder="의견을 입력하세요" />
             </div>
           </div>
+
+          ${entry?.corrections?.length ? `
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num" style="font-size:11px">✎</span>수정이력</div>
+            ${entry.corrections.map(c => `
+              <div class="pnl-correction-item">
+                <div class="pnl-correction-item-head"><span>${c.date}</span><span class="pnl-correction-from">${c.fromStatus} → 재기안</span></div>
+                <div class="pnl-correction-reason">${escapeHtml(c.reason)}</div>
+                <div class="pnl-correction-changes">${c.changes.map(ch => `${ch.label} ${_pf(ch.oldValue)}원 → ${_pf(ch.newValue)}원`).join(" · ")}</div>
+              </div>`).join("")}
+          </div>` : ""}
           `}
         </div><!-- /pnl-doc-body -->
         <div class="pnl-doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>

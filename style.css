@@ -2605,6 +2605,15 @@ td {
 .diff-confirm-btn { padding: 8px 18px; background: #1e40af; color: #fff; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
 .diff-cancel-btn { padding: 8px 14px; background: #f1f5f9; color: #475569; border: none; border-radius: 8px; cursor: pointer; }
 
+/* ── 경영손익 수정사유 다이얼로그 ── */
+.pnl-correction-reason-wrap { margin-top: 16px; }
+.pnl-correction-reason-label { display: block; font-size: 0.85rem; font-weight: 700; margin-bottom: 6px; color: #334155; }
+.pnl-correction-reason-input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px;
+  font-size: 0.85rem; font-family: inherit; resize: vertical;
+}
+.pnl-correction-reason-input:focus { outline: none; border-color: #1e40af; }
+
 /* ── 은행 매칭 다이얼로그 ── */
 .bank-match-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 2000;
@@ -4709,6 +4718,25 @@ td {
 .pnl-no-data {
   text-align: center; padding: 48px 0; color: var(--pnl-muted); font-size: 14px;
 }
+
+/* 수정이력 */
+.pnl-correction-history {
+  margin-top: 20px; border: 1px solid var(--pnl-border); border-radius: 10px; overflow: hidden;
+}
+.pnl-correction-history-title {
+  background: var(--pnl-cream); padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--pnl-navy);
+}
+.pnl-correction-item {
+  padding: 10px 14px; border-top: 1px solid var(--pnl-border); font-size: 12px;
+}
+.pnl-correction-history .pnl-correction-item:first-child { border-top: none; }
+.pnl-correction-item-head {
+  display: flex; justify-content: space-between; align-items: center;
+  color: var(--pnl-muted); font-size: 11px; margin-bottom: 4px;
+}
+.pnl-correction-from { font-weight: 700; color: var(--pnl-red); }
+.pnl-correction-reason { color: #334155; margin-bottom: 4px; line-height: 1.5; }
+.pnl-correction-changes { font-family: 'DM Mono', monospace; color: var(--pnl-navy); font-size: 11px; }
 
 /* ── 대시보드 탭 ── */
 .pnl-dash-wrap { max-width: 1100px; margin: 0 auto; }
