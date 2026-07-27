@@ -12807,10 +12807,14 @@ function renderPnlInput(el) {
     { key:"targetRevenue", id:"pnlTgt",    label:"목표매출액",   displayVal: entry.targetRevenue  },
     // 재고 탭 수동 입력 시: effectiveCogs(c.cogs) 표시 + 안내 뱃지
     { key:"cogs",          id:"pnlCogs",   label:"상품매출원가", displayVal: c.cogs,
-      note: hasManualInv ? "📦 재고탭 적용중" : null },
-    { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용", displayVal: entry.mfg         },
-    { key:"sga",           id:"pnlSga",    label:"판매관리비",   displayVal: entry.sga           },
-    { key:"interest",      id:"pnlInt",    label:"영업외비용",   displayVal: entry.interest      },
+      note: hasManualInv ? "📦 재고탭 적용중" : null,
+      help: "이번 달 판매된 상품의 매입원가입니다.\n재고 탭에서 기초재고+당기매입-기말재고로 자동계산되면 📦 표시가 뜨고, 아니면 여기 입력한 값이 그대로 사용됩니다.\n[매출총이익 = 매출액 − (상품매출원가 + 당기총제조비용)]" },
+    { key:"mfg",           id:"pnlMfg",    label:"당기총제조비용", displayVal: entry.mfg,
+      help: "자체 제조·가공 등에 들어간 비용 합계입니다.\n[매출총이익 = 매출액 − (상품매출원가 + 당기총제조비용)]" },
+    { key:"sga",           id:"pnlSga",    label:"판매관리비",   displayVal: entry.sga,
+      help: "인건비·임차료·광고비 등 판매 및 관리에 들어간 비용입니다.\n[관리기준 영업이익 = 매출총이익 − 판매관리비]" },
+    { key:"interest",      id:"pnlInt",    label:"영업외비용",   displayVal: entry.interest,
+      help: "이자비용 등 영업활동과 직접 관련 없는 비용입니다.\n[경영이익 = 관리기준 영업이익 − 영업외비용]" },
   ];
 
   const incLabel = _pnlImportIncome ? "손익계산서" : "손익계산서 업로드";
@@ -12849,7 +12853,7 @@ function renderPnlInput(el) {
           <div class="pnl-form-title">입력 항목</div>
           ${fields.map(f => `
             <div class="pnl-field-row">
-              <label class="pnl-field-label">${f.label}${f.note ? `<span class="pnl-inv-badge">${f.note}</span>` : ""}</label>
+              <label class="pnl-field-label">${f.label}${f.help ? `<span class="pnl-help" data-tip="${f.help}">?</span>` : ""}${f.note ? `<span class="pnl-inv-badge">${f.note}</span>` : ""}</label>
               <input type="text" id="${f.id}" class="pnl-field-input${f.note ? " pnl-field-inv" : ""}" value="${f.displayVal>0?_pf(f.displayVal):""}" placeholder="0" inputmode="numeric" />
               <span class="pnl-field-unit">원</span>
             </div>`).join("")}
@@ -12857,17 +12861,17 @@ function renderPnlInput(el) {
 
         <div class="pnl-preview-card">
           <div class="pnl-form-title">자동 계산</div>
-          <div class="pnl-prev-row"><span>매출총이익</span><strong id="prvGross" class="${_pc(c.gross)}">${_ps(c.gross)} 원</strong></div>
-          <div class="pnl-prev-row pnl-muted"><span>총이익률</span><strong id="prvGmRate">${c.gmRate.toFixed(1)}%</strong></div>
+          <div class="pnl-prev-row"><span>매출총이익<span class="pnl-help" data-tip="매출액 − (상품매출원가 + 당기총제조비용)">?</span></span><strong id="prvGross" class="${_pc(c.gross)}">${_ps(c.gross)} 원</strong></div>
+          <div class="pnl-prev-row pnl-muted"><span>총이익률<span class="pnl-help" data-tip="매출총이익 ÷ 매출액 × 100">?</span></span><strong id="prvGmRate">${c.gmRate.toFixed(1)}%</strong></div>
           <div class="pnl-prev-row ${c.targetAchieve!==null?(c.targetAchieve>=100?"pnl-pos":"pnl-neg"):"pnl-muted"}">
-            <span>목표 달성률</span>
+            <span>목표 달성률<span class="pnl-help" data-tip="매출액 ÷ 목표매출액 × 100&#10;목표매출액을 입력해야 계산됩니다.">?</span></span>
             <strong id="prvTarget">${c.targetAchieve!==null?c.targetAchieve.toFixed(1)+"%":"—"}</strong>
           </div>
           <div class="pnl-prev-divider"></div>
-          <div class="pnl-prev-row"><span>영업이익</span><strong id="prvOp" class="${_pc(c.op)}">${_ps(c.op)} 원</strong></div>
-          <div class="pnl-prev-row pnl-muted"><span>영업이익률</span><strong id="prvOpRate">${c.opRate.toFixed(1)}%</strong></div>
+          <div class="pnl-prev-row"><span>영업이익<span class="pnl-help" data-tip="매출총이익 − 판매관리비&#10;(영업외비용 반영 전, 관리기준 영업이익입니다)">?</span></span><strong id="prvOp" class="${_pc(c.op)}">${_ps(c.op)} 원</strong></div>
+          <div class="pnl-prev-row pnl-muted"><span>영업이익률<span class="pnl-help" data-tip="영업이익 ÷ 매출액 × 100">?</span></span><strong id="prvOpRate">${c.opRate.toFixed(1)}%</strong></div>
           <div class="pnl-prev-divider"></div>
-          <div class="pnl-prev-row pnl-prev-highlight"><span>경영이익</span><strong id="prvMgmt" class="${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</strong></div>
+          <div class="pnl-prev-row pnl-prev-highlight"><span>경영이익<span class="pnl-help" data-tip="영업이익 − 영업외비용&#10;(이자비용 등 금융비용까지 반영한 최종 손익입니다)">?</span></span><strong id="prvMgmt" class="${_pc(c.mgmt)}">${_ps(c.mgmt)} 원</strong></div>
         </div>
       </div>
 
