@@ -11123,6 +11123,14 @@ async function loadRuleHistory() {
   }
 }
 
+// mautoFixedRules(고정지출 자동계산용, 별도 캐시)를 방금 저장된 rulesState.rows 기준으로 동기화
+// — 이미 로드된 적 있을 때만 갱신 (미로드 상태면 "규칙 불러오기" 버튼을 그대로 유지)
+function syncMautoFixedRulesFromRulesState() {
+  if (typeof mautoFixedRules !== "undefined" && mautoFixedRules !== null) {
+    mautoFixedRules = rulesState.rows.filter(r => String(r["사업체"] || "").trim() === "엠오토");
+  }
+}
+
 // 규칙 값 수정 시 결제예정일·예정금액이 실제로 바뀐 필드만 이력에 남김 (best-effort, 실패해도 규칙 저장은 유지)
 async function appendRuleHistoryIfChanged(oldRow, newRow) {
   if (!oldRow) return; // 신규 규칙은 이력 대상 아님 (변경이 아니라 생성이므로)
@@ -11172,6 +11180,7 @@ async function saveRule(ruleObj, origKey = "") {
     await appendRuleHistoryIfChanged(oldRow, row);
     // 새/수정된 규칙을 이미 업로드된 입출금 내역에 즉시 반영 (미매칭 재분류 포함)
     if (typeof rebuildMautoRows === "function") rebuildMautoRows();
+    syncMautoFixedRulesFromRulesState(); // 고정지출 자동계산(결제예정일·예정금액)도 즉시 반영
     if (typeof renderMautoTab === "function") renderMautoTab();
   } catch (e) {
     rulesState.msg = `저장 실패: ${e.message}`;
@@ -11192,6 +11201,7 @@ async function deleteRule(key) {
     rulesState.msg = "삭제 완료";
     rulesState.editKey = null;
     if (typeof rebuildMautoRows === "function") rebuildMautoRows();
+    syncMautoFixedRulesFromRulesState();
     if (typeof renderMautoTab === "function") renderMautoTab();
   } catch (e) {
     rulesState.msg = `삭제 실패: ${e.message}`;
