@@ -290,7 +290,8 @@ function calcFixedCheckedTotal(monthData) {
     items.forEach(item => {
       const d = item.예정결제일?.date || "미정";
       if (!byDate[d]) byDate[d] = { amt: 0, items: [] };
-      byDate[d].amt += item.예정금액 || 0;
+      // 이미 실제 결제완료(status===완료)된 항목은 그룹이 안 끝났어도 개별적으로 합계에서 제외
+      if (item.status !== "완료") byDate[d].amt += item.예정금액 || 0;
       byDate[d].items.push(item);
     });
     Object.entries(byDate).forEach(([date, { amt, items: grpItems }]) => {
@@ -7322,7 +7323,9 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
     });
 
     const bodyRows = dateGroups.map(({ date, dow, items: grpItems }) => {
-      const grpExpected = grpItems.reduce((s, i) => s + (i.예정금액 || 0), 0);
+      // 이미 실제 결제완료(status===완료)된 항목은 "앞으로 나갈 예정" 합계에서 개별 제외
+      // (같은 날짜에 미완료 항목과 섞여 있어도 완료분까지 이중으로 잡히지 않도록)
+      const grpExpected = grpItems.filter(i => i.status !== "완료").reduce((s, i) => s + (i.예정금액 || 0), 0);
       const grpActual  = grpItems.reduce((s, i) => s + i.totalAmount, 0);
       const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
@@ -11104,6 +11107,9 @@ async function saveRule(ruleObj) {
     rulesState.msg = "저장 완료";
     rulesState.editKey = null;
     rulesState.addingNew = false;
+    // 새/수정된 규칙을 이미 업로드된 입출금 내역에 즉시 반영 (미매칭 재분류 포함)
+    if (typeof rebuildMautoRows === "function") rebuildMautoRows();
+    if (typeof renderMautoTab === "function") renderMautoTab();
   } catch (e) {
     rulesState.msg = `저장 실패: ${e.message}`;
   } finally {
@@ -11122,6 +11128,8 @@ async function deleteRule(key) {
     rulesState.rows = rulesState.rows.filter(r => r["_rule_key"] !== key);
     rulesState.msg = "삭제 완료";
     rulesState.editKey = null;
+    if (typeof rebuildMautoRows === "function") rebuildMautoRows();
+    if (typeof renderMautoTab === "function") renderMautoTab();
   } catch (e) {
     rulesState.msg = `삭제 실패: ${e.message}`;
   } finally {
