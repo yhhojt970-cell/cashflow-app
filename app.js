@@ -7789,24 +7789,29 @@ function renderMautoTab() {
 
   // 미수/미지급 상태 필터 (전체/완료/미수금(미지급))
   sec.querySelectorAll(".mauto-ar-status-btn").forEach(btn => {
+    const wasOpenId = btn.closest(".mauto-section")?.id?.replace("mauto-section-", "");
     btn.addEventListener("click", () => {
       const st = btn.dataset.status;
       if (mautoArStatusFilter === st) return;
       mautoArStatusFilter = st;
       renderMautoTab();
-      // 재렌더 시 연/월(업체) 행이 기본 접힘으로 초기화되어 "표가 닫힌 것"처럼 보이므로
-      // 필터를 바꾼 목적(내용을 바로 보려는 것)에 맞게 두 표 모두 펼쳐서 보여줌
+      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 display:none 처리하고
+      // 카드 클릭 시에만 다시 열어주므로, 필터 버튼 클릭만으로는 재렌더 후 표 전체가
+      // 사라진 것처럼 보임 — 클릭했던 카드(미수금/미지급)를 다시 열어줌
       const newSec = elements.mauto || document.getElementById("mauto");
-      ["receivables", "payables"].forEach(id => {
-        const wrap = newSec?.querySelector(`#mauto-section-${id}`);
-        if (!wrap) return;
-        wrap.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month").forEach(row => {
-          row.dataset.collapsed = "0";
-          const icon = row.querySelector(".mauto-toggle-icon");
-          if (icon) icon.textContent = "▼";
-        });
-        wrap.querySelectorAll("[data-mauto-yr], [data-mauto-mo]").forEach(r => { r.style.display = ""; });
+      if (!newSec || !wasOpenId) return;
+      const wrap = newSec.querySelector(`#mauto-section-${wasOpenId}`);
+      if (!wrap) return;
+      wrap.style.display = "";
+      newSec.querySelectorAll(".mauto-card").forEach(c => c.classList.remove("mauto-card-active"));
+      newSec.querySelector(`.card-${wasOpenId === "receivables" ? "receivable" : "payable"}`)?.classList.add("mauto-card-active");
+      // 연/월(업체) 행도 기본 접힘으로 초기화되므로 필터 목적(내용을 바로 보기)에 맞게 펼침
+      wrap.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month").forEach(row => {
+        row.dataset.collapsed = "0";
+        const icon = row.querySelector(".mauto-toggle-icon");
+        if (icon) icon.textContent = "▼";
       });
+      wrap.querySelectorAll("[data-mauto-yr], [data-mauto-mo]").forEach(r => { r.style.display = ""; });
     });
   });
 
