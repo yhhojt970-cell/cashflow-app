@@ -7028,7 +7028,9 @@ function renderMautoAccountingTable(rows, kind) {
     const monthHtml = [...monthMap.entries()].map(([month, monthRows]) => {
       const monthSum = sumMautoRows(monthRows);
       const monthKey = `${kind}:${year}:${month}`;
-      const detailRows = monthRows.map(row => `
+      const detailRows = monthRows.map(row => {
+        const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+        const mainRow = `
         <tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}">
           <td></td>
           <td>${escapeHtml(String(row.month || ""))}</td>
@@ -7036,7 +7038,12 @@ function renderMautoAccountingTable(rows, kind) {
           ${mautoNumericCell(row.total)}
           ${mautoNumericCell(row.inout)}
           ${mautoNumericCell(row.balance, "mauto-balance-cell")}
-        </tr>`).join("");
+        </tr>`;
+        const arDetailRow = hasArDetail
+          ? `<tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}"><td colspan="6">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+          : "";
+        return mainRow + arDetailRow;
+      }).join("");
       const monthRowHtml = `<tr class="mauto-month-row mauto-toggle-month" data-mauto-year="${escapeHtml(String(yearKey))}" data-mauto-month="${escapeHtml(String(monthKey))}" style="cursor:pointer;">
         <td></td>
         <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(String(month))}${Number(month) ? "월" : ""}</td>
@@ -7113,14 +7120,21 @@ function renderMautoPayablesByVendor(payRows) {
       ${mautoNumericCell(vSum.inout)}
       ${mautoNumericCell(vSum.balance, "mauto-balance-cell")}
     </tr>`;
-    const detailRows = sortedVRows.map(row => `
+    const detailRows = sortedVRows.map(row => {
+      const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+      const mainRow = `
       <tr data-mauto-yr="${escapeHtml(vKey)}">
         <td></td>
         <td style="font-size:12px;color:#6b7280;">${row.year || ""}년 ${row.month || ""}월</td>
         ${mautoNumericCell(row.total)}
         ${mautoNumericCell(row.inout)}
         ${mautoNumericCell(row.balance, "mauto-balance-cell")}
-      </tr>`).join("");
+      </tr>`;
+      const arDetailRow = hasArDetail
+        ? `<tr data-mauto-yr="${escapeHtml(vKey)}"><td colspan="5">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+        : "";
+      return mainRow + arDetailRow;
+    }).join("");
     return headerRow + detailRows;
   }).join("");
 
@@ -7497,6 +7511,7 @@ function arRecapToMautoRows(entries, side) {
     .map(e => ({
       year: e.year, month: e.month, company: e.vendor,
       total: e.발생, inout: e.충당, balance: e.잔액,
+      발생상세: e.발생상세 || [], 충당상세: e.충당상세 || [],
     }));
 }
 
@@ -10005,6 +10020,27 @@ function renderDaesaTab() {
 //  Phase 4-A — 미수/미지급 자동계산 (세금계산서 발생 − 입출금 충당)
 // ────────────────────────────────────────────────────────────
 
+// 세금계산서 발생 상세 · 입출금 충당 상세를 나란히 보여주는 공용 HTML (대사 탭·엠오토 탭 공유)
+function arRecapDetailColsHtml(발생상세, 충당상세) {
+  const fn = n => formatNumber(n);
+  const taxRows = (발생상세 || []).length
+    ? 발생상세.map(d => `<div class="arrecap-detail-line"><span>${escapeHtml(d.date)}${d.no ? ` <span class="muted">(${escapeHtml(d.no)})</span>` : ""}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
+    : `<div class="muted" style="font-size:12px;">없음</div>`;
+  const payRows = (충당상세 || []).length
+    ? 충당상세.map(d => `<div class="arrecap-detail-line" title="${escapeHtml(d.memo || "")}"><span>${escapeHtml(d.date)}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
+    : `<div class="muted" style="font-size:12px;">없음 — 아직 입출금 미확인</div>`;
+  return `<div class="arrecap-detail-cols">
+    <div class="arrecap-detail-col">
+      <div class="arrecap-detail-title">세금계산서 (${(발생상세 || []).length}건)</div>
+      ${taxRows}
+    </div>
+    <div class="arrecap-detail-col">
+      <div class="arrecap-detail-title">입출금 — 실제 지급일 (${(충당상세 || []).length}건)</div>
+      ${payRows}
+    </div>
+  </div>`;
+}
+
 // sideType: "미수"(매출) | "미지급"(매입)
 // taxInvoices: daesaState.taxInvoices
 // classifiedRows: mautoClassifiedRows (입출금 분류 결과)
@@ -10206,24 +10242,7 @@ function renderArRecapView() {
         <td class="arrecap-num-cell arrecap-jan-cell ${jCls(r.잔액)}">${fn(r.잔액)}</td>
       </tr>`;
       if (isExpanded) {
-        const taxRows = r.발생상세.length
-          ? r.발생상세.map(d => `<div class="arrecap-detail-line"><span>${escapeHtml(d.date)}${d.no ? ` <span class="muted">(${escapeHtml(d.no)})</span>` : ""}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
-          : `<div class="muted" style="font-size:12px;">없음</div>`;
-        const payRows = r.충당상세.length
-          ? r.충당상세.map(d => `<div class="arrecap-detail-line" title="${escapeHtml(d.memo || "")}"><span>${escapeHtml(d.date)}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
-          : `<div class="muted" style="font-size:12px;">없음 — 아직 입출금 미확인</div>`;
-        bodyHtml += `<tr class="arrecap-detail-row"><td colspan="5">
-          <div class="arrecap-detail-cols">
-            <div class="arrecap-detail-col">
-              <div class="arrecap-detail-title">세금계산서 (${r.발생상세.length}건)</div>
-              ${taxRows}
-            </div>
-            <div class="arrecap-detail-col">
-              <div class="arrecap-detail-title">입출금 — 실제 지급일 (${r.충당상세.length}건)</div>
-              ${payRows}
-            </div>
-          </div>
-        </td></tr>`;
+        bodyHtml += `<tr class="arrecap-detail-row"><td colspan="5">${arRecapDetailColsHtml(r.발생상세, r.충당상세)}</td></tr>`;
       }
     });
     if (rows.length > 1) {
