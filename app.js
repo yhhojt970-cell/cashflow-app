@@ -9120,6 +9120,7 @@ const daesaState = {
   arRecapView: false,           // true = 미수/미지급 자동계산 뷰
   arRecapSide: "미지급",        // "미수" | "미지급"
   arRecapFilterYear: null,      // null = 전체
+  arRecapExpanded: new Set(),   // 펼쳐진 "vendorKey\tYYYY-MM" 행 (세금계산서·입출금 상세 보기)
 };
 
 // 대사 탭 정렬 상태
@@ -9972,6 +9973,15 @@ function renderDaesaTab() {
       renderDaesaTab();
     });
   });
+  section.querySelectorAll(".arrecap-row.arrecap-clickable").forEach(tr => {
+    tr.addEventListener("click", () => {
+      const key = tr.dataset.expKey;
+      if (!key) return;
+      if (daesaState.arRecapExpanded.has(key)) daesaState.arRecapExpanded.delete(key);
+      else daesaState.arRecapExpanded.add(key);
+      renderDaesaTab();
+    });
+  });
   section.querySelector("#vatModeFilter")?.addEventListener("change", e => {
     daesaState.vatMode = e.target.value;
     renderDaesaTab();
@@ -10038,6 +10048,7 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
 
   // ─ 발생액: 세금계산서 → 거래처코드_norm×작성연월 집계 ─
   const 발생맵 = new Map(); // key: "vendorKey\tYYYY-MM" → number
+  const 발생상세맵 = new Map(); // key: "vendorKey\tYYYY-MM" → [{date, amt, no, memo}]
   const keyToDisplay = new Map(); // vendorKey → 표시명
   const inexactKeys = new Set();  // 코드매칭 실패한 키 추적
 
@@ -10051,13 +10062,17 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
 
     const { key, displayName, exact } = getVendorKey(bizNum, name);
     const mapKey = `${key}\t${ym}`;
-    발생맵.set(mapKey, (발생맵.get(mapKey) || 0) + parseAmt(r["합계"]));
+    const amt = parseAmt(r["합계"]);
+    발생맵.set(mapKey, (발생맵.get(mapKey) || 0) + amt);
+    if (!발생상세맵.has(mapKey)) 발생상세맵.set(mapKey, []);
+    발생상세맵.get(mapKey).push({ date: r["작성일자"] || "", amt, no: r["승인번호"] || "", memo: r["비고"] || "" });
     if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName || name);
     if (!exact) inexactKeys.add(key);
   }
 
   // ─ 충당액: 분류된 입출금 → 거래처코드_norm×귀속연월 집계 ─
   const 충당맵  = new Map();
+  const 충당상세맵 = new Map(); // key: "vendorKey\tYYYY-MM" → [{date, amt, memo, 매칭근거}]
   const 확인필요 = [];
 
   for (const r of (classifiedRows || [])) {
@@ -10082,7 +10097,10 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
       if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName);
       if (!exact) inexactKeys.add(key);
       for (const a of allocs) {
-        충당맵.set(`${key}\t${a.ym}`, (충당맵.get(`${key}\t${a.ym}`) || 0) + a.amount);
+        const aMapKey = `${key}\t${a.ym}`;
+        충당맵.set(aMapKey, (충당맵.get(aMapKey) || 0) + a.amount);
+        if (!충당상세맵.has(aMapKey)) 충당상세맵.set(aMapKey, []);
+        충당상세맵.get(aMapKey).push({ date: r.date || r._date || "", amt: a.amount, memo: memoSrc, 매칭근거: r.매칭근거 || "" });
       }
       continue;
     }
@@ -10097,6 +10115,8 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
     const { key, displayName, exact } = getVendorKeyByName(vendorName);
     const mapKey = `${key}\t${귀속ym}`;
     충당맵.set(mapKey, (충당맵.get(mapKey) || 0) + amt);
+    if (!충당상세맵.has(mapKey)) 충당상세맵.set(mapKey, []);
+    충당상세맵.get(mapKey).push({ date: r.date || r._date || "", amt, memo: memoSrc, 매칭근거: r.매칭근거 || "" });
     if (!keyToDisplay.has(key)) keyToDisplay.set(key, displayName);
     if (!exact) inexactKeys.add(key);
   }
@@ -10113,7 +10133,9 @@ function buildArRecap(taxInvoices, classifiedRows, sideType) {
     const 충당 = 충당맵.get(mapKey) || 0;
     const vendor = keyToDisplay.get(vendorKey) || vendorKey;
     const inexact = inexactKeys.has(vendorKey);
-    entries.push({ vendor, vendorKey, ym, year, month, 발생, 충당, 잔액: 발생 - 충당, inexact });
+    const 발생상세 = (발생상세맵.get(mapKey) || []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const 충당상세 = (충당상세맵.get(mapKey) || []).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    entries.push({ vendor, vendorKey, ym, year, month, 발생, 충당, 잔액: 발생 - 충당, inexact, 발생상세, 충당상세 });
   }
 
   // 거래처명 → 연도 → 월 순 정렬
@@ -10173,13 +10195,36 @@ function renderArRecapView() {
     gDev += subDev; gChung += subChung; gJan += subJan;
 
     rows.forEach((r, i) => {
-      bodyHtml += `<tr class="arrecap-row${i === 0 ? " arrecap-first" : ""}">
+      const expKey = `${r.vendorKey}||${r.ym}`;
+      const hasDetail = (r.발생상세.length + r.충당상세.length) > 0;
+      const isExpanded = hasDetail && daesaState.arRecapExpanded.has(expKey);
+      bodyHtml += `<tr class="arrecap-row${i === 0 ? " arrecap-first" : ""}${hasDetail ? " arrecap-clickable" : ""}" ${hasDetail ? `data-exp-key="${escapeHtml(expKey)}"` : ""}>
         <td class="arrecap-vendor-cell">${i === 0 ? escapeHtml(vendor) : ""}</td>
-        <td class="arrecap-ym-cell">${r.ym}</td>
+        <td class="arrecap-ym-cell">${hasDetail ? `<span class="arrecap-exp-icon">${isExpanded ? "▼" : "▶"}</span> ` : ""}${r.ym}</td>
         <td class="arrecap-num-cell">${r.발생 ? fn(r.발생) : "-"}</td>
         <td class="arrecap-num-cell">${r.충당 ? fn(r.충당) : "-"}</td>
         <td class="arrecap-num-cell arrecap-jan-cell ${jCls(r.잔액)}">${fn(r.잔액)}</td>
       </tr>`;
+      if (isExpanded) {
+        const taxRows = r.발생상세.length
+          ? r.발생상세.map(d => `<div class="arrecap-detail-line"><span>${escapeHtml(d.date)}${d.no ? ` <span class="muted">(${escapeHtml(d.no)})</span>` : ""}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
+          : `<div class="muted" style="font-size:12px;">없음</div>`;
+        const payRows = r.충당상세.length
+          ? r.충당상세.map(d => `<div class="arrecap-detail-line" title="${escapeHtml(d.memo || "")}"><span>${escapeHtml(d.date)}</span><span class="arrecap-detail-amt">${fn(d.amt)}</span></div>`).join("")
+          : `<div class="muted" style="font-size:12px;">없음 — 아직 입출금 미확인</div>`;
+        bodyHtml += `<tr class="arrecap-detail-row"><td colspan="5">
+          <div class="arrecap-detail-cols">
+            <div class="arrecap-detail-col">
+              <div class="arrecap-detail-title">세금계산서 (${r.발생상세.length}건)</div>
+              ${taxRows}
+            </div>
+            <div class="arrecap-detail-col">
+              <div class="arrecap-detail-title">입출금 — 실제 지급일 (${r.충당상세.length}건)</div>
+              ${payRows}
+            </div>
+          </div>
+        </td></tr>`;
+      }
     });
     if (rows.length > 1) {
       bodyHtml += `<tr class="arrecap-sub-row">

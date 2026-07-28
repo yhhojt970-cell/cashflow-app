@@ -5128,6 +5128,16 @@ td {
 .arrecap-pending-table th { background: #f8fafc; font-weight: 600; }
 .arrecap-memo { color: #6c7a92; font-family: monospace; font-size: 11px; }
 .arrecap-note { padding: 8px 14px; font-size: 12px; color: #6c7a92; margin: 0; }
+.arrecap-row.arrecap-clickable { cursor: pointer; }
+.arrecap-row.arrecap-clickable:hover td { background: #fff7ed; }
+.arrecap-exp-icon { display: inline-block; width: 10px; color: #c2410c; font-size: 10px; }
+.arrecap-detail-row td { padding: 0; border-top: none; }
+.arrecap-detail-cols { display: flex; gap: 16px; padding: 10px 16px; background: #f8fafc; border-bottom: 1px dashed #cbd5e1; }
+.arrecap-detail-col { flex: 1; min-width: 0; }
+.arrecap-detail-col + .arrecap-detail-col { border-left: 1px solid #e2e8f0; padding-left: 16px; }
+.arrecap-detail-title { font-weight: 700; color: #374151; font-size: 12px; margin-bottom: 4px; }
+.arrecap-detail-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #475569; padding: 2px 0; }
+.arrecap-detail-amt { font-variant-numeric: tabular-nums; }
 
 /* ── Phase 3 부가세 대시보드 ─────────────────────────────── */
 .vat-view-wrap { margin-top: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
