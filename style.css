@@ -4867,7 +4867,7 @@ td {
   .pnl-page {
     box-shadow: none; border-radius: 0;
     display: flex !important; flex-direction: column !important;
-    min-height: 250mm !important; max-height: none !important;
+    min-height: 267mm !important; max-height: none !important;
   }
   .pnl-sign-btn, .pnl-revoke-btn { display: none !important; }
 
