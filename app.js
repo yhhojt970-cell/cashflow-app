@@ -8799,9 +8799,19 @@ function openMautoClassifyDialog(bankRows, rules) {
       if (newRules.length) {
         try {
           await postSheetWebApp("upsertRules", { rows: newRules });
-          await loadRules();
+          // ⚠️ loadRules()는 분류규칙 관리 패널의 현재 사업체 필터(bizFilter)로 다시 불러오는데,
+          // 필터가 "미래"로 남아있으면 방금 저장한 엠오토 규칙이 rulesState.rows에서 사라져
+          // (서버엔 저장됐지만) 화면에 안 보이는 것처럼 되어버림 — 필터와 무관하게 직접 병합
+          newRules.forEach(nr => {
+            const nrKey = buildRuleKey(nr["사업체"], nr["매칭방식"], nr["매칭키"]);
+            const withKey = { ...nr, _rule_key: nrKey };
+            const idx2 = rulesState.rows.findIndex(r => r["_rule_key"] === nrKey);
+            if (idx2 >= 0) rulesState.rows[idx2] = withKey; else rulesState.rows.push(withKey);
+          });
+          if (typeof renderRulesPanel === "function") renderRulesPanel();
           // 새 규칙으로 전체 재빌드 (미매칭 자동 재분류 포함)
           rebuildMautoRows();
+          syncMautoFixedRulesFromRulesState();
         } catch (_) {
           alert("분류는 저장됨. 규칙 추가는 실패 — 다시 시도해주세요.");
         }
