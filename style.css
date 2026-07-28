@@ -4860,9 +4860,10 @@ td {
   main { margin: 0; }
 
   .pnl-report-wrap { max-width: 100% !important; margin: 0 !important; }
-  /* 화면 전용 고정헤더/스크롤은 인쇄에서 무효화하되, 결재란만은 인쇄 페이지 맨 아래에
-     붙도록 유지 — 내용이 짧으면 결재 위에 여백이 생기고, 내용이 페이지를 넘치면
-     자연스럽게 다음 페이지로 흘러가 억지로 밀리지 않음(margin-top:auto 특성). */
+  /* 화면 전용 고정헤더/스크롤은 인쇄에서 무효화. 내용이 페이지보다 짧으면
+     남는 세로 공간을 본문 섹션들 사이 간격에 고르게 나눠 채우고(justify-content:
+     space-between), 결재란은 항상 맨 마지막 항목이라 자연히 페이지 맨 아래에 옴.
+     내용이 페이지를 넘치면 남는 공간이 없으므로 그냥 이어서 흐르고 다음 페이지로 넘어감. */
   .pnl-page {
     box-shadow: none; border-radius: 0;
     display: flex !important; flex-direction: column !important;
@@ -4874,10 +4875,11 @@ td {
   .pnl-doc-footer { flex-shrink: 0; }
   .pnl-doc-body {
     display: flex !important; flex-direction: column !important;
+    justify-content: space-between !important;
     overflow: visible !important; flex: 1 1 auto !important; height: auto !important;
   }
   .pnl-doc-body .pnl-section:has(.pnl-ap-grid) {
-    position: static !important; margin: auto 0 0 !important; padding: 0 !important; box-shadow: none !important;
+    position: static !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important;
   }
 
   /* 여백 축소 */

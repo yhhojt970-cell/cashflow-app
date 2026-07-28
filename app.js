@@ -12129,6 +12129,40 @@ async function _flushPnlMonthsToSheets(year, months) {
   } catch (e) { console.warn("[손익] 구글시트 일괄 저장 실패:", e); }
 }
 
+// 탭을 닫거나 다른 화면으로 넘어갈 때, 800ms 디바운스가 아직 안 끝난 저장 건이 있으면
+// 유실되지 않도록 즉시 전송. 일반 fetch는 페이지 종료 시 취소될 수 있어 sendBeacon 사용
+// (응답 확인/토큰 재시도는 불가하지만, 아예 유실되는 것보다 훨씬 나음).
+function _flushPnlSaveTimersOnExit() {
+  if (!_pnlSaveTimers.size || !SHEET_APP_SCRIPT_URL || !navigator.sendBeacon) return;
+  const rows = [];
+  for (const key of _pnlSaveTimers.keys()) {
+    clearTimeout(_pnlSaveTimers.get(key));
+    const [year, month] = key.split("_").map(Number);
+    const full = getPnlEntry(year, month);
+    if (full) {
+      rows.push({
+        ...full,
+        corrections: JSON.stringify(full.corrections || []),
+        _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
+      });
+    }
+  }
+  _pnlSaveTimers.clear();
+  if (!rows.length) return;
+  try {
+    const token = getApiToken();
+    const blob = new Blob(
+      [JSON.stringify({ action: "savePnlData", token, rows })],
+      { type: "text/plain;charset=utf-8" }
+    );
+    navigator.sendBeacon(SHEET_APP_SCRIPT_URL, blob);
+  } catch (e) { console.warn("[손익] 종료 시 저장 flush 실패:", e); }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") _flushPnlSaveTimersOnExit();
+});
+window.addEventListener("pagehide", _flushPnlSaveTimersOnExit);
+
 async function loadPnlRemote() {
   if (!SHEET_APP_SCRIPT_URL) return;
   try {
