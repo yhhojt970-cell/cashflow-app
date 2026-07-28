@@ -8832,7 +8832,13 @@ function openMautoClassifyResultView(rows) {
   document.querySelector(".mauto-classify-overlay")?.remove();
   const overlay = document.createElement("div");
   overlay.className = "mauto-classify-overlay bank-match-overlay";
-  const rowsHtml = rows.map(r => {
+  // 날짜(및 시간) 내림차순 — 최근 거래가 위로 오게
+  const sortedRows = [...rows].sort((a, b) => {
+    const ad = a.date || "", bd = b.date || "";
+    if (ad !== bd) return bd.localeCompare(ad);
+    return (b._time || "").localeCompare(a._time || "");
+  });
+  const rowsHtml = sortedRows.map(r => {
     const dir = r.credit > 0
       ? `<span style="color:#1565c0;font-size:11px;">입금</span>`
       : `<span style="color:#b71c1c;font-size:11px;">출금</span>`;
@@ -8848,7 +8854,7 @@ function openMautoClassifyResultView(rows) {
       <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r.date)}</td>
       <td>${dir}</td>
       <td style="text-align:right;font-size:12px;">${formatNumber(r.credit || r.debit)}</td>
-      <td style="font-size:12px;"><input type="text" class="mcl-memo-edit" data-txkey="${escapeHtml(r._txKey || "")}" value="${escapeHtml(r.memo || "")}" placeholder="비고" title="여러 연월 분배: 25-12=6000000 26-03=10000000" style="width:210px;font-size:12px;padding:3px 5px;border:1px solid #e5e7eb;border-radius:4px;" /></td>
+      <td style="font-size:12px;"><input type="text" class="mcl-memo-edit" data-txkey="${escapeHtml(r._txKey || "")}" value="${escapeHtml(r.memo || "")}" placeholder="비고" title="여러 연월 분배: 25-12=3,000,000(나머지), 26-03=2,041,400(일부잔액)" style="width:210px;font-size:12px;padding:3px 5px;border:1px solid #e5e7eb;border-radius:4px;" /></td>
       <td style="font-size:12px;">${escapeHtml(r.거래처명 || "")}</td>
       <td style="font-size:12px;">${escapeHtml(r.구분 || "")}</td>
       <td>${statusBadge}</td>
@@ -8862,8 +8868,10 @@ function openMautoClassifyResultView(rows) {
         <span class="bank-match-sub">${rows.length}건</span>
         <button type="button" class="bank-match-close">✕</button>
       </div>
-      <div style="padding:6px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e40af;">
-        💡 한 건을 여러 달로 나눠 충당하려면 적요에 <b>연월=금액</b>을 쓰세요. 예) <code>25-12=6000000 26-03=10000000</code> → 25-12에 600만, 26-03에 1,000만 반영
+      <div style="padding:6px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e40af;line-height:1.6;">
+        💡 한 건을 여러 달로 나눠 충당하려면 적요에 <b>연월=금액</b>을 콤마로 나열해서 쓰세요.<br/>
+        예) <code>25-12=3,000,000(나머지), 26-03=2,041,400(일부잔액)</code> → 25-12에 300만, 26-03에 204만 1,400원 반영<br/>
+        <span style="color:#64748b;">※ 연월과 = 사이에는 공백만 가능(다른 글자 넣으면 인식 안 됨). 설명은 금액 뒤 괄호 안에 적으세요. 금액은 콤마 넣어도 됩니다.</span>
       </div>
       <div class="table-responsive bank-match-table-wrap">
         <table class="bank-match-table">
