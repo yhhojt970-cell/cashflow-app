@@ -11055,6 +11055,7 @@ const rulesState = {
   saving: false,
   msg: "",
   bizFilter: "전체",  // "전체" | "엠오토" | "미래"
+  search: "",         // 거래처명·매칭키·고정분류 검색어
   editKey: null,      // 현재 편집 중인 _rule_key (null=신규 추가 폼)
   addingNew: false,   // 신규 추가 폼 표시 여부
   tableOpen: false,   // 아코디언 — 기본 접힘
@@ -11219,9 +11220,15 @@ function renderRulesPanel() {
   const METHOD_OPTIONS = ["계좌", "키워드", "거래처명"];
   const DIV_OPTIONS = ["", "매출", "매입"];
 
-  const filtered = rulesState.bizFilter === "전체"
+  let filtered = rulesState.bizFilter === "전체"
     ? rulesState.rows
     : rulesState.rows.filter(r => String(r["사업체"] || "").trim() === rulesState.bizFilter);
+  const searchQ = rulesState.search.trim().toLowerCase();
+  if (searchQ) {
+    filtered = filtered.filter(r =>
+      ["매칭키", "거래처명", "고정분류"].some(f => String(r[f] || "").toLowerCase().includes(searchQ))
+    );
+  }
 
   // 인라인 편집 폼 HTML
   function editForm(data = {}) {
@@ -11348,6 +11355,9 @@ function renderRulesPanel() {
         <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
       </div>
       ${rulesState.tableOpen ? `
+        <div class="rules-toolbar" style="padding-top:0;">
+          <input type="search" id="rulesSearchInput" class="rules-inp" placeholder="🔍 거래처명·매칭키·고정분류 검색" value="${escapeAttr(rulesState.search)}" style="width:220px;" />
+        </div>
         ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
         ${rulesState.historyOpen ? historyPanelHtml() : ""}
         ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
@@ -11359,7 +11369,7 @@ function renderRulesPanel() {
             <tbody>
               ${rowsHtml}
               ${newRowHtml}
-              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:16px;">규칙 없음 — "+ 추가" 버튼으로 추가하세요</td></tr>` : ""}
+              ${!filtered.length && !rulesState.addingNew ? `<tr><td colspan="12" style="text-align:center;color:#9ca3af;padding:16px;">${searchQ ? `"${escapeAttr(rulesState.search)}" 검색 결과 없음` : `규칙 없음 — "+ 추가" 버튼으로 추가하세요`}</td></tr>` : ""}
             </tbody>
           </table>
         </div>`}` : ""}
@@ -11388,6 +11398,14 @@ function renderRulesPanel() {
   });
 
   panel.querySelector("#rulesReloadBtn")?.addEventListener("click", loadRules);
+
+  panel.querySelector("#rulesSearchInput")?.addEventListener("input", e => {
+    rulesState.search = e.target.value;
+    renderRulesPanel();
+    // 전체 재렌더로 인한 포커스/커서 위치 유실 복원
+    const v = panel.querySelector("#rulesSearchInput");
+    if (v) { v.focus(); v.selectionStart = v.selectionEnd = v.value.length; }
+  });
 
   panel.querySelector("#rulesHistoryBtn")?.addEventListener("click", () => {
     rulesState.historyOpen = !rulesState.historyOpen;
