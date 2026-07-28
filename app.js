@@ -254,6 +254,7 @@ let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
 let mautoPayViewMode = "ym"; // "ym" | "vendor"
+let mautoArStatusFilter = "open"; // "all" | "done" | "open" — 미수/미지급 자동계산 상태 필터
 let mautoToolsOpen = false; // 엠오토 상단 도구영역(제목~카드 사이) 접기 상태 (기본 접힘)
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
@@ -7506,7 +7507,11 @@ function renderMautoFixedTable(rows) {
 function arRecapToMautoRows(entries, side) {
   return entries
     .filter(e => e.발생 !== 0)
-    .filter(e => e.잔액 !== 0)
+    .filter(e => {
+      if (mautoArStatusFilter === "done") return e.잔액 === 0;
+      if (mautoArStatusFilter === "open") return e.잔액 !== 0;
+      return true; // "all"
+    })
     .filter(e => !isArRecapExcluded(e.vendor, side))
     .map(e => ({
       year: e.year, month: e.month, company: e.vendor,
@@ -7574,8 +7579,11 @@ function renderMautoTab() {
     const payExLabel = mautoExcludeVendorsPay.length ? `제외 ${mautoExcludeVendorsPay.length}개` : `제외 설정`;
     const payViewToggle = `<button type="button" id="mautoPayViewYm" style="${exStyleBase}${mautoPayViewMode==="ym"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="연월별로 보기">연월별</button>` +
       `<button type="button" id="mautoPayViewVendor" style="${exStyleBase}${mautoPayViewMode==="vendor"?"background:#2563eb;color:#fff;border-color:#2563eb;":""}" title="업체별로 보기">업체별</button>`;
-    rcvBadge = taxBadge + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyleBase}" title="미수금 제외 거래처 설정">${rcvExLabel}</button>`;
-    payBadge = taxBadge + `<button type="button" id="mautoExcludeBtnPay" style="${exStyleBase}" title="미지급 제외 거래처 설정">${payExLabel}</button>` + payViewToggle;
+    const arStatusToggle = openLabel => [["all","전체"],["done","완료"],["open",openLabel]].map(([k, label]) =>
+      `<button type="button" class="mauto-ar-status-btn" data-status="${k}" style="${exStyleBase}${mautoArStatusFilter===k?"background:#2563eb;color:#fff;border-color:#2563eb;":""}">${label}</button>`
+    ).join("");
+    rcvBadge = taxBadge + arStatusToggle("미수금") + `<button type="button" id="mautoExcludeBtnRcv" style="${exStyleBase}" title="미수금 제외 거래처 설정">${rcvExLabel}</button>`;
+    payBadge = taxBadge + arStatusToggle("미지급") + `<button type="button" id="mautoExcludeBtnPay" style="${exStyleBase}" title="미지급 제외 거래처 설정">${payExLabel}</button>` + payViewToggle;
     if (rcv.확인필요.length) rcvWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${rcv.확인필요.length}건 — 입금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
     if (pay.확인필요.length) payWarn = `<div style="margin:4px 0 6px;padding:6px 10px;background:#fef9c3;border:1px solid #fde68a;border-radius:4px;font-size:12px;color:#92400e;">⚠ 귀속연월 미확인 ${pay.확인필요.length}건 — 출금 미반영 (입출금 분류 비고에 연월 기재 필요)</div>`;
   } else {
@@ -7778,6 +7786,16 @@ function renderMautoTab() {
   };
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
+
+  // 미수/미지급 상태 필터 (전체/완료/미수금(미지급))
+  sec.querySelectorAll(".mauto-ar-status-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const st = btn.dataset.status;
+      if (mautoArStatusFilter === st) return;
+      mautoArStatusFilter = st;
+      renderMautoTab();
+    });
+  });
 
   // 미지급 연월별/업체별 토글
   const _reopenPayables = () => {
