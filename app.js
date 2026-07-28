@@ -7998,7 +7998,7 @@ function renderMautoTab() {
 
   // 분류 결과 목록 보기 (재다이얼로그)
   document.getElementById("mautoClassifyViewBtn")?.addEventListener("click", () => {
-    if (!rulesState.rows.length) { alert("분류규칙을 먼저 불러오세요."); return; }
+    if (!mautoClassifiedRows.length) { alert("분류된 결과가 없습니다. 먼저 입출금 파일을 업로드해 분류해주세요."); return; }
     // 저장된 결과를 다시 볼 수 있게 빈 bankRows로 재오픈하되, 기존 결과 표시
     openMautoClassifyResultView(mautoClassifiedRows);
   });
@@ -13107,12 +13107,12 @@ function renderPnlReport(el) {
     const diff = curr - prev;
     const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
     const trCls = label === "경영이익(손실)" ? "pnl-tr-total" : isSub ? "pnl-tr-sub" : "";
-    return `<tr class="${trCls}">
-      <td>${label}</td>
-      <td>${_ps(prev)}</td>
-      <td>${_ps(curr)}</td>
-      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(diff)}</td>
-    </tr>`;
+    return `<div class="pnl-cmp-row ${trCls}">
+      <div>${label}</div>
+      <div>${_ps(prev)}</div>
+      <div>${_ps(curr)}</div>
+      <div class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(diff)}</div>
+    </div>`;
   }
 
   const noDataHtml = `<div class="pnl-no-data">이 달의 데이터가 없습니다. 입력 탭에서 먼저 저장해 주세요.</div>`;
@@ -13204,9 +13204,8 @@ function renderPnlReport(el) {
           ${prev && pc ? `
           <div class="pnl-section">
             <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전월 대비 손익 비교</div>
-            <table class="pnl-cmp-table">
-              <thead><tr><th>항목</th><th>${prevY}년 ${prevM}월</th><th>${pnlRptYear}년 ${pnlRptMonth}월</th><th>증감액</th></tr></thead>
-              <tbody>
+            <div class="pnl-cmp-table">
+              <div class="pnl-cmp-row pnl-cmp-head"><div>항목</div><div>${prevY}년 ${prevM}월</div><div>${pnlRptYear}년 ${pnlRptMonth}월</div><div>증감액</div></div>
                 ${cmpRow("매출액",          prev.revenue,       entry.revenue,    false)}
                 ${cmpRow("상품매출원가",    pc.cogs,            c.cogs,           false)}
                 ${cmpRow("당기총제조비용",  prev.mfg,           entry.mfg,        false)}
@@ -13215,8 +13214,7 @@ function renderPnlReport(el) {
                 ${cmpRow("관리기준 영업이익", pc.op,            c.op,             true)}
                 ${cmpRow("영업외비용",       prev.interest,      entry.interest,   false)}
                 ${cmpRow("경영이익(손실)",  pc.mgmt,            c.mgmt,           true)}
-              </tbody>
-            </table>
+            </div>
             ${entry.ceoComment ? `<div class="pnl-remark">대표이사 의견: "<em>${escapeHtml(entry.ceoComment)}</em>"</div>` : ""}
           </div>` : ""}
 
@@ -13399,12 +13397,12 @@ function renderPnlQuarterlyReport(el) {
     const diff = cv - pv;
     const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
     const trCls = label === "경영이익(손실)" ? "pnl-tr-total" : isSub ? "pnl-tr-sub" : "";
-    return `<tr class="${trCls}">
-      <td>${label}</td>
-      <td>${_ps(pv)}</td>
-      <td>${_ps(cv)}</td>
-      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</td>
-    </tr>`;
+    return `<div class="pnl-cmp-row ${trCls}">
+      <div>${label}</div>
+      <div>${_ps(pv)}</div>
+      <div>${_ps(cv)}</div>
+      <div class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</div>
+    </div>`;
   }
 
   const noDataHtml = `<div class="pnl-no-data">이 분기의 데이터가 없습니다. 입력 탭에서 월별 데이터를 먼저 저장해 주세요.</div>`;
@@ -13495,9 +13493,8 @@ function renderPnlQuarterlyReport(el) {
           ${prev && pc ? `
           <div class="pnl-section">
             <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전분기 대비 손익 비교 <small>${prevQY}년 Q${prevQ} 대비</small></div>
-            <table class="pnl-cmp-table">
-              <thead><tr><th>항목</th><th>${prevQY}년 Q${prevQ}</th><th>${pnlRptYear}년 Q${pnlRptQuarter}</th><th>증감액</th></tr></thead>
-              <tbody>
+            <div class="pnl-cmp-table">
+              <div class="pnl-cmp-row pnl-cmp-head"><div>항목</div><div>${prevQY}년 Q${prevQ}</div><div>${pnlRptYear}년 Q${pnlRptQuarter}</div><div>증감액</div></div>
                 ${cmpRow("매출액",          prev.revenue,       entry.revenue,      false)}
                 ${cmpRow("상품매출원가",    pc.cogs,            c.cogs,             false)}
                 ${cmpRow("당기총제조비용",  prev.mfg,           entry.mfg,          false)}
@@ -13506,29 +13503,26 @@ function renderPnlQuarterlyReport(el) {
                 ${cmpRow("관리기준 영업이익", pc.op,            c.op,               true)}
                 ${cmpRow("영업외비용",      prev.interest,      entry.interest,     false)}
                 ${cmpRow("경영이익(손실)",  pc.mgmt,            c.mgmt,             true)}
-              </tbody>
-            </table>
+            </div>
           </div>` : ""}
 
           <!-- 월별 내역 -->
           <div class="pnl-section">
             <div class="pnl-sec-title"><span class="pnl-sec-num">4</span>월별 내역</div>
-            <table class="pnl-cmp-table">
-              <thead><tr><th>월</th><th>매출액</th><th>매출총이익</th><th>영업이익</th><th>경영이익</th></tr></thead>
-              <tbody>
+            <div class="pnl-cmp-table">
+              <div class="pnl-cmp-row pnl-cmp-head"><div>월</div><div>매출액</div><div>매출총이익</div><div>영업이익</div><div>경영이익</div></div>
                 ${months.map(m => {
                   const me = getPnlEntry(pnlRptYear, m);
                   const mc = me ? calcPnl(me) : null;
-                  return `<tr>
-                    <td>${m}월</td>
-                    <td>${me ? _pf(me.revenue) : "—"}</td>
-                    <td class="${mc?_pc(mc.gross):""}">${mc ? _ps(mc.gross) : "—"}</td>
-                    <td class="${mc?_pc(mc.op):""}">${mc ? _ps(mc.op) : "—"}</td>
-                    <td class="${mc?_pc(mc.mgmt):""}">${mc ? _ps(mc.mgmt) : "—"}</td>
-                  </tr>`;
+                  return `<div class="pnl-cmp-row">
+                    <div>${m}월</div>
+                    <div>${me ? _pf(me.revenue) : "—"}</div>
+                    <div class="${mc?_pc(mc.gross):""}">${mc ? _ps(mc.gross) : "—"}</div>
+                    <div class="${mc?_pc(mc.op):""}">${mc ? _ps(mc.op) : "—"}</div>
+                    <div class="${mc?_pc(mc.mgmt):""}">${mc ? _ps(mc.mgmt) : "—"}</div>
+                  </div>`;
                 }).join("")}
-              </tbody>
-            </table>
+            </div>
           </div>
 
           <!-- 결재란 -->
@@ -13682,11 +13676,11 @@ function renderPnlHalfYearReport(el) {
   function cmpRow(label, pv, cv, isSub) {
     const diff = cv - pv;
     const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
-    const rowCls = label.includes("경영이익") ? "pnl-cmp-total" : isSub ? "pnl-cmp-sub" : "";
-    return `<tr class="${rowCls}">
-      <td>${label}</td><td>${_ps(pv)}</td><td>${_ps(cv)}</td>
-      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</td>
-    </tr>`;
+    const rowCls = label.includes("경영이익") ? "pnl-tr-total" : isSub ? "pnl-tr-sub" : "";
+    return `<div class="pnl-cmp-row ${rowCls}">
+      <div>${label}</div><div>${_ps(pv)}</div><div>${_ps(cv)}</div>
+      <div class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</div>
+    </div>`;
   }
 
   el.innerHTML = `
@@ -13749,9 +13743,8 @@ function renderPnlHalfYearReport(el) {
         ${prevH && pc ? `
         <div class="pnl-section">
           <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전년 동기 대비 <small>${pnlRptYear-1}년 ${halfLabel}</small></div>
-          <table class="pnl-cmp-table">
-            <thead><tr><th>항목</th><th>${pnlRptYear-1}년 ${halfLabel}</th><th>${pnlRptYear}년 ${halfLabel}</th><th>증감액</th></tr></thead>
-            <tbody>
+          <div class="pnl-cmp-table">
+            <div class="pnl-cmp-row pnl-cmp-head"><div>항목</div><div>${pnlRptYear-1}년 ${halfLabel}</div><div>${pnlRptYear}년 ${halfLabel}</div><div>증감액</div></div>
               ${cmpRow("매출액",            prevH.revenue,  entry.revenue,  false)}
               ${cmpRow("상품매출원가",      prevH.cogs,     entry.cogs,     false)}
               ${cmpRow("당기총제조비용",    prevH.mfg,      entry.mfg,      false)}
@@ -13760,8 +13753,7 @@ function renderPnlHalfYearReport(el) {
               ${cmpRow("관리기준 영업이익", pc.op,          c.op,           true)}
               ${cmpRow("영업외비용",         prevH.interest, entry.interest, false)}
               ${cmpRow("경영이익(손실)",    pc.mgmt,        c.mgmt,         true)}
-            </tbody>
-          </table>
+          </div>
         </div>` : ""}
 
         <!-- 결재란 -->
@@ -13855,11 +13847,11 @@ function renderPnlAnnualReport(el) {
   function cmpRow(label, pv, cv, isSub) {
     const diff = cv - pv;
     const diffCls = diff > 0 ? "pnl-pos" : diff < 0 ? "pnl-neg" : "";
-    const rowCls = label.includes("경영이익") ? "pnl-cmp-total" : isSub ? "pnl-cmp-sub" : "";
-    return `<tr class="${rowCls}">
-      <td>${label}</td><td>${_ps(pv)}</td><td>${_ps(cv)}</td>
-      <td class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</td>
-    </tr>`;
+    const rowCls = label.includes("경영이익") ? "pnl-tr-total" : isSub ? "pnl-tr-sub" : "";
+    return `<div class="pnl-cmp-row ${rowCls}">
+      <div>${label}</div><div>${_ps(pv)}</div><div>${_ps(cv)}</div>
+      <div class="${diffCls}">${diff >= 0 ? "▲ " : "▼ "}${_pf(Math.abs(diff))}</div>
+    </div>`;
   }
 
   el.innerHTML = `
@@ -13913,9 +13905,8 @@ function renderPnlAnnualReport(el) {
         ${prevY && pc ? `
         <div class="pnl-section">
           <div class="pnl-sec-title"><span class="pnl-sec-num">3</span>전년 대비 <small>${pnlRptYear-1}년 연간</small></div>
-          <table class="pnl-cmp-table">
-            <thead><tr><th>항목</th><th>${pnlRptYear-1}년 연간</th><th>${pnlRptYear}년 연간</th><th>증감액</th></tr></thead>
-            <tbody>
+          <div class="pnl-cmp-table">
+            <div class="pnl-cmp-row pnl-cmp-head"><div>항목</div><div>${pnlRptYear-1}년 연간</div><div>${pnlRptYear}년 연간</div><div>증감액</div></div>
               ${cmpRow("매출액",            prevY.revenue,  entry.revenue,  false)}
               ${cmpRow("상품매출원가",      prevY.cogs,     entry.cogs,     false)}
               ${cmpRow("당기총제조비용",    prevY.mfg,      entry.mfg,      false)}
@@ -13924,8 +13915,7 @@ function renderPnlAnnualReport(el) {
               ${cmpRow("관리기준 영업이익", pc.op,          c.op,           true)}
               ${cmpRow("영업외비용",         prevY.interest, entry.interest, false)}
               ${cmpRow("경영이익(손실)",    pc.mgmt,        c.mgmt,         true)}
-            </tbody>
-          </table>
+          </div>
         </div>` : ""}
         `}
         </div><!-- /pnl-doc-body -->

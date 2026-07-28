@@ -4683,18 +4683,27 @@ td {
   font-size: 12px; line-height: 1.7; color: #334155;
 }
 
-/* 비교 테이블 */
-.pnl-cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.pnl-cmp-table th {
-  background: var(--pnl-navy); color: #fff; padding: 10px 14px; text-align: center;
-  font-size: 12px; font-weight: 600;
+/* 비교 표 (div/flex 기반 — <table>은 인쇄 파이프라인에서 폭 계산이 깨져 오른쪽 열이
+   용지 밖으로 잘려나가는 문제가 있어, 결재란(.pnl-ap-grid)과 동일한 div 구조로 구현) */
+.pnl-cmp-table {
+  width: 100%; border: 1px solid var(--pnl-border); border-radius: 8px;
+  overflow: hidden; font-size: 13px;
 }
-.pnl-cmp-table th:first-child { text-align: left; border-radius: 8px 0 0 0; }
-.pnl-cmp-table th:last-child  { border-radius: 0 8px 0 0; }
-.pnl-cmp-table td { padding: 10px 14px; border-bottom: 1px solid var(--pnl-border); text-align: right; font-family: 'DM Mono', monospace; }
-.pnl-cmp-table td:first-child { text-align: left; font-family: inherit; font-weight: 500; }
-.pnl-tr-sub td { background: #eef3ff; font-weight: 700; }
-.pnl-tr-total td { background: var(--pnl-navy); color: #fff; font-weight: 700; }
+.pnl-cmp-row { display: flex; border-top: 1px solid var(--pnl-border); }
+.pnl-cmp-row:first-child { border-top: none; }
+.pnl-cmp-row > div {
+  flex: 1 1 0; min-width: 0; box-sizing: border-box;
+  padding: 10px 14px; text-align: right; font-family: 'DM Mono', monospace;
+  overflow-wrap: anywhere;
+}
+.pnl-cmp-row > div:first-child {
+  flex: 1.6 1.6 0; text-align: left; font-family: inherit; font-weight: 500;
+}
+.pnl-cmp-head { background: var(--pnl-navy); color: #fff; font-size: 12px; font-weight: 600; }
+.pnl-cmp-head > div { text-align: center; }
+.pnl-cmp-head > div:first-child { text-align: left; }
+.pnl-tr-sub > div { background: #eef3ff; font-weight: 700; }
+.pnl-tr-total > div { background: var(--pnl-navy); color: #fff; font-weight: 700; }
 
 /* 결재란 */
 .pnl-ap-grid {
@@ -4849,9 +4858,20 @@ td {
   .pnl-sign-btn, .pnl-revoke-btn { display: none !important; }
 
   /* 표/섹션이 페이지 중간에서 어색하게 잘리지 않도록 */
-  .pnl-section, .pnl-kpi-grid, .pnl-flow, .pnl-ap-grid, .pnl-cmp-table, .pnl-dash-table { page-break-inside: avoid; }
-  .pnl-cmp-table tr, .pnl-dash-table tr { page-break-inside: avoid; }
+  .pnl-section, .pnl-kpi-grid, .pnl-flow, .pnl-ap-grid, .pnl-cmp-table { page-break-inside: avoid; }
+  .pnl-cmp-row { page-break-inside: avoid; }
   .pnl-doc-footer { page-break-before: avoid; }
+
+  .pnl-cmp-table { font-size: 11px; }
+  .pnl-cmp-row > div { padding: 6px 8px; }
+  .pnl-ap-grid { width: 100%; }
+  .pnl-ap-box {
+    min-width: 0; flex-basis: 0; padding: 8px 6px;
+  }
+  .pnl-ap-role, .pnl-ap-name, .pnl-ap-date {
+    overflow-wrap: anywhere;
+  }
+  .pnl-ap-name { font-size: 11px; }
 }
 
 /* 반응형 */
