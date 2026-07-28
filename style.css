@@ -4363,17 +4363,18 @@ td {
    경영손익 (P&L) 탭
 ══════════════════════════════════════════════════════════════ */
 :root {
-  --pnl-navy:    #0F1F3D;
+  --pnl-navy:    #16233D;
   --pnl-navy-md: #1B2E52;
-  --pnl-navy-lt: #2D4A7A;
+  --pnl-navy-lt: #3A4D70;
   --pnl-gold:    #C9A84C;
   --pnl-gold-lt: #E8C97A;
   --pnl-cream:   #F8F4EE;
-  --pnl-bg:      #F5F0E8;
-  --pnl-border:  #D4C5A9;
-  --pnl-green:   #196F3D;
+  --pnl-bg:      #EEF1F4;
+  --pnl-surface: #F4F6F8;
+  --pnl-border:  #E3E7EC;
+  --pnl-green:   #157347;
   --pnl-red:     #C0392B;
-  --pnl-muted:   #6B7280;
+  --pnl-muted:   #6B7480;
 }
 
 /* 컨테이너 */
@@ -4545,8 +4546,6 @@ td {
 .pnl-muted { color: var(--pnl-muted); }
 .pnl-pos { color: var(--pnl-green) !important; }
 .pnl-neg { color: var(--pnl-red) !important; }
-.pnl-flow-total .pnl-pos { color: #A5D6A7 !important; }
-.pnl-flow-total .pnl-neg { color: #FF8A80 !important; }
 
 .pnl-input-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .pnl-btn {
@@ -4584,92 +4583,88 @@ td {
   font-size: 13px; background: #fff;
 }
 
-/* 보고서 페이지 (네이비+골드 테마) */
+/* 보고서 페이지 — 남색은 헤더/핵심 KPI 카드 두 곳에만, 나머지는 옅은 회색+굵은 글씨로 강조 */
 .pnl-page {
-  background: var(--pnl-bg);
+  background: #fff;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0,0,0,.10);
 }
 .pnl-doc-header {
-  background: linear-gradient(135deg, var(--pnl-navy) 0%, var(--pnl-navy-md) 60%, var(--pnl-navy-lt) 100%);
-  padding: 40px 48px 32px;
-  position: relative; overflow: hidden;
-}
-.pnl-doc-header::before {
-  content:''; position:absolute; top:-50px; right:-50px;
-  width:200px; height:200px; border:36px solid rgba(201,168,76,.1); border-radius:50%;
+  background: var(--pnl-navy);
+  padding: 24px 32px 20px;
 }
 .pnl-company-badge {
-  display: inline-block; border: 1px solid rgba(201,168,76,.5);
-  color: var(--pnl-gold-lt); font-size: 10px; letter-spacing: 3px;
-  padding: 3px 10px; border-radius: 20px; margin-bottom: 14px;
+  font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+  color: rgba(255,255,255,.5); margin-bottom: 10px;
 }
 .pnl-doc-title {
-  font-family: 'Noto Serif KR', serif;
-  font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px;
+  font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 4px; letter-spacing: -.01em;
 }
 .pnl-doc-sub { font-size: 12px; color: rgba(255,255,255,.5); letter-spacing: 1px; }
-.pnl-meta-row { display: flex; gap: 28px; margin-top: 24px; flex-wrap: wrap; }
+.pnl-meta-row { display: flex; gap: 28px; margin-top: 18px; flex-wrap: wrap; }
 .pnl-meta-item { display: flex; flex-direction: column; gap: 2px; }
 .pnl-meta-lbl { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.4); text-transform: uppercase; }
-.pnl-meta-val { font-size: 12px; color: var(--pnl-gold-lt); font-weight: 500; }
+.pnl-meta-val { font-size: 12px; color: rgba(255,255,255,.92); font-weight: 600; }
 
-.pnl-doc-body { background: #fff; padding: 40px 48px; }
+.pnl-doc-body { background: #fff; padding: 28px 32px; }
 .pnl-doc-footer {
   background: #fff; text-align: center;
   padding: 12px; font-size: 11px; color: var(--pnl-muted); letter-spacing: 1px;
   border-top: 1px solid #f1f5f9;
 }
 
-/* KPI 카드 */
-.pnl-kpi-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 28px; }
+/* KPI 카드 — 한 줄에 고르게, 핵심 지표(경영이익)만 카드를 다르게 해서 강조 */
+.pnl-kpi-grid { display: flex; gap: 12px; margin-bottom: 22px; }
 .pnl-kpi-card {
-  border: 1px solid var(--pnl-border); border-radius: 10px;
-  padding: 18px 20px; background: var(--pnl-cream);
+  flex: 1 1 0; min-width: 0; box-sizing: border-box;
+  border: 1px solid var(--pnl-border); border-radius: 8px;
+  padding: 14px 16px; background: var(--pnl-surface);
 }
 .pnl-kpi-card.pnl-kpi-highlight { background: var(--pnl-navy); border-color: var(--pnl-navy); }
 .pnl-kpi-lbl { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--pnl-muted); margin-bottom: 6px; }
-.pnl-kpi-highlight .pnl-kpi-lbl { color: rgba(255,255,255,.5); }
-.pnl-kpi-val { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 500; }
-.pnl-kpi-highlight .pnl-kpi-val { color: #fff; }
+.pnl-kpi-highlight .pnl-kpi-lbl { color: rgba(255,255,255,.55); }
+.pnl-kpi-val { font-family: 'DM Mono', monospace; font-size: 17px; font-weight: 600; }
+.pnl-kpi-highlight .pnl-kpi-val { font-size: 20px; }
+.pnl-kpi-highlight .pnl-kpi-val:not(.pnl-pos):not(.pnl-neg) { color: #fff; }
+.pnl-kpi-highlight .pnl-kpi-val.pnl-pos { color: #7bd9a5 !important; }
+.pnl-kpi-highlight .pnl-kpi-val.pnl-neg { color: #ff9a90 !important; }
 .pnl-kpi-unit { font-size: 11px; color: var(--pnl-muted); margin-top: 3px; }
-.pnl-kpi-highlight .pnl-kpi-unit { color: rgba(255,255,255,.4); }
+.pnl-kpi-highlight .pnl-kpi-unit { color: rgba(255,255,255,.45); }
 .pnl-kpi-achieve { font-size: 12px; font-weight: 700; margin-top: 4px; }
 
 /* 섹션 */
-.pnl-section { margin-bottom: 32px; }
+.pnl-section { margin-bottom: 26px; }
 .pnl-sec-title {
   display: flex; align-items: center; gap: 10px;
-  font-family: 'Noto Serif KR', serif; font-size: 15px; font-weight: 700; color: var(--pnl-navy);
-  margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid var(--pnl-navy);
+  font-size: 14px; font-weight: 700; color: var(--pnl-navy);
+  margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--pnl-border);
 }
 .pnl-sec-title small { font-size: 11px; font-weight: 400; color: var(--pnl-muted); margin-left: 6px; font-family: inherit; }
 .pnl-sec-num {
-  width: 26px; height: 26px; border-radius: 50%;
-  background: var(--pnl-navy); color: #fff;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: none; color: var(--pnl-navy-lt); border: 1.5px solid var(--pnl-navy-lt);
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; flex-shrink: 0;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
 }
 
 /* 계산 플로우 */
-.pnl-flow { border: 1px solid var(--pnl-border); border-radius: 10px; overflow: hidden; }
+.pnl-flow { border: 1px solid var(--pnl-border); border-radius: 8px; overflow: hidden; }
 .pnl-flow-row {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 20px; border-bottom: 1px solid var(--pnl-border); font-size: 13px;
+  padding: 9px 16px; border-bottom: 1px solid var(--pnl-border); font-size: 13px;
 }
 .pnl-flow-row:last-child { border-bottom: none; }
 .pnl-flow-row:hover { background: #fafafa; }
 .pnl-flow-lbl { display: flex; align-items: center; gap: 8px; }
 .pnl-flow-val { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; }
-.pnl-flow-sub  { background: #eef3ff; }
-.pnl-flow-sub .pnl-flow-lbl { font-weight: 700; color: var(--pnl-navy); }
-.pnl-flow-total { background: var(--pnl-navy); }
-.pnl-flow-total .pnl-flow-lbl { color: #fff; font-weight: 700; }
-.pnl-flow-total .pnl-flow-val { font-size: 15px; }
+.pnl-flow-sub .pnl-flow-lbl { font-weight: 700; }
+.pnl-flow-total { background: var(--pnl-surface); border-top: 2px solid var(--pnl-navy-lt); }
+.pnl-flow-total .pnl-flow-lbl { font-weight: 700; }
+.pnl-flow-total .pnl-flow-val { font-size: 15px; font-weight: 700; }
 .pnl-flow-divider {
-  padding: 5px 20px; background: var(--pnl-navy);
-  font-size: 10px; letter-spacing: 2px; color: rgba(255,255,255,.5);
+  padding: 4px 16px 0;
+  font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--pnl-muted);
 }
 .pnl-indent .pnl-flow-lbl { padding-left: 16px; color: var(--pnl-muted); font-size: 12px; }
 .pnl-tag {
@@ -4678,9 +4673,8 @@ td {
 }
 .pnl-minus { color: var(--pnl-red); margin-right: 2px; }
 .pnl-remark {
-  background: var(--pnl-cream); border-left: 4px solid var(--pnl-gold);
-  border-radius: 0 8px 8px 0; padding: 12px 16px; margin-top: 16px;
-  font-size: 12px; line-height: 1.7; color: #334155;
+  border-left: 2px solid var(--pnl-border); padding: 8px 14px; margin-top: 12px;
+  font-size: 12px; line-height: 1.7; color: var(--pnl-muted);
 }
 
 /* 비교 표 (div/flex 기반 — <table>은 인쇄 파이프라인에서 폭 계산이 깨져 오른쪽 열이
@@ -4699,34 +4693,35 @@ td {
 .pnl-cmp-row > div:first-child {
   flex: 1.6 1.6 0; text-align: left; font-family: inherit; font-weight: 500;
 }
-.pnl-cmp-head { background: var(--pnl-navy); color: #fff; font-size: 12px; font-weight: 600; }
+.pnl-cmp-head { background: var(--pnl-surface); color: var(--pnl-muted); font-size: 11px; font-weight: 700; }
 .pnl-cmp-head > div { text-align: center; }
 .pnl-cmp-head > div:first-child { text-align: left; }
-.pnl-tr-sub > div { background: #eef3ff; font-weight: 700; }
-.pnl-tr-total > div { background: var(--pnl-navy); color: #fff; font-weight: 700; }
+.pnl-tr-sub > div { font-weight: 700; }
+.pnl-tr-total { border-top: 2px solid var(--pnl-navy-lt); }
+.pnl-tr-total > div { font-weight: 700; font-size: 105%; }
 
-/* 결재란 */
+/* 결재란 — 본문보다 튀지 않게 얇은 회색 테두리로 (최종결재만 완료 표시로 강조) */
 .pnl-ap-grid {
   display: flex; gap: 0;
-  border: 1.5px solid var(--pnl-navy); border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--pnl-border); border-radius: 8px; overflow: hidden;
 }
 .pnl-ap-box {
-  flex: 1; padding: 12px 14px; border-right: 1px solid var(--pnl-navy);
+  flex: 1; padding: 12px 14px; border-right: 1px solid var(--pnl-border);
   text-align: center;
 }
 .pnl-ap-box:last-child { border-right: none; }
 .pnl-ap-role { font-size: 10px; letter-spacing: 1px; color: var(--pnl-muted); margin-bottom: 4px; }
-.pnl-ap-name { font-size: 12px; font-weight: 700; color: var(--pnl-navy); }
+.pnl-ap-name { font-size: 12px; font-weight: 700; }
 .pnl-ap-date { font-size: 10px; color: var(--pnl-muted); margin: 4px 0; min-height: 14px; }
 .pnl-stamp {
-  width: 40px; height: 40px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 700;
   margin: 6px auto 0; position: relative;
 }
-.pnl-stamp-empty  { border: 2px dashed #cbd5e1; color: #cbd5e1; }
-.pnl-stamp-signed { border: 2px solid var(--pnl-navy); color: var(--pnl-navy); background: rgba(15,31,61,.05); }
-.pnl-stamp-approved { border: 2px solid var(--pnl-red); color: var(--pnl-red); background: rgba(192,57,43,.05); }
+.pnl-stamp-empty  { border: 1.5px dashed #cbd5e1; color: #cbd5e1; }
+.pnl-stamp-signed { border: 1.5px solid #94a3b8; color: #475569; }
+.pnl-stamp-approved { border: 1.5px solid var(--pnl-red); color: var(--pnl-red); background: rgba(192,57,43,.05); }
 .pnl-sign-btn {
   width: 52px; min-height: 40px; border-radius: 8px; margin-top: 6px; padding: 4px 4px;
   background: var(--pnl-navy); color: #fff; border: none; font-size: 11px; font-weight: 700;
@@ -4857,11 +4852,10 @@ td {
   .pnl-page { box-shadow: none; border-radius: 0; }
   .pnl-sign-btn, .pnl-revoke-btn { display: none !important; }
 
-  /* 장식 최소화 — 그라디언트/원형 장식 제거, 단색 헤더 + 여백 축소 */
+  /* 여백 축소 */
   .pnl-doc-header {
     background: var(--pnl-navy) !important; padding: 8px 16px !important;
   }
-  .pnl-doc-header::before { display: none !important; }
   .pnl-company-badge { display: none !important; }
   .pnl-doc-title { font-size: 15px !important; margin-bottom: 1px !important; }
   .pnl-doc-sub { font-size: 9px !important; }
@@ -4869,8 +4863,8 @@ td {
   .pnl-doc-body { padding: 6px 16px !important; }
 
   /* KPI 카드 — 여백 축소 */
-  .pnl-kpi-grid { grid-template-columns: repeat(3,1fr) !important; gap: 5px !important; margin-bottom: 6px !important; }
-  .pnl-kpi-card { padding: 4px 10px !important; }
+  .pnl-kpi-grid { flex-wrap: nowrap !important; gap: 5px !important; margin-bottom: 6px !important; }
+  .pnl-kpi-card { min-width: 0 !important; padding: 4px 10px !important; }
   .pnl-kpi-val { font-size: 13px !important; }
 
   /* 섹션 — 여백 축소 */
@@ -4900,10 +4894,11 @@ td {
   .pnl-stamp { width: 30px !important; height: 30px !important; margin-top: 4px !important; }
 }
 
-/* 반응형 */
+/* 반응형 (모바일 화면 전용 — 인쇄는 위 @media print의 !important 규칙이 항상 우선) */
 @media (max-width: 768px) {
   .pnl-form-body { grid-template-columns: 1fr; }
-  .pnl-kpi-grid  { grid-template-columns: 1fr 1fr; }
+  .pnl-kpi-grid  { flex-wrap: wrap; }
+  .pnl-kpi-card  { flex-basis: 45%; }
   .pnl-dash-kpis { grid-template-columns: repeat(3,1fr); }
   .pnl-charts-grid { grid-template-columns: 1fr; }
   .pnl-chart-wide { grid-column: auto; }
