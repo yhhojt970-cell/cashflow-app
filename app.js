@@ -11058,7 +11058,12 @@ const rulesState = {
   editKey: null,      // 현재 편집 중인 _rule_key (null=신규 추가 폼)
   addingNew: false,   // 신규 추가 폼 표시 여부
   tableOpen: false,   // 아코디언 — 기본 접힘
+  historyRows: null,  // 규칙 변경이력 (지연 로드)
+  historyOpen: false, // 변경이력 패널 표시 여부
 };
+
+// 값이 바뀔 때 변경이력에 남길 필드 (결제일·금액만 추적 — 나머지는 기록 의미 적음)
+const RULE_HISTORY_TRACK_FIELDS = ["결제예정일", "예정금액"];
 
 function buildRuleKey(사업체, 매칭방식, 매칭키) {
   return `${String(사업체||"").trim()}||${String(매칭방식||"").trim()}||${String(매칭키||"").trim()}`;
@@ -11092,6 +11097,55 @@ async function loadRules() {
   }
 }
 
+async function fetchRuleHistoryFromApi() {
+  if (!SHEET_APP_SCRIPT_URL) throw new Error("Apps Script URL 없음");
+  const url = new URL(SHEET_APP_SCRIPT_URL);
+  url.searchParams.set("action", "getRuleHistory");
+  const token = getApiToken();
+  if (token) url.searchParams.set("token", token);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`변경이력 조회 실패: ${res.status}`);
+  const body = await res.json();
+  return Array.isArray(body.rows) ? body.rows : [];
+}
+
+async function loadRuleHistory() {
+  rulesState.msg = "변경이력 불러오는 중…";
+  renderRulesPanel();
+  try {
+    rulesState.historyRows = await fetchRuleHistoryFromApi();
+    rulesState.msg = `변경이력 ${rulesState.historyRows.length}건 로드됨`;
+  } catch (e) {
+    rulesState.historyRows = [];
+    rulesState.msg = `변경이력 조회 실패: ${e.message}`;
+  } finally {
+    renderRulesPanel();
+  }
+}
+
+// 규칙 값 수정 시 결제예정일·예정금액이 실제로 바뀐 필드만 이력에 남김 (best-effort, 실패해도 규칙 저장은 유지)
+async function appendRuleHistoryIfChanged(oldRow, newRow) {
+  if (!oldRow) return; // 신규 규칙은 이력 대상 아님 (변경이 아니라 생성이므로)
+  const now = new Date().toISOString();
+  const changes = RULE_HISTORY_TRACK_FIELDS
+    .filter(f => String(oldRow[f] ?? "").trim() !== String(newRow[f] ?? "").trim())
+    .map(f => ({
+      사업체: newRow["사업체"] || "",
+      매칭방식: newRow["매칭방식"] || "",
+      매칭키: newRow["매칭키"] || "",
+      거래처명: newRow["거래처명"] || "",
+      필드: f,
+      이전값: oldRow[f] || "",
+      신규값: newRow[f] || "",
+      변경일시: now,
+    }));
+  if (!changes.length) return;
+  try {
+    await postSheetWebApp("appendRuleHistory", { rows: changes });
+    if (rulesState.historyRows) rulesState.historyRows = [...rulesState.historyRows, ...changes];
+  } catch (_) {}
+}
+
 async function saveRule(ruleObj, origKey = "") {
   rulesState.saving = true;
   rulesState.msg = "저장 중…";
@@ -11099,6 +11153,8 @@ async function saveRule(ruleObj, origKey = "") {
   try {
     const key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
     const row = { ...ruleObj, _rule_key: key };
+    // 결제예정일·예정금액 변경 감지용 — 덮어쓰기 전에 수정 전 값 확보
+    const oldRow = origKey ? rulesState.rows.find(r => r["_rule_key"] === origKey) : null;
     await postSheetWebApp("upsertRules", { rows: [row] });
     // 사업체/매칭방식/매칭키(=식별키 구성요소)를 수정해 키가 바뀐 경우:
     // 새 키로 upsert만 하면 예전 키의 행이 그대로 남아 중복 생성되므로 예전 행을 삭제
@@ -11113,6 +11169,7 @@ async function saveRule(ruleObj, origKey = "") {
     rulesState.msg = "저장 완료";
     rulesState.editKey = null;
     rulesState.addingNew = false;
+    await appendRuleHistoryIfChanged(oldRow, row);
     // 새/수정된 규칙을 이미 업로드된 입출금 내역에 즉시 반영 (미매칭 재분류 포함)
     if (typeof rebuildMautoRows === "function") rebuildMautoRows();
     if (typeof renderMautoTab === "function") renderMautoTab();
@@ -11193,6 +11250,37 @@ function renderRulesPanel() {
     return String(v).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
   }
 
+  // 변경이력 패널 (결제예정일·예정금액이 실제로 바뀐 시점만 기록됨)
+  function historyPanelHtml() {
+    if (rulesState.historyRows === null) {
+      return `<div class="rules-msg">변경이력 불러오는 중…</div>`;
+    }
+    let hist = rulesState.historyRows;
+    if (rulesState.bizFilter !== "전체") {
+      hist = hist.filter(h => String(h["사업체"] || "").trim() === rulesState.bizFilter);
+    }
+    hist = [...hist].sort((a, b) => String(b["변경일시"] || "").localeCompare(String(a["변경일시"] || "")));
+    if (!hist.length) {
+      return `<div class="rules-msg">변경이력 없음 — 결제예정일·예정금액을 수정해 저장하면 여기에 기록됩니다.</div>`;
+    }
+    const rowsH = hist.map(h => `
+      <tr>
+        <td>${escapeAttr(h["거래처명"] || "")}</td>
+        <td style="color:#6b7280;">${escapeAttr(h["필드"] || "")}</td>
+        <td style="text-align:right;color:#9ca3af;">${escapeAttr(String(h["이전값"] ?? ""))}</td>
+        <td style="text-align:center;color:#9ca3af;">→</td>
+        <td style="text-align:right;color:#2563eb;font-weight:600;">${escapeAttr(String(h["신규값"] ?? ""))}</td>
+        <td style="color:#6b7280;font-size:11px;white-space:nowrap;">${escapeAttr(String(h["변경일시"] || "").slice(0, 16).replace("T", " "))}</td>
+      </tr>`).join("");
+    return `
+      <div class="rules-table-wrap" style="margin-bottom:8px;background:#fafafb;">
+        <table class="rules-table">
+          <thead><tr><th>거래처명</th><th>필드</th><th>이전값</th><th></th><th>신규값</th><th>변경일시</th></tr></thead>
+          <tbody>${rowsH}</tbody>
+        </table>
+      </div>`;
+  }
+
   const rowsHtml = filtered.map(r => {
     const key = r["_rule_key"] || buildRuleKey(r["사업체"],r["매칭방식"],r["매칭키"]);
     if (rulesState.editKey === key) return editForm({ ...r, _rule_key: key });
@@ -11244,12 +11332,14 @@ function renderRulesPanel() {
           <label class="rules-btn rules-import-btn" title="Excel 파일에서 규칙 일괄 가져오기" style="cursor:pointer;">
             Excel 가져오기
             <input type="file" id="rulesImportFileInput" accept=".xls,.xlsx" hidden />
-          </label>` : ""}
+          </label>
+          <button class="rules-btn${rulesState.historyOpen ? " active" : ""}" id="rulesHistoryBtn" title="결제예정일·예정금액 변경이력">📜 변경이력</button>` : ""}
         </div>
         <button class="rules-btn rules-close-btn" id="rulesPanelClose">✕ 닫기</button>
       </div>
       ${rulesState.tableOpen ? `
         ${rulesState.msg ? `<div class="rules-msg">${escapeAttr(rulesState.msg)}</div>` : ""}
+        ${rulesState.historyOpen ? historyPanelHtml() : ""}
         ${rulesState.loading ? `<div class="rules-msg">불러오는 중…</div>` : `
         <div class="rules-table-wrap">
           <table class="rules-table">
@@ -11288,6 +11378,15 @@ function renderRulesPanel() {
   });
 
   panel.querySelector("#rulesReloadBtn")?.addEventListener("click", loadRules);
+
+  panel.querySelector("#rulesHistoryBtn")?.addEventListener("click", () => {
+    rulesState.historyOpen = !rulesState.historyOpen;
+    if (rulesState.historyOpen && rulesState.historyRows === null) {
+      loadRuleHistory();
+    } else {
+      renderRulesPanel();
+    }
+  });
 
   panel.querySelector("#rulesImportFileInput")?.addEventListener("change", e => {
     const file = e.target.files?.[0];

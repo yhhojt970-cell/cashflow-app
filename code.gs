@@ -24,6 +24,7 @@ const BIZ_DIVISION_SHEET   = "사업부문마스터";
 const FIXED_SHEET          = "고정지출";
 const PNL_SHEET            = "경영손익_data";
 const RULES_SHEET          = "분류규칙";
+const RULE_HISTORY_SHEET   = "분류규칙_이력";
 const CLASSIFIED_SHEET     = "엠오토_분류";
 const MAUTO_TAX_SHEET      = "엠오토_세금계산서";
 const MAUTO_SOURCE_SHEET   = "엠오토_소스";
@@ -73,6 +74,7 @@ function doGet(e) {
     getBizDivision:   BIZ_DIVISION_SHEET,
     getFixed:         FIXED_SHEET,
     getPnlData:       PNL_SHEET,
+    getRuleHistory:   RULE_HISTORY_SHEET,
   };
   if (GET_SHEET_MAP[action]) return jsonOutput({ rows: getSheetRows(GET_SHEET_MAP[action]) });
 
@@ -154,6 +156,7 @@ function doPost(e) {
   if (action === "appendPaymentPlans")  { appendRows(PLAN_SHEET,           rows); return jsonOutput({ ok: true, count: rows.length }); }
   if (action === "appendPaymentHistory"){ appendRows(HISTORY_SHEET,        rows); return jsonOutput({ ok: true, count: rows.length }); }
   if (action === "appendUpdateHistory") { appendRows(UPDATE_HISTORY_SHEET, rows); return jsonOutput({ ok: true, count: rows.length }); }
+  if (action === "appendRuleHistory")   { appendRows(RULE_HISTORY_SHEET,   rows); return jsonOutput({ ok: true, count: rows.length }); }
 
   // ── 업체마스터 (전용 upsert — 거래처코드 앞자리 0 보존) ──
   if (action === "upsertVendorMaster") {

@@ -5068,6 +5068,7 @@ td {
 .rules-btn { padding: 4px 10px; border-radius: 5px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .rules-btn:hover { background: #e2e8f0; }
 .rules-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rules-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .rules-biz-btn { padding: 4px 10px; border-radius: 5px; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 600; cursor: pointer; }
 .rules-biz-btn.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .rules-add-btn { background: #16a34a; color: #fff; border-color: #16a34a; }
