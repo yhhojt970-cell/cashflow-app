@@ -7794,6 +7794,19 @@ function renderMautoTab() {
       if (mautoArStatusFilter === st) return;
       mautoArStatusFilter = st;
       renderMautoTab();
+      // 재렌더 시 연/월(업체) 행이 기본 접힘으로 초기화되어 "표가 닫힌 것"처럼 보이므로
+      // 필터를 바꾼 목적(내용을 바로 보려는 것)에 맞게 두 표 모두 펼쳐서 보여줌
+      const newSec = elements.mauto || document.getElementById("mauto");
+      ["receivables", "payables"].forEach(id => {
+        const wrap = newSec?.querySelector(`#mauto-section-${id}`);
+        if (!wrap) return;
+        wrap.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month").forEach(row => {
+          row.dataset.collapsed = "0";
+          const icon = row.querySelector(".mauto-toggle-icon");
+          if (icon) icon.textContent = "▼";
+        });
+        wrap.querySelectorAll("[data-mauto-yr], [data-mauto-mo]").forEach(r => { r.style.display = ""; });
+      });
     });
   });
 
