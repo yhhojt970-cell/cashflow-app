@@ -12209,7 +12209,7 @@ async function init() {
   loadFixedAmountOverrides();
   loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
-  switchTab("home");
+  switchTab("mauto");
 
   await Promise.all([
     loadSheetPayables(),
