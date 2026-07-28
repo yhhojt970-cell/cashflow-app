@@ -250,6 +250,15 @@ const MAUTO_FIXED_CHECKED_KEY = "mauto-fixed-checked-v1";
 let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
 const MAUTO_FIXED_AMOUNT_KEY = "mauto-fixed-amount-overrides-v1";
 let mautoFixedAmountOverrides = {}; // { "YYYY-MM||거래처명||예정일": amount }
+const MAUTO_AR_CHECKED_KEY = "mauto-ar-checked-v1";
+let mautoArChecked = {}; // { "rcv|pay||vendorKey||YYYY-MM": true/false } — 미수/미지급 카드 합계에 반영할 항목 체크
+function loadArChecked() {
+  try { const s = localStorage.getItem(MAUTO_AR_CHECKED_KEY); mautoArChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoArChecked = {}; }
+}
+function saveArChecked() {
+  try { localStorage.setItem(MAUTO_AR_CHECKED_KEY, JSON.stringify(mautoArChecked)); } catch(_) {}
+  _scheduleMautoRemoteSave();
+}
 let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
@@ -4362,6 +4371,7 @@ function switchTab(tabId) {
         if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
         if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
         if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
+        if (remote.arChecked && typeof remote.arChecked === "object") { mautoArChecked = remote.arChecked; try { localStorage.setItem(MAUTO_AR_CHECKED_KEY, JSON.stringify(mautoArChecked)); } catch (_) {} }
         if (Array.isArray(remote.taxInvoices) && remote.taxInvoices.length) {
           const localKeys = new Set(mautoTaxInvoices.map(r => r._row_key).filter(Boolean));
           const newRows = remote.taxInvoices.filter(r => r._row_key && !localKeys.has(r._row_key));
@@ -6802,6 +6812,7 @@ function _scheduleMautoRemoteSave() {
           excludePay: mautoExcludeVendorsPay,
           fixedChecked: mautoFixedChecked,
           fixedAmountOverrides: mautoFixedAmountOverrides,
+          arChecked: mautoArChecked,
         }
       });
     } catch (e) {
@@ -6997,6 +7008,10 @@ function renderMautoAccountingTable(rows, kind) {
     (a.month || 99) - (b.month || 99) ||
     String(a.company || "").localeCompare(String(b.company || ""), "ko")
   );
+  const hasChecks = sorted.some(r => r.checkKey !== undefined);
+  const chkTh = hasChecks ? `<th style="width:24px;"></th>` : "";
+  const chkTdEmpty = hasChecks ? `<td></td>` : "";
+  const colCount = hasChecks ? 7 : 6;
 
   if (!sorted.length) {
     return `<div class="mauto-table-wrap">
@@ -7021,6 +7036,7 @@ function renderMautoAccountingTable(rows, kind) {
     const yearSum = sumMautoRows(yearRows);
     const yearKey = `${kind}:${year}`;
     const yearHtml = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(String(yearKey))}" style="cursor:pointer;">
+      ${chkTdEmpty}
       <td colspan="3"><span class="mauto-toggle-icon">▼</span> ${escapeHtml(String(year))}${Number(year) ? "년" : ""}</td>
       ${mautoNumericCell(yearSum.total)}
       ${mautoNumericCell(yearSum.inout)}
@@ -7031,8 +7047,12 @@ function renderMautoAccountingTable(rows, kind) {
       const monthKey = `${kind}:${year}:${month}`;
       const detailRows = monthRows.map(row => {
         const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+        const chkTd = hasChecks
+          ? (row.checkKey ? `<td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-ar-chk" data-chk-key="${escapeHtml(row.checkKey)}" data-side="${kind === "receivables" ? "rcv" : "pay"}" data-amt="${row.balance}" ${row.checked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:13px;height:13px;" /></td>` : `<td></td>`)
+          : "";
         const mainRow = `
         <tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}">
+          ${chkTd}
           <td></td>
           <td>${escapeHtml(String(row.month || ""))}</td>
           <td>${escapeHtml(row.company || "")}</td>
@@ -7041,11 +7061,12 @@ function renderMautoAccountingTable(rows, kind) {
           ${mautoNumericCell(row.balance, "mauto-balance-cell")}
         </tr>`;
         const arDetailRow = hasArDetail
-          ? `<tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}"><td colspan="6">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+          ? `<tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
           : "";
         return mainRow + arDetailRow;
       }).join("");
       const monthRowHtml = `<tr class="mauto-month-row mauto-toggle-month" data-mauto-year="${escapeHtml(String(yearKey))}" data-mauto-month="${escapeHtml(String(monthKey))}" style="cursor:pointer;">
+        ${chkTdEmpty}
         <td></td>
         <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(String(month))}${Number(month) ? "월" : ""}</td>
         <td></td>
@@ -7064,6 +7085,7 @@ function renderMautoAccountingTable(rows, kind) {
     <table class="mauto-table" data-kind="${kind}">
       <thead>
         <tr>
+          ${chkTh}
           <th>작성연도</th><th>작성월</th><th>상호</th>
           <th class="mauto-num">${totalLabel}</th>
           <th class="mauto-num">${inoutLabel}</th>
@@ -7073,6 +7095,7 @@ function renderMautoAccountingTable(rows, kind) {
       <tbody>${body}</tbody>
       <tfoot>
         <tr>
+          ${chkTdEmpty}
           <td colspan="3">총합계</td>
           ${mautoNumericCell(total.total)}
           ${mautoNumericCell(total.inout)}
@@ -7095,6 +7118,11 @@ function renderMautoPayablesByVendor(payRows) {
     </div>`;
   }
 
+  const hasChecks = rows.some(r => r.checkKey !== undefined);
+  const chkTh = hasChecks ? `<th style="width:24px;"></th>` : "";
+  const chkTdEmpty = hasChecks ? `<td></td>` : "";
+  const colCount = hasChecks ? 6 : 5;
+
   // 업체별 그룹화
   const vendors = new Map();
   rows.forEach(row => {
@@ -7115,6 +7143,7 @@ function renderMautoPayablesByVendor(payRows) {
       (a.year || 9999) - (b.year || 9999) || (a.month || 99) - (b.month || 99)
     );
     const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(vKey)}" style="cursor:pointer;">
+      ${chkTdEmpty}
       <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(company)}</td>
       <td></td>
       ${mautoNumericCell(vSum.total)}
@@ -7123,8 +7152,12 @@ function renderMautoPayablesByVendor(payRows) {
     </tr>`;
     const detailRows = sortedVRows.map(row => {
       const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+      const chkTd = hasChecks
+        ? (row.checkKey ? `<td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-ar-chk" data-chk-key="${escapeHtml(row.checkKey)}" data-side="pay" data-amt="${row.balance}" ${row.checked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:13px;height:13px;" /></td>` : `<td></td>`)
+        : "";
       const mainRow = `
       <tr data-mauto-yr="${escapeHtml(vKey)}">
+        ${chkTd}
         <td></td>
         <td style="font-size:12px;color:#6b7280;">${row.year || ""}년 ${row.month || ""}월</td>
         ${mautoNumericCell(row.total)}
@@ -7132,7 +7165,7 @@ function renderMautoPayablesByVendor(payRows) {
         ${mautoNumericCell(row.balance, "mauto-balance-cell")}
       </tr>`;
       const arDetailRow = hasArDetail
-        ? `<tr data-mauto-yr="${escapeHtml(vKey)}"><td colspan="5">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+        ? `<tr data-mauto-yr="${escapeHtml(vKey)}"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
         : "";
       return mainRow + arDetailRow;
     }).join("");
@@ -7143,6 +7176,7 @@ function renderMautoPayablesByVendor(payRows) {
   return `<div class="mauto-table-wrap">
     <table class="mauto-table" data-kind="payables-vendor">
       <thead><tr>
+        ${chkTh}
         <th>상호</th><th>연월</th>
         <th class="mauto-num">매입합계</th>
         <th class="mauto-num">출금</th>
@@ -7150,6 +7184,7 @@ function renderMautoPayablesByVendor(payRows) {
       </tr></thead>
       <tbody>${body}</tbody>
       <tfoot><tr>
+        ${chkTdEmpty}
         <td colspan="2">총합계 (${sorted.length}개 업체)</td>
         ${mautoNumericCell(total.total)}
         ${mautoNumericCell(total.inout)}
@@ -7505,6 +7540,14 @@ function renderMautoFixedTable(rows) {
 
 // buildArRecap 결과 → renderMautoAccountingTable 포맷 변환 (발생 0·잔액 0·제외 거래처 제외)
 function arRecapToMautoRows(entries, side) {
+  // 거래처별 최신 연월 판별 (상태필터 적용 전 전체 기준) — 기본 체크 대상: 거래처당 최신 1건만
+  const latestYmByVendor = new Map();
+  entries.forEach(e => {
+    if (e.발생 === 0) return;
+    const cur = latestYmByVendor.get(e.vendorKey);
+    if (!cur || e.ym > cur) latestYmByVendor.set(e.vendorKey, e.ym);
+  });
+
   return entries
     .filter(e => e.발생 !== 0)
     .filter(e => {
@@ -7513,11 +7556,17 @@ function arRecapToMautoRows(entries, side) {
       return true; // "all"
     })
     .filter(e => !isArRecapExcluded(e.vendor, side))
-    .map(e => ({
-      year: e.year, month: e.month, company: e.vendor,
-      total: e.발생, inout: e.충당, balance: e.잔액,
-      발생상세: e.발생상세 || [], 충당상세: e.충당상세 || [],
-    }));
+    .map(e => {
+      const checkKey = `${side}||${e.vendorKey}||${e.ym}`;
+      const isLatest = latestYmByVendor.get(e.vendorKey) === e.ym;
+      const checked = mautoArChecked[checkKey] !== undefined ? mautoArChecked[checkKey] : isLatest;
+      return {
+        year: e.year, month: e.month, company: e.vendor,
+        total: e.발생, inout: e.충당, balance: e.잔액,
+        발생상세: e.발생상세 || [], 충당상세: e.충당상세 || [],
+        checkKey, checked,
+      };
+    });
 }
 
 function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
@@ -7564,14 +7613,17 @@ function renderMautoTab() {
 
   // 세금계산서 데이터가 있으면 buildArRecap으로 미수/미지급 자동 계산
   const hasTax = mautoTaxInvoices && mautoTaxInvoices.length > 0;
-  let rcvRows, payRows, receivable, payable, rcvBadge, payBadge, rcvWarn = "", payWarn = "";
+  let rcvRows, payRows, receivable, payable, receivableFull, payableFull, rcvBadge, payBadge, rcvWarn = "", payWarn = "";
   if (hasTax) {
     const rcv = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미수");
     const pay = buildArRecap(mautoTaxInvoices, mautoClassifiedRows || [], "미지급");
     rcvRows = arRecapToMautoRows(rcv.entries, "rcv");
     payRows = arRecapToMautoRows(pay.entries, "pay");
-    receivable = rcvRows.reduce((s, r) => s + r.balance, 0);
-    payable    = payRows.reduce((s, r) => s + r.balance, 0);
+    receivableFull = rcvRows.reduce((s, r) => s + r.balance, 0);
+    payableFull    = payRows.reduce((s, r) => s + r.balance, 0);
+    // 카드 큰 숫자는 체크한 항목만 합산 (전체 합계는 작게 별도 표시)
+    receivable = rcvRows.filter(r => r.checked).reduce((s, r) => s + r.balance, 0);
+    payable    = payRows.filter(r => r.checked).reduce((s, r) => s + r.balance, 0);
     const taxCnt = mautoTaxInvoices.length;
     const exStyleBase = `font-size:11px;margin-left:8px;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;background:#f3f4f6;cursor:pointer;`;
     const taxBadge = `<span style="font-size:11px;color:#2563eb;font-weight:600;margin-left:6px;">세금계산서 ${taxCnt}건 기준</span>`;
@@ -7591,6 +7643,8 @@ function renderMautoTab() {
     payRows = mautoData.payables || [];
     receivable = rcvRows.reduce((s, r) => s + Number(r.balance || 0), 0);
     payable    = payRows.reduce((s, r) => s + Number(r.balance || 0), 0);
+    receivableFull = receivable;
+    payableFull    = payable;
     rcvBadge = ""; payBadge = "";
   }
 
@@ -7679,8 +7733,8 @@ function renderMautoTab() {
     </div><!-- /mautoToolsPanel (도구 접기 영역 끝) -->
     <div class="mauto-summary-grid">
       <div class="mauto-card card-funds"><span>가용자금</span><strong data-raw="${funds}">${formatNumber(funds)}</strong></div>
-      <div class="mauto-card card-receivable"><span>미수금 잔액</span><strong data-raw="${receivable}">${formatNumber(receivable)}</strong></div>
-      <div class="mauto-card card-payable"><span>미지급 잔액</span><strong data-raw="${payable}">${formatNumber(payable)}</strong></div>
+      <div class="mauto-card card-receivable"><span>미수금 잔액${hasTax ? ` <span style="font-size:10px;color:#9ca3af;font-weight:400;" title="체크 안 한 항목까지 포함한 전체 합계">(전체 ${formatNumber(receivableFull)})</span>` : ""}</span><strong data-raw="${receivable}">${formatNumber(receivable)}</strong></div>
+      <div class="mauto-card card-payable"><span>미지급 잔액${hasTax ? ` <span style="font-size:10px;color:#9ca3af;font-weight:400;" title="체크 안 한 항목까지 포함한 전체 합계">(전체 ${formatNumber(payableFull)})</span>` : ""}</span><strong data-raw="${payable}">${formatNumber(payable)}</strong></div>
       <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total" data-raw="${fixed}">${formatNumber(fixed)}</strong></div>
       ${(() => { const net = funds + receivable - payable - fixed; return `<div class="mauto-card card-net" style="border-top-color:${net>=0?"#16a34a":"#dc2626"};"><span>예상 잔액</span><strong id="mauto-net-total" style="color:${net>=0?"#16a34a":"#dc2626"};">${net>=0?"+":""}${formatNumber(net)}</strong></div>`; })()}
     </div>
@@ -7875,6 +7929,35 @@ function renderMautoTab() {
         const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
         const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
         const net = fundsVal + rcvVal - payVal - fixedTotal;
+        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
+        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
+        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
+      }
+    });
+  });
+
+  // 미수/미지급 항목별 체크박스 → 카드 합계(체크한 것만) 실시간 업데이트
+  sec.querySelectorAll(".mauto-ar-chk").forEach(chk => {
+    chk.addEventListener("change", () => {
+      const key = chk.dataset.chkKey;
+      const side = chk.dataset.side; // "rcv" | "pay"
+      mautoArChecked[key] = chk.checked;
+      saveArChecked();
+      let sideTotal = 0;
+      sec.querySelectorAll(`.mauto-ar-chk[data-side="${side}"]:checked`).forEach(c => {
+        sideTotal += Number(c.dataset.amt) || 0;
+      });
+      const cardEl = sec.querySelector(`.card-${side === "rcv" ? "receivable" : "payable"} strong`);
+      if (cardEl) { cardEl.textContent = formatNumber(sideTotal); cardEl.dataset.raw = sideTotal; }
+      // 예상 잔액 재계산
+      const netEl = document.getElementById("mauto-net-total");
+      const grid = netEl?.closest(".mauto-summary-grid");
+      if (netEl && grid) {
+        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
+        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
+        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
+        const fixedVal = Number(grid.querySelector(".card-fixed strong")?.dataset?.raw || 0);
+        const net = fundsVal + rcvVal - payVal - fixedVal;
         netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
         netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
         netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
@@ -8334,6 +8417,7 @@ function setupTabs() {
             if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
             if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
             if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
+        if (remote.arChecked && typeof remote.arChecked === "object") { mautoArChecked = remote.arChecked; try { localStorage.setItem(MAUTO_AR_CHECKED_KEY, JSON.stringify(mautoArChecked)); } catch (_) {} }
             mautoData = normalizeMautoData(remote);
             console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
             try { localStorage.setItem(MAUTO_LOCAL_KEY, JSON.stringify(mautoData)); } catch (_) {}
@@ -12121,6 +12205,7 @@ async function init() {
   // 엠오토 세금계산서 소스 로드 + 제외 거래처 로드
   loadMautoTaxSource();
   loadFixedChecked();
+  loadArChecked();
   loadFixedAmountOverrides();
   loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
