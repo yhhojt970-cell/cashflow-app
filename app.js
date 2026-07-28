@@ -11092,7 +11092,7 @@ async function loadRules() {
   }
 }
 
-async function saveRule(ruleObj) {
+async function saveRule(ruleObj, origKey = "") {
   rulesState.saving = true;
   rulesState.msg = "저장 중…";
   renderRulesPanel();
@@ -11100,6 +11100,12 @@ async function saveRule(ruleObj) {
     const key = buildRuleKey(ruleObj["사업체"], ruleObj["매칭방식"], ruleObj["매칭키"]);
     const row = { ...ruleObj, _rule_key: key };
     await postSheetWebApp("upsertRules", { rows: [row] });
+    // 사업체/매칭방식/매칭키(=식별키 구성요소)를 수정해 키가 바뀐 경우:
+    // 새 키로 upsert만 하면 예전 키의 행이 그대로 남아 중복 생성되므로 예전 행을 삭제
+    if (origKey && origKey !== key) {
+      try { await postSheetWebApp("deleteRule", { key: origKey }); } catch (_) {}
+      rulesState.rows = rulesState.rows.filter(r => r["_rule_key"] !== origKey);
+    }
     // 로컬 상태 갱신
     const idx = rulesState.rows.findIndex(r => r["_rule_key"] === key);
     if (idx >= 0) rulesState.rows[idx] = row;
@@ -11345,7 +11351,8 @@ function renderRulesPanel() {
       };
       if (!ruleObj.매칭키) { alert("매칭키를 입력해주세요."); return; }
       if (!ruleObj.거래처명) { alert("거래처명을 입력해주세요."); return; }
-      saveRule(ruleObj);
+      const origKey = row.dataset.editKey || "";
+      saveRule(ruleObj, origKey);
     });
   });
 }
