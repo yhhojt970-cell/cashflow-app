@@ -7431,6 +7431,8 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       ? `<span style="font-size:11px;color:#16a34a;margin-left:6px;">✓ 완료</span>`
       : (isPast ? `<span style="font-size:11px;color:#ef4444;margin-left:6px;">● 미결</span>` : "");
     const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
+    // 월 전체 예정금액 합계 (이미 완료된 항목은 제외 — 날짜 소계와 동일 기준)
+    const monthExpected = monthItems.filter(i => i.status !== "완료").reduce((s, i) => s + (i.예정금액 || 0), 0);
     const tableHtml = `<div style="overflow-x:auto;"><table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:center;width:28px;">☑</th>
@@ -7447,7 +7449,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       <summary style="cursor:pointer;font-weight:700;font-size:13px;color:${isCurrent?"#2563eb":"#374151"};padding:4px 0 6px;border-bottom:${headerBorder};list-style:none;display:flex;align-items:center;gap:6px;">
         <span>${collapsed ? "▶" : "▼"}</span>
         <span>${year}년 ${parseInt(month)}월${doneBadge}</span>
-        <span style="margin-left:auto;color:#6b7280;font-weight:400;font-size:12px;">합계 ${formatNumber(monthTotal)}</span>
+        <span style="margin-left:auto;color:#6b7280;font-weight:400;font-size:12px;">예정합계 ${formatNumber(monthExpected)} · 실적합계 ${formatNumber(monthTotal)}</span>
       </summary>
       <div style="padding-top:4px;">${tableHtml}</div>
     </details>`;
