@@ -264,6 +264,7 @@ let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
 let mautoPayViewMode = "ym"; // "ym" | "vendor"
 let mautoArStatusFilter = "open"; // "all" | "done" | "open" — 미수/미지급 자동계산 상태 필터
+let mautoFixedViewMode = "month"; // "month" | "item" — 고정지출 자동계산 보기 방식
 let mautoToolsOpen = false; // 엠오토 상단 도구영역(제목~카드 사이) 접기 상태 (기본 접힘)
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
@@ -7466,6 +7467,64 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
   </div>`;
 }
 
+// 고정지출 항목별 보기 — 거래처(항목) 기준으로 연월별 예정금액·실적 이력을 모아서 보여줌
+function renderMautoFixedByItem(monthData) {
+  if (!monthData || !monthData.length) {
+    return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">데이터 없음</div>`;
+  }
+
+  const byItem = new Map(); // 거래처명 -> { 고정분류, rows: [{ym,year,month,예정일,예정금액,totalAmount,status}] }
+  monthData.forEach(({ year, month, ym, items }) => {
+    items.forEach(item => {
+      if (!byItem.has(item.거래처명)) byItem.set(item.거래처명, { 고정분류: item.고정분류, rows: [] });
+      byItem.get(item.거래처명).rows.push({
+        ym, year, month,
+        예정일: item.예정일,
+        예정금액: item.예정금액 || 0,
+        totalAmount: item.totalAmount || 0,
+        status: item.status,
+      });
+    });
+  });
+
+  const sortedItems = [...byItem.entries()].sort((a, b) => a[0].localeCompare(b[0], "ko"));
+
+  const body = sortedItems.map(([name, { 고정분류, rows }], idx) => {
+    const sortedRows = [...rows].sort((a, b) => a.ym.localeCompare(b.ym));
+    const expectedSum = sortedRows.filter(r => r.status !== "완료").reduce((s, r) => s + r.예정금액, 0);
+    const actualSum = sortedRows.reduce((s, r) => s + r.totalAmount, 0);
+    const itemKey = `fixeditem:${idx}`;
+    const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(itemKey)}" style="cursor:pointer;">
+      <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(name)}<span style="margin-left:6px;font-size:10px;color:#9ca3af;">${escapeHtml(고정분류 || "")}</span></td>
+      <td></td>
+      ${mautoNumericCell(expectedSum)}
+      ${mautoNumericCell(actualSum)}
+      <td></td>
+    </tr>`;
+    const detailRows = sortedRows.map(r => `
+      <tr data-mauto-yr="${escapeHtml(itemKey)}">
+        <td></td>
+        <td style="font-size:12px;color:#6b7280;">${r.year}년 ${parseInt(r.month)}월${r.예정일 ? ` (${r.예정일}일)` : ""}</td>
+        ${mautoNumericCell(r.예정금액)}
+        ${mautoNumericCell(r.totalAmount)}
+        <td style="text-align:center;font-size:11px;${r.status === "완료" ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${r.status === "완료" ? "✓" : "-"}</td>
+      </tr>`).join("");
+    return headerRow + detailRows;
+  }).join("");
+
+  return `<div class="mauto-table-wrap">
+    <table class="mauto-table" data-kind="fixed-item">
+      <thead><tr>
+        <th>항목</th><th>연월</th>
+        <th class="mauto-num">예정금액</th>
+        <th class="mauto-num">실적</th>
+        <th>상태</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+}
+
 function renderMautoFixedTable(rows) {
   const sorted = [...(rows || [])].sort((a, b) =>
     (a.year || 9999) - (b.year || 9999) || (a.month || 99) - (b.month || 99) ||
@@ -7733,12 +7792,13 @@ function renderMautoTab() {
     </div>`;
     })()}
     </div><!-- /mautoToolsPanel (도구 접기 영역 끝) -->
+    <h3 style="margin:14px 0 6px;font-size:13px;color:#374151;">자금수지 요약</h3>
     <div class="mauto-summary-grid">
       <div class="mauto-card card-funds"><span>가용자금</span><strong data-raw="${funds}">${formatNumber(funds)}</strong></div>
       <div class="mauto-card card-receivable"><span>미수금 잔액${hasTax ? ` <span style="font-size:10px;color:#9ca3af;font-weight:400;" title="체크 안 한 항목까지 포함한 전체 합계">(전체 ${formatNumber(receivableFull)})</span>` : ""}</span><strong data-raw="${receivable}">${formatNumber(receivable)}</strong></div>
       <div class="mauto-card card-payable"><span>미지급 잔액${hasTax ? ` <span style="font-size:10px;color:#9ca3af;font-weight:400;" title="체크 안 한 항목까지 포함한 전체 합계">(전체 ${formatNumber(payableFull)})</span>` : ""}</span><strong data-raw="${payable}">${formatNumber(payable)}</strong></div>
-      <div class="mauto-card card-fixed"><span>고정지출</span><strong id="mauto-fixed-card-total" data-raw="${fixed}">${formatNumber(fixed)}</strong></div>
-      ${(() => { const net = funds + receivable - payable - fixed; return `<div class="mauto-card card-net" style="border-top-color:${net>=0?"#16a34a":"#dc2626"};"><span>예상 잔액</span><strong id="mauto-net-total" style="color:${net>=0?"#16a34a":"#dc2626"};">${net>=0?"+":""}${formatNumber(net)}</strong></div>`; })()}
+      <div class="mauto-card card-fixed"><span>고정지출 (월)</span><strong id="mauto-fixed-card-total" data-raw="${fixed}">${formatNumber(fixed)}</strong></div>
+      ${(() => { const net = funds + receivable - payable - fixed; return `<div class="mauto-card card-net" style="border-top-color:${net>=0?"#16a34a":"#dc2626"};"><span>예상 잔액 <span style="font-size:10px;color:#9ca3af;font-weight:400;">(가용+미수−미지급−고정)</span></span><strong id="mauto-net-total" style="color:${net>=0?"#16a34a":"#dc2626"};">${net>=0?"+":""}${formatNumber(net)}</strong></div>`; })()}
     </div>
     ${mautoVatView ? renderMautoVatView() : ""}
     ${mautoPasteSection("funds", "가용자금",
@@ -7754,10 +7814,14 @@ function renderMautoTab() {
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       mautoFixedRules !== null
-        ? renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, _fixedMonthDataCache)
+        ? (mautoFixedViewMode === "item"
+            ? renderMautoFixedByItem(_fixedMonthDataCache)
+            : renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, _fixedMonthDataCache))
         : renderMautoFixedTable(mautoData.fixed),
       "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true,
-      `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>`)}
+      `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>` +
+      (mautoFixedRules !== null ? `<button type="button" id="mautoFixedViewMonth" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;cursor:pointer;background:${mautoFixedViewMode==="month"?"#2563eb":"#f3f4f6"};color:${mautoFixedViewMode==="month"?"#fff":"#000"};" title="월별로 보기">월별</button>
+      <button type="button" id="mautoFixedViewItem" style="font-size:11px;margin-left:4px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;cursor:pointer;background:${mautoFixedViewMode==="item"?"#2563eb":"#f3f4f6"};color:${mautoFixedViewMode==="item"?"#fff":"#000"};" title="항목별로 보기">항목별</button>` : ""))}
   </div>`;
 
   // 카드 클릭 → 해당 섹션 토글 (기본 숨김)
@@ -7884,6 +7948,21 @@ function renderMautoTab() {
   document.getElementById("mautoPayViewVendor")?.addEventListener("click", () => {
     if (mautoPayViewMode === "vendor") return;
     mautoPayViewMode = "vendor"; renderMautoTab(); _reopenPayables();
+  });
+
+  // 고정지출 월별/항목별 토글
+  const _reopenFixed = () => {
+    const fs = document.getElementById("mauto-section-fixed");
+    if (fs) fs.style.display = "";
+    sec.querySelector(".card-fixed")?.classList.add("mauto-card-active");
+  };
+  document.getElementById("mautoFixedViewMonth")?.addEventListener("click", () => {
+    if (mautoFixedViewMode === "month") return;
+    mautoFixedViewMode = "month"; renderMautoTab(); _reopenFixed();
+  });
+  document.getElementById("mautoFixedViewItem")?.addEventListener("click", () => {
+    if (mautoFixedViewMode === "item") return;
+    mautoFixedViewMode = "item"; renderMautoTab(); _reopenFixed();
   });
 
   // 고정지출 월 전체 펼치기 / 접기
