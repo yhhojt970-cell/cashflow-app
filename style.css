@@ -4584,7 +4584,7 @@ td {
 }
 
 /* 보고서 페이지 — 남색은 헤더/핵심 KPI 카드 두 곳에만, 나머지는 옅은 회색+굵은 글씨로 강조.
-   화면에서는 헤더 고정 / 본문 스크롤 / 결재란 하단 고정(:has로 판별, 마크업 변경 없음).
+   내부 스크롤 없이 페이지 전체가 자연스럽게 늘어나며, 브라우저(바깥) 스크롤로 확인.
    인쇄 시에는 아래 @media print에서 전부 무효화하고 원래대로 자연스럽게 페이지에 흐르게 함. */
 .pnl-page {
   background: #fff;
@@ -4592,13 +4592,11 @@ td {
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0,0,0,.10);
   display: flex; flex-direction: column;
-  max-height: calc(100vh - 270px);
 }
 .pnl-doc-header {
   background: var(--pnl-navy);
   padding: 24px 32px 20px;
   flex-shrink: 0;
-  position: sticky; top: 0; z-index: 2;
 }
 .pnl-company-badge {
   font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
@@ -4613,16 +4611,11 @@ td {
 .pnl-meta-lbl { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.4); text-transform: uppercase; }
 .pnl-meta-val { font-size: 12px; color: rgba(255,255,255,.92); font-weight: 600; }
 
-.pnl-doc-body { background: #fff; padding: 32px 40px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.pnl-doc-body { background: #fff; padding: 32px 40px; }
 .pnl-doc-footer {
   background: #fff; text-align: center; flex-shrink: 0;
   padding: 12px; font-size: 11px; color: var(--pnl-muted); letter-spacing: 1px;
   border-top: 1px solid #f1f5f9;
-}
-/* 결재 섹션(.pnl-ap-grid를 담은 섹션)만 스크롤 영역 하단에 고정 */
-.pnl-doc-body .pnl-section:has(.pnl-ap-grid) {
-  position: sticky; bottom: -32px; margin: 24px -40px -32px; padding: 16px 40px 32px;
-  background: #fff; box-shadow: 0 -6px 16px rgba(0,0,0,.06);
 }
 
 /* KPI 카드 — 한 줄에 고르게, 핵심 지표(경영이익)만 카드를 다르게 해서 강조 */
