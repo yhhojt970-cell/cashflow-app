@@ -4717,6 +4717,10 @@ td {
 .pnl-ap-role { font-size: 10px; letter-spacing: 1px; color: var(--pnl-muted); margin-bottom: 4px; }
 .pnl-ap-name { font-size: 12px; font-weight: 700; }
 .pnl-ap-date { font-size: 10px; color: var(--pnl-muted); margin: 4px 0; min-height: 14px; }
+.pnl-ap-comment {
+  font-size: 10px; color: var(--pnl-muted); margin-top: 4px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .pnl-stamp {
   width: 36px; height: 36px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;

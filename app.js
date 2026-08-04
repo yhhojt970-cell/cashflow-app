@@ -12320,10 +12320,10 @@ const PNL_META = {
   ceo: { name: "장운기", title: "대표이사" },
 };
 const PNL_APPROVAL_STEPS = [
-  { dateKey: "draftDate",  nextStatus: "기안",    role: "기안",    name: PNL_META.author.name,      title: PNL_META.author.title,    stampCls: "pnl-stamp-signed"   },
-  { dateKey: "agree1Date", nextStatus: "합의1",   role: "합의",    name: PNL_META.approvers[0].name, title: PNL_META.approvers[0].title, stampCls: "pnl-stamp-signed" },
-  { dateKey: "agree2Date", nextStatus: "합의2",   role: "합의",    name: PNL_META.approvers[1].name, title: PNL_META.approvers[1].title, stampCls: "pnl-stamp-signed" },
-  { dateKey: "ceoDate",    nextStatus: "결재완료", role: "최종결재", name: PNL_META.ceo.name,         title: PNL_META.ceo.title,       stampCls: "pnl-stamp-approved" },
+  { dateKey: "draftDate",  nextStatus: "기안",    role: "기안",    name: PNL_META.author.name,      title: PNL_META.author.title,    stampCls: "pnl-stamp-signed",   commentKey: "draftComment"  },
+  { dateKey: "agree1Date", nextStatus: "합의1",   role: "합의",    name: PNL_META.approvers[0].name, title: PNL_META.approvers[0].title, stampCls: "pnl-stamp-signed", commentKey: "agree1Comment" },
+  { dateKey: "agree2Date", nextStatus: "합의2",   role: "합의",    name: PNL_META.approvers[1].name, title: PNL_META.approvers[1].title, stampCls: "pnl-stamp-signed", commentKey: "agree2Comment" },
+  { dateKey: "ceoDate",    nextStatus: "결재완료", role: "최종결재", name: PNL_META.ceo.name,         title: PNL_META.ceo.title,       stampCls: "pnl-stamp-approved", commentKey: "ceoComment"    },
 ];
 const PNL_SEED = [
   { year:2026, month:1,  revenue:502848410, targetRevenue:600000000, cogs:422295376, mfg:18154934, sga:66248997, interest:9192216,
@@ -12394,6 +12394,20 @@ function writePnlPendingToFirebase() {
     db.ref("pnlPending/" + _pnlEk(email)).set(total > 0 ? total : null).catch(() => {});
   });
 }
+
+// 반려 시 기안자(여희정)에게 알림 — 반려되면 approvalStatus가 draft로 돌아가 pnlPending 배지에서는
+// 사라지므로(진행 중 건이 아니게 됨) 별도 노드로 반드시 통지해야 기안자가 알 수 있음
+function writePnlRejectionNotice(reportLabel, step, reason) {
+  const db = _initPnlFirebase();
+  if (!db) return;
+  const authorEmail = PNL_STEP_EMAILS[0];
+  const r = db.ref("pnlRejectionNotices/" + _pnlEk(authorEmail)).push();
+  r.set({
+    reportLabel, byRole: step.role, byName: step.name, reason: reason || "",
+    at: _todayKor(), createdAt: Date.now(),
+  }).catch(() => {});
+}
+
 let pnlRptYear    = new Date().getFullYear();
 let pnlRptMonth   = new Date().getMonth() + 1;
 let pnlRptMode    = "monthly";   // "monthly" | "quarterly" | "halfyear" | "annual"
@@ -13272,6 +13286,69 @@ function openPnlCorrectionDialog(changes, onConfirm) {
   overlay.querySelector("#pnlCorrectionCancelBtn").addEventListener("click", () => overlay.remove());
 }
 
+// 서명(결재) 시 의견을 남기거나, 검토 결과 반려할 수 있는 다이얼로그.
+// reportLabel: 화면에 보여줄 보고서 라벨(예: "2026년 7월"), step: PNL_APPROVAL_STEPS 항목,
+// prevComment: 그 단계에 이미 저장된 의견(있으면 프리필), onSign(comment): 서명 확정 콜백,
+// onReject(reason): 반려 확정 콜백(사유 필수) — 둘 중 하나만 호출됨.
+function openPnlSignDialog(reportLabel, step, prevComment, onSign, onReject) {
+  document.querySelector(".pnl-sign-dialog-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "raw-diff-overlay pnl-sign-dialog-overlay";
+  overlay.innerHTML = `
+    <div class="raw-diff-dialog pnl-correction-dialog">
+      <div class="raw-diff-header">
+        <h3>${escapeHtml(step.role)} · ${escapeHtml(reportLabel)}</h3>
+        <span class="raw-diff-sub">내용을 충분히 검토한 뒤 서명하거나, 문제가 있으면 반려하세요. 반려하면 기안부터 다시 진행됩니다.</span>
+      </div>
+      <div class="pnl-correction-reason-wrap">
+        <label class="pnl-correction-reason-label">의견 (선택)</label>
+        <textarea id="pnlSignComment" class="pnl-correction-reason-input" rows="3" placeholder="검토 의견을 남기면 보고서에 함께 기록됩니다">${escapeHtml(prevComment || "")}</textarea>
+      </div>
+      <div id="pnlRejectReasonWrap" class="pnl-correction-reason-wrap" style="display:none;">
+        <label class="pnl-correction-reason-label">반려 사유 <span style="color:#dc2626">*</span></label>
+        <textarea id="pnlRejectReason" class="pnl-correction-reason-input" rows="3" placeholder="예: 매출 목표 대비 근거자료 보완 필요"></textarea>
+      </div>
+      <div class="raw-diff-actions">
+        <button type="button" class="diff-cancel-btn" id="pnlSignCancelBtn">취소</button>
+        <button type="button" class="diff-cancel-btn" id="pnlSignRejectBtn" style="color:#dc2626;border-color:#dc2626;">반려</button>
+        <button type="button" class="diff-confirm-btn" id="pnlSignConfirmBtn">서명(결재)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const commentInput = overlay.querySelector("#pnlSignComment");
+  const rejectWrap = overlay.querySelector("#pnlRejectReasonWrap");
+  const rejectInput = overlay.querySelector("#pnlRejectReason");
+  let rejectMode = false;
+  overlay.querySelector("#pnlSignCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("#pnlSignRejectBtn").addEventListener("click", () => {
+    if (!rejectMode) {
+      rejectMode = true;
+      rejectWrap.style.display = "";
+      overlay.querySelector("#pnlSignConfirmBtn").textContent = "반려 확정";
+      overlay.querySelector("#pnlSignConfirmBtn").style.background = "#dc2626";
+      overlay.querySelector("#pnlSignRejectBtn").style.display = "none";
+      rejectInput.focus();
+      return;
+    }
+  });
+  overlay.querySelector("#pnlSignConfirmBtn").addEventListener("click", () => {
+    if (rejectMode) {
+      const reason = rejectInput.value.trim();
+      if (!reason) {
+        rejectInput.style.borderColor = "#dc2626";
+        rejectInput.placeholder = "반려 사유를 입력해야 합니다";
+        return;
+      }
+      overlay.remove();
+      onReject(reason);
+      return;
+    }
+    const comment = commentInput.value.trim();
+    overlay.remove();
+    onSign(comment);
+  });
+}
+
 function renderPnlInput(el) {
   const entry = getPnlEntry(pnlInputYear, pnlInputMonth) || {
     year: pnlInputYear, month: pnlInputMonth,
@@ -13546,8 +13623,9 @@ function renderPnlReport(el) {
     const done = statusIdx > stepIdx;
     const current = statusIdx === stepIdx && !!entry;
     const date = entry?.[step.dateKey] || "";
+    const comment = entry?.[step.commentKey] || "";
     return `
-      <div class="pnl-ap-box">
+      <div class="pnl-ap-box"${done && comment ? ` title="${escapeHtml(comment)}"` : ""}>
         <div class="pnl-ap-role">${step.role}</div>
         <div class="pnl-ap-name">${step.name} ${step.title}</div>
         <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
@@ -13559,6 +13637,7 @@ function renderPnlReport(el) {
             ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
             : `<div class="pnl-stamp pnl-stamp-empty"></div>`
         }
+        ${done && comment ? `<div class="pnl-ap-comment">${escapeHtml(comment)}</div>` : ""}
       </div>`;
   }
 
@@ -13700,6 +13779,15 @@ function renderPnlReport(el) {
                 <div class="pnl-correction-changes">${c.changes.map(ch => `${ch.label} ${_pf(ch.oldValue)}원 → ${_pf(ch.newValue)}원`).join(" · ")}</div>
               </div>`).join("")}
           </div>` : ""}
+          ${entry?.rejections?.length ? `
+          <div class="pnl-section">
+            <div class="pnl-sec-title"><span class="pnl-sec-num" style="font-size:11px">✕</span>반려 이력</div>
+            ${entry.rejections.slice().reverse().map(r => `
+              <div class="pnl-correction-item">
+                <div class="pnl-correction-item-head"><span>${r.date}</span><span class="pnl-correction-from">${r.byRole}(${r.byName}) 반려</span></div>
+                <div class="pnl-correction-reason">${escapeHtml(r.reason)}</div>
+              </div>`).join("")}
+          </div>` : ""}
           `}
         </div><!-- /pnl-doc-body -->
         <div class="pnl-doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
@@ -13733,21 +13821,35 @@ function renderPnlReport(el) {
     upsertPnlEntry(entry);
   });
 
-  // 서명 버튼
+  // 서명 버튼 — 검토 의견을 남기고 서명하거나, 문제가 있으면 반려
   el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const stepIdx = +btn.dataset.step;
       const step = PNL_APPROVAL_STEPS[stepIdx];
       if (!entry) return;
-      entry[step.dateKey]  = _todayKor();
-      entry.approvalStatus = step.nextStatus;
-      if (stepIdx === 0 && (!entry.docNo || entry.docNo === "—")) {
-        entry.docNo = `MA-PNL-${entry.year}${String(entry.month).padStart(2,"0")}-001`;
-      }
-      upsertPnlEntry(entry);
-      writePnlPendingToFirebase();
-      pnlToast(`${step.role} 서명 완료`);
-      renderPnlReport(el);
+      const label = `${entry.year}년 ${entry.month}월`;
+      openPnlSignDialog(label, step, entry[step.commentKey], (comment) => {
+        entry[step.dateKey]  = _todayKor();
+        entry.approvalStatus = step.nextStatus;
+        if (comment) entry[step.commentKey] = comment;
+        if (stepIdx === 0 && (!entry.docNo || entry.docNo === "—")) {
+          entry.docNo = `MA-PNL-${entry.year}${String(entry.month).padStart(2,"0")}-001`;
+        }
+        upsertPnlEntry(entry);
+        writePnlPendingToFirebase();
+        pnlToast(`${step.role} 서명 완료`);
+        renderPnlReport(el);
+      }, (reason) => {
+        PNL_APPROVAL_STEPS.forEach(s => { entry[s.dateKey] = ""; });
+        entry.approvalStatus = "draft";
+        entry.docNo = "";
+        entry.rejections = [...(entry.rejections || []), { date: _todayKor(), byStep: step.role, byName: step.name, reason }];
+        upsertPnlEntry(entry);
+        writePnlPendingToFirebase();
+        writePnlRejectionNotice(label, step, reason);
+        pnlToast("반려되었습니다. 기안부터 다시 진행됩니다.");
+        renderPnlReport(el);
+      });
     });
   });
 
@@ -13831,8 +13933,9 @@ function renderPnlQuarterlyReport(el) {
     const done    = qStatusIdx > stepIdx;
     const current = qStatusIdx === stepIdx && !!entry;
     const date    = qApproval[step.dateKey] || "";
+    const comment = qApproval[step.commentKey] || "";
     return `
-      <div class="pnl-ap-box">
+      <div class="pnl-ap-box"${done && comment ? ` title="${escapeHtml(comment)}"` : ""}>
         <div class="pnl-ap-role">${step.role}</div>
         <div class="pnl-ap-name">${step.name} ${step.title}</div>
         <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
@@ -13844,6 +13947,7 @@ function renderPnlQuarterlyReport(el) {
             ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
             : `<div class="pnl-stamp pnl-stamp-empty"></div>`
         }
+        ${done && comment ? `<div class="pnl-ap-comment">${escapeHtml(comment)}</div>` : ""}
       </div>`;
   }
 
@@ -14023,23 +14127,39 @@ function renderPnlQuarterlyReport(el) {
     savePnlQuarterApprovalLocal();
   });
 
-  // 분기 서명 버튼
+  // 분기 서명 버튼 — 검토 의견을 남기고 서명하거나, 문제가 있으면 반려
   el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const stepIdx = +btn.dataset.step;
       const step = PNL_APPROVAL_STEPS[stepIdx];
       if (!entry) return;
-      qApproval[step.dateKey] = _todayKor();
-      qApproval.approvalStatus = step.nextStatus;
-      if (stepIdx === 0 && (!qApproval.docNo || qApproval.docNo === "—")) {
-        qApproval.docNo = `MA-PNL-${pnlRptYear}Q${pnlRptQuarter}-001`;
-      }
-      pnlQuarterApproval[qKey] = qApproval;
-      savePnlQuarterApprovalLocal();
-      _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
-      writePnlPendingToFirebase();
-      pnlToast(`${step.role} 서명 완료`);
-      renderPnlReport(el);
+      const label = `${pnlRptYear}년 ${pnlRptQuarter}분기`;
+      openPnlSignDialog(label, step, qApproval[step.commentKey], (comment) => {
+        qApproval[step.dateKey] = _todayKor();
+        qApproval.approvalStatus = step.nextStatus;
+        if (comment) qApproval[step.commentKey] = comment;
+        if (stepIdx === 0 && (!qApproval.docNo || qApproval.docNo === "—")) {
+          qApproval.docNo = `MA-PNL-${pnlRptYear}Q${pnlRptQuarter}-001`;
+        }
+        pnlQuarterApproval[qKey] = qApproval;
+        savePnlQuarterApprovalLocal();
+        _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
+        writePnlPendingToFirebase();
+        pnlToast(`${step.role} 서명 완료`);
+        renderPnlReport(el);
+      }, (reason) => {
+        PNL_APPROVAL_STEPS.forEach(s => { qApproval[s.dateKey] = ""; });
+        qApproval.approvalStatus = "draft";
+        qApproval.docNo = "";
+        qApproval.rejections = [...(qApproval.rejections || []), { date: _todayKor(), byStep: step.role, byName: step.name, reason }];
+        pnlQuarterApproval[qKey] = qApproval;
+        savePnlQuarterApprovalLocal();
+        _saveQtrToSheets(pnlRptYear, pnlRptQuarter, qKey, qApproval);
+        writePnlPendingToFirebase();
+        writePnlRejectionNotice(label, step, reason);
+        pnlToast("반려되었습니다. 기안부터 다시 진행됩니다.");
+        renderPnlReport(el);
+      });
     });
   });
 
@@ -14117,8 +14237,9 @@ function renderPnlHalfYearReport(el) {
     const done    = hStatusIdx > stepIdx;
     const current = hStatusIdx === stepIdx && !!entry;
     const date    = hApproval[step.dateKey] || "";
+    const comment = hApproval[step.commentKey] || "";
     return `
-      <div class="pnl-ap-box">
+      <div class="pnl-ap-box"${done && comment ? ` title="${escapeHtml(comment)}"` : ""}>
         <div class="pnl-ap-role">${step.role}</div>
         <div class="pnl-ap-name">${step.name} ${step.title}</div>
         <div class="pnl-ap-date">${done && date ? date : "&nbsp;"}</div>
@@ -14130,6 +14251,7 @@ function renderPnlHalfYearReport(el) {
             ? `<button class="pnl-sign-btn" data-step="${stepIdx}">서명<br>하기</button>`
             : `<div class="pnl-stamp pnl-stamp-empty"></div>`
         }
+        ${done && comment ? `<div class="pnl-ap-comment">${escapeHtml(comment)}</div>` : ""}
       </div>`;
   }
 
@@ -14252,23 +14374,39 @@ function renderPnlHalfYearReport(el) {
     savePnlHalfApprovalLocal();
   });
 
-  // 반기 서명 버튼
+  // 반기 서명 버튼 — 검토 의견을 남기고 서명하거나, 문제가 있으면 반려
   el.querySelectorAll(".pnl-sign-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const stepIdx = +btn.dataset.step;
       const step = PNL_APPROVAL_STEPS[stepIdx];
       if (!entry) return;
-      hApproval[step.dateKey] = _todayKor();
-      hApproval.approvalStatus = step.nextStatus;
-      if (stepIdx === 0 && (!hApproval.docNo || hApproval.docNo === "—")) {
-        hApproval.docNo = `MA-PNL-${pnlRptYear}H${pnlRptHalf}-001`;
-      }
-      pnlHalfApproval[hKey] = hApproval;
-      savePnlHalfApprovalLocal();
-      _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
-      writePnlPendingToFirebase();
-      pnlToast(`${step.role} 서명 완료`);
-      renderPnlReport(el);
+      const label = `${pnlRptYear}년 ${pnlRptHalf === 1 ? "상반기" : "하반기"}`;
+      openPnlSignDialog(label, step, hApproval[step.commentKey], (comment) => {
+        hApproval[step.dateKey] = _todayKor();
+        hApproval.approvalStatus = step.nextStatus;
+        if (comment) hApproval[step.commentKey] = comment;
+        if (stepIdx === 0 && (!hApproval.docNo || hApproval.docNo === "—")) {
+          hApproval.docNo = `MA-PNL-${pnlRptYear}H${pnlRptHalf}-001`;
+        }
+        pnlHalfApproval[hKey] = hApproval;
+        savePnlHalfApprovalLocal();
+        _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
+        writePnlPendingToFirebase();
+        pnlToast(`${step.role} 서명 완료`);
+        renderPnlReport(el);
+      }, (reason) => {
+        PNL_APPROVAL_STEPS.forEach(s => { hApproval[s.dateKey] = ""; });
+        hApproval.approvalStatus = "draft";
+        hApproval.docNo = "";
+        hApproval.rejections = [...(hApproval.rejections || []), { date: _todayKor(), byStep: step.role, byName: step.name, reason }];
+        pnlHalfApproval[hKey] = hApproval;
+        savePnlHalfApprovalLocal();
+        _saveHalfToSheets(pnlRptYear, pnlRptHalf, hKey, hApproval);
+        writePnlPendingToFirebase();
+        writePnlRejectionNotice(label, step, reason);
+        pnlToast("반려되었습니다. 기안부터 다시 진행됩니다.");
+        renderPnlReport(el);
+      });
     });
   });
 
