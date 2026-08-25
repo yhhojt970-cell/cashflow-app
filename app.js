@@ -7498,7 +7498,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
 
   const html = monthData.map(renderMonth).join("");
 
-  return `<div style="padding:10px 4px;max-height:600px;overflow-y:auto;">
+  return `<div id="mauto-fixed-scroll" style="padding:10px 4px;max-height:600px;overflow-y:auto;">
     <div style="display:flex;gap:6px;margin-bottom:8px;">
       <button type="button" id="fixedShowMorePast" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;" title="현재는 최근 ${mautoFixedMonthsBack}개월 전까지만 보입니다">◀ 이전 달 더보기 (현재 ${mautoFixedMonthsBack}개월 전까지)</button>
     </div>
@@ -8008,6 +8008,18 @@ function renderMautoTab() {
       if (yms.includes(d.dataset.ym)) d.open = true;
     });
   };
+  // renderMautoTab()이 매번 innerHTML을 통째로 새로 그리면서 스크롤 위치(안쪽 목록 + 페이지 전체)가
+  // 0으로 초기화됨 — 열려있는 달은 그대로 유지돼도 화면상 스크롤이 맨 위로 튀어 "다른 곳으로
+  // 가버린 것"처럼 보였음. 재렌더 전후로 스크롤 위치를 그대로 복원.
+  const _captureFixedScroll = () => ({
+    inner: document.getElementById("mauto-fixed-scroll")?.scrollTop || 0,
+    page: window.scrollY,
+  });
+  const _restoreFixedScroll = (pos) => {
+    const inner = document.getElementById("mauto-fixed-scroll");
+    if (inner) inner.scrollTop = pos.inner;
+    window.scrollTo(window.scrollX, pos.page);
+  };
   document.getElementById("mautoFixedViewMonth")?.addEventListener("click", () => {
     if (mautoFixedViewMode === "month") return;
     mautoFixedViewMode = "month"; renderMautoTab(); _reopenFixed();
@@ -8020,10 +8032,12 @@ function renderMautoTab() {
   // 고정지출 이전 달 더보기 (기본 1개월 전까지만 표시 → 클릭할 때마다 3개월씩 확장)
   document.getElementById("fixedShowMorePast")?.addEventListener("click", () => {
     const openYms = _captureOpenFixedMonths();
+    const scrollPos = _captureFixedScroll();
     mautoFixedMonthsBack += 3;
     renderMautoTab();
     _reopenFixed();
     _restoreOpenFixedMonths(openYms);
+    _restoreFixedScroll(scrollPos);
   });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
@@ -8048,11 +8062,14 @@ function renderMautoTab() {
       else mautoFixedMonthExclude[key] = true;
       saveFixedMonthExclude();
       // renderMautoTab()은 렌더 직후 .mauto-section을 전부 숨기고, 월별 보기는 "이번 달만 기본 펼침"으로
-      // 초기화되므로 둘 다 복원해줘야 함 (안 그러면 클릭할 때마다 섹션이 닫히거나 다른 달로 튐)
+      // 초기화되고, innerHTML을 통째로 새로 그려서 스크롤도 0으로 초기화됨 — 셋 다 복원해줘야
+      // 클릭한 자리 그대로 유지됨 (안 그러면 섹션이 닫히거나 다른 달/다른 스크롤 위치로 튐)
       const openYms = _captureOpenFixedMonths();
+      const scrollPos = _captureFixedScroll();
       renderMautoTab();
       _reopenFixed();
       _restoreOpenFixedMonths(openYms);
+      _restoreFixedScroll(scrollPos);
     });
   });
 
