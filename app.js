@@ -8008,17 +8008,16 @@ function renderMautoTab() {
       if (yms.includes(d.dataset.ym)) d.open = true;
     });
   };
-  // renderMautoTab()이 매번 innerHTML을 통째로 새로 그리면서 스크롤 위치(안쪽 목록 + 페이지 전체)가
+  // renderMautoTab()이 매번 innerHTML을 통째로 새로 그리면서 안쪽 목록의 스크롤 위치가
   // 0으로 초기화됨 — 열려있는 달은 그대로 유지돼도 화면상 스크롤이 맨 위로 튀어 "다른 곳으로
   // 가버린 것"처럼 보였음. 재렌더 전후로 스크롤 위치를 그대로 복원.
-  const _captureFixedScroll = () => ({
-    inner: document.getElementById("mauto-fixed-scroll")?.scrollTop || 0,
-    page: window.scrollY,
-  });
-  const _restoreFixedScroll = (pos) => {
+  // ⚠️ 페이지 전체 스크롤(window.scrollTo)까지 강제로 복원했더니 오히려 사용자가 직접
+  // 페이지를 내리는 동작과 충돌해 "스크롤이 안 내려가는" 문제가 생겨서 제거함 — 안쪽 목록
+  // 스크롤만 복원.
+  const _captureFixedScroll = () => document.getElementById("mauto-fixed-scroll")?.scrollTop || 0;
+  const _restoreFixedScroll = (scrollTop) => {
     const inner = document.getElementById("mauto-fixed-scroll");
-    if (inner) inner.scrollTop = pos.inner;
-    window.scrollTo(window.scrollX, pos.page);
+    if (inner) inner.scrollTop = scrollTop;
   };
   document.getElementById("mautoFixedViewMonth")?.addEventListener("click", () => {
     if (mautoFixedViewMode === "month") return;
