@@ -7486,7 +7486,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
         </tr></thead>
         <tbody>${bodyRows}</tbody>
       </table></div>`;
-    return `<details style="margin-bottom:12px;" ${collapsed ? "" : "open"}>
+    return `<details data-ym="${escapeHtml(ym)}" style="margin-bottom:12px;" ${collapsed ? "" : "open"}>
       <summary style="cursor:pointer;font-weight:700;font-size:13px;color:${isCurrent?"#2563eb":"#374151"};padding:4px 0 6px;border-bottom:${headerBorder};list-style:none;display:flex;align-items:center;gap:6px;">
         <span>${collapsed ? "▶" : "▼"}</span>
         <span>${year}년 ${parseInt(month)}월${doneBadge}</span>
@@ -7998,6 +7998,16 @@ function renderMautoTab() {
     if (fs) fs.style.display = "";
     sec.querySelector(".card-fixed")?.classList.add("mauto-card-active");
   };
+  // 월별 보기(<details>)는 재렌더 시 "이번 달만 기본 펼침"으로 초기화되므로, 사용자가 수동으로
+  // 펼쳐둔 과거/미래 달까지 다시 접혀버림(예: 7월 항목 처리 중 재렌더되면 8월만 보임) —
+  // 재렌더 전 열려있던 달을 기억해뒀다가 재렌더 후 그대로 복원
+  const _captureOpenFixedMonths = () =>
+    [...sec.querySelectorAll("#mauto-section-fixed details[data-ym]")].filter(d => d.open).map(d => d.dataset.ym);
+  const _restoreOpenFixedMonths = (yms) => {
+    sec.querySelectorAll("#mauto-section-fixed details[data-ym]").forEach(d => {
+      if (yms.includes(d.dataset.ym)) d.open = true;
+    });
+  };
   document.getElementById("mautoFixedViewMonth")?.addEventListener("click", () => {
     if (mautoFixedViewMode === "month") return;
     mautoFixedViewMode = "month"; renderMautoTab(); _reopenFixed();
@@ -8009,9 +8019,11 @@ function renderMautoTab() {
 
   // 고정지출 이전 달 더보기 (기본 1개월 전까지만 표시 → 클릭할 때마다 3개월씩 확장)
   document.getElementById("fixedShowMorePast")?.addEventListener("click", () => {
+    const openYms = _captureOpenFixedMonths();
     mautoFixedMonthsBack += 3;
     renderMautoTab();
     _reopenFixed();
+    _restoreOpenFixedMonths(openYms);
   });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
@@ -8035,10 +8047,12 @@ function renderMautoTab() {
       if (mautoFixedMonthExclude[key]) delete mautoFixedMonthExclude[key];
       else mautoFixedMonthExclude[key] = true;
       saveFixedMonthExclude();
-      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 숨기므로, 고정지출 섹션을 다시 열어줘야 함
-      // (그렇지 않으면 클릭할 때마다 고정지출 화면 전체가 닫혀버림)
+      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 숨기고, 월별 보기는 "이번 달만 기본 펼침"으로
+      // 초기화되므로 둘 다 복원해줘야 함 (안 그러면 클릭할 때마다 섹션이 닫히거나 다른 달로 튐)
+      const openYms = _captureOpenFixedMonths();
       renderMautoTab();
       _reopenFixed();
+      _restoreOpenFixedMonths(openYms);
     });
   });
 
