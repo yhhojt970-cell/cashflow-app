@@ -250,6 +250,15 @@ const MAUTO_FIXED_CHECKED_KEY = "mauto-fixed-checked-v1";
 let mautoFixedChecked = {}; // { "YYYY-MM||YYYY-MM-DD": true/false }
 const MAUTO_FIXED_AMOUNT_KEY = "mauto-fixed-amount-overrides-v1";
 let mautoFixedAmountOverrides = {}; // { "YYYY-MM||거래처명||예정일": amount }
+const MAUTO_FIXED_MONTH_EXCLUDE_KEY = "mauto-fixed-month-exclude-v1";
+let mautoFixedMonthExclude = {}; // { "YYYY-MM||거래처명||예정일": true } — "미결" 클릭 시 "이번달 해당없음" 표시(패턴 파악용)
+function loadFixedMonthExclude() {
+  try { const s = localStorage.getItem(MAUTO_FIXED_MONTH_EXCLUDE_KEY); mautoFixedMonthExclude = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedMonthExclude = {}; }
+}
+function saveFixedMonthExclude() {
+  try { localStorage.setItem(MAUTO_FIXED_MONTH_EXCLUDE_KEY, JSON.stringify(mautoFixedMonthExclude)); } catch(_) {}
+  _scheduleMautoRemoteSave();
+}
 const MAUTO_AR_CHECKED_KEY = "mauto-ar-checked-v1";
 let mautoArChecked = {}; // { "rcv|pay||vendorKey||YYYY-MM": true/false } — 미수/미지급 카드 합계에 반영할 항목 체크
 function loadArChecked() {
@@ -306,13 +315,13 @@ function calcFixedCheckedTotal(monthData) {
     items.forEach(item => {
       const d = item.예정결제일?.date || "미정";
       if (!byDate[d]) byDate[d] = { amt: 0, items: [] };
-      // 이미 실제 결제완료(status===완료)된 항목은 그룹이 안 끝났어도 개별적으로 합계에서 제외
-      if (item.status !== "완료") byDate[d].amt += item.예정금액 || 0;
+      // 이미 실제 결제완료(status===완료)되었거나 "이번달 제외" 처리된 항목은 그룹이 안 끝났어도 개별적으로 합계에서 제외
+      if (item.status !== "완료" && item.status !== "제외") byDate[d].amt += item.예정금액 || 0;
       byDate[d].items.push(item);
     });
     Object.entries(byDate).forEach(([date, { amt, items: grpItems }]) => {
-      // 날짜 그룹 내 모든 항목이 완료(✓)이면 예정금액에서 제외
-      if (grpItems.every(i => i.status === "완료")) return;
+      // 날짜 그룹 내 모든 항목이 완료(✓)/제외이면 예정금액에서 제외
+      if (grpItems.every(i => i.status === "완료" || i.status === "제외")) return;
       const key = `${ym}||${date}`;
       const isChecked = mautoFixedChecked[key] !== undefined ? mautoFixedChecked[key] : (ym === todayYM);
       if (isChecked) total += amt;
@@ -4377,6 +4386,7 @@ function switchTab(tabId) {
         if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
         if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
         if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
+        if (remote.fixedMonthExclude && typeof remote.fixedMonthExclude === "object") { mautoFixedMonthExclude = remote.fixedMonthExclude; try { localStorage.setItem(MAUTO_FIXED_MONTH_EXCLUDE_KEY, JSON.stringify(mautoFixedMonthExclude)); } catch (_) {} }
         if (remote.arChecked && typeof remote.arChecked === "object") { mautoArChecked = remote.arChecked; try { localStorage.setItem(MAUTO_AR_CHECKED_KEY, JSON.stringify(mautoArChecked)); } catch (_) {} }
         if (Array.isArray(remote.taxInvoices) && remote.taxInvoices.length) {
           const localKeys = new Set(mautoTaxInvoices.map(r => r._row_key).filter(Boolean));
@@ -6818,6 +6828,7 @@ function _scheduleMautoRemoteSave() {
           excludePay: mautoExcludeVendorsPay,
           fixedChecked: mautoFixedChecked,
           fixedAmountOverrides: mautoFixedAmountOverrides,
+          fixedMonthExclude: mautoFixedMonthExclude,
           arChecked: mautoArChecked,
         }
       });
@@ -7337,6 +7348,8 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
       const manualAmt = Number(rule["예정금액"]) || 0;
       const 예정금액 = calcAmt || (manualAmt ? Math.ceil(manualAmt / 1000) * 1000 : 0);
       const 예정금액출처 = calcAmt ? "auto" : "manual";
+      const excludeKey = `${ym}||${rule["거래처명"]}||${dayNum || "0"}`;
+      const monthExcluded = matched.length === 0 && !!mautoFixedMonthExclude[excludeKey];
       return {
         거래처명: rule["거래처명"],
         구분: rule["구분"] || "",
@@ -7345,11 +7358,12 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
         예정결제일,
         예정금액, 예정금액출처,
         matched, totalAmount, dates,
-        status: matched.length > 0 ? "완료" : "예정",
+        excludeKey, monthExcluded,
+        status: matched.length > 0 ? "완료" : (monthExcluded ? "제외" : "예정"),
       };
     });
     const monthTotal = items.reduce((s, i) => s + i.totalAmount, 0);
-    const allDone = items.length > 0 && items.every(i => i.status === "완료");
+    const allDone = items.length > 0 && items.every(i => i.status === "완료" || i.status === "제외");
     return { year, month, ym, items, monthTotal, isPast, isCurrent, allDone };
   });
 }
@@ -7395,13 +7409,13 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
     const bodyRows = dateGroups.map(({ date, dow, items: grpItems }) => {
       // 이미 실제 결제완료(status===완료)된 항목은 "앞으로 나갈 예정" 합계에서 개별 제외
       // (같은 날짜에 미완료 항목과 섞여 있어도 완료분까지 이중으로 잡히지 않도록)
-      const grpExpected = grpItems.filter(i => i.status !== "완료").reduce((s, i) => s + (i.예정금액 || 0), 0);
+      const grpExpected = grpItems.filter(i => i.status !== "완료" && i.status !== "제외").reduce((s, i) => s + (i.예정금액 || 0), 0);
       const grpActual  = grpItems.reduce((s, i) => s + i.totalAmount, 0);
       const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
       const chkKey = `${ym}||${date}`;
       const dgKey  = `${ym}||${date}`;
-      const allGrpDone = grpItems.every(i => i.status === "완료");
+      const allGrpDone = grpItems.every(i => i.status === "완료" || i.status === "제외");
       const defaultChecked = !allGrpDone && (ym === todayYM2);
       const isChecked = allGrpDone ? false : (mautoFixedChecked[chkKey] !== undefined ? mautoFixedChecked[chkKey] : defaultChecked);
 
@@ -7442,7 +7456,12 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
           </td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
-          <td style="${tdSt}text-align:center;${paid ? "color:#16a34a;font-weight:700;" : (isPast ? "color:#ef4444;font-weight:700;" : "color:#9ca3af;")}">${paid ? "✓" : (isPast ? "미결" : "-")}</td>
+          ${(() => {
+            if (paid) return `<td style="${tdSt}text-align:center;color:#16a34a;font-weight:700;">✓</td>`;
+            if (item.status === "제외") return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#9ca3af;cursor:pointer;" title="클릭하면 '이번달 제외'를 취소합니다">제외</td>`;
+            if (isPast) return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#ef4444;font-weight:700;cursor:pointer;" title="이 항목이 이번 달엔 해당 없으면 클릭 — '제외'로 표시되고 예정금액 합계에서 빠집니다">미결</td>`;
+            return `<td style="${tdSt}text-align:center;color:#9ca3af;">-</td>`;
+          })()}
         </tr>`;
       }).join("");
 
@@ -7454,7 +7473,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       : (isPast ? `<span style="font-size:11px;color:#ef4444;margin-left:6px;">● 미결</span>` : "");
     const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
     // 월 전체 예정금액 합계 (이미 완료된 항목은 제외 — 날짜 소계와 동일 기준)
-    const monthExpected = monthItems.filter(i => i.status !== "완료").reduce((s, i) => s + (i.예정금액 || 0), 0);
+    const monthExpected = monthItems.filter(i => i.status !== "완료" && i.status !== "제외").reduce((s, i) => s + (i.예정금액 || 0), 0);
     const tableHtml = `<div style="overflow-x:auto;"><table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:center;width:28px;">☑</th>
@@ -7511,7 +7530,7 @@ function renderMautoFixedByItem(monthData) {
 
   const body = sortedItems.map(([name, { 고정분류, rows }], idx) => {
     const sortedRows = [...rows].sort((a, b) => a.ym.localeCompare(b.ym));
-    const expectedSum = sortedRows.filter(r => r.status !== "완료").reduce((s, r) => s + r.예정금액, 0);
+    const expectedSum = sortedRows.filter(r => r.status !== "완료" && r.status !== "제외").reduce((s, r) => s + r.예정금액, 0);
     const actualSum = sortedRows.reduce((s, r) => s + r.totalAmount, 0);
     const itemKey = `fixeditem:${idx}`;
     const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(itemKey)}" style="cursor:pointer;">
@@ -7527,7 +7546,7 @@ function renderMautoFixedByItem(monthData) {
         <td style="font-size:12px;color:#6b7280;">${r.year}년 ${parseInt(r.month)}월${r.예정일 ? ` (${r.예정일}일)` : ""}</td>
         ${mautoNumericCell(r.예정금액)}
         ${mautoNumericCell(r.totalAmount)}
-        <td style="text-align:center;font-size:11px;${r.status === "완료" ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${r.status === "완료" ? "✓" : "-"}</td>
+        <td style="text-align:center;font-size:11px;${r.status === "완료" ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${r.status === "완료" ? "✓" : (r.status === "제외" ? "제외" : "-")}</td>
       </tr>`).join("");
     return headerRow + detailRows;
   }).join("");
@@ -8007,6 +8026,18 @@ function renderMautoTab() {
     });
   });
 
+  // 고정지출 "미결"/"제외" 클릭 → 이번 달 해당없음 토글 (반복하면 실제 결제 패턴이 드러남)
+  sec.querySelectorAll(".mauto-fixed-status-cell").forEach(td => {
+    td.addEventListener("click", () => {
+      const key = td.dataset.excludeKey;
+      if (!key) return;
+      if (mautoFixedMonthExclude[key]) delete mautoFixedMonthExclude[key];
+      else mautoFixedMonthExclude[key] = true;
+      saveFixedMonthExclude();
+      renderMautoTab();
+    });
+  });
+
   // 고정지출 날짜별 체크박스 → 카드 합계 실시간 업데이트
   sec.querySelectorAll(".mauto-fixed-chk").forEach(chk => {
     chk.addEventListener("change", () => {
@@ -8378,13 +8409,13 @@ function renderMautoTab() {
 
   setupMautoToggleHandlers(sec);
 
-  // 기본 전체 접기
+  // 기본 전체 접기 (월 요약 행은 항상 보이게 유지 — 거래처 상세 행만 접음)
   sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-fxdate").forEach(row => {
     row.dataset.collapsed = "1";
     const icon = row.querySelector(".mauto-toggle-icon");
     if (icon) icon.textContent = "▶";
   });
-  sec.querySelectorAll(".mauto-toggle-month, [data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+  sec.querySelectorAll("[data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
     r.style.display = "none";
   });
 
@@ -8475,7 +8506,8 @@ function setupMautoToggleHandlers(container) {
     row.addEventListener("click", () => {
       const yk = row.dataset.mautoYear;
       const collapsed = row.dataset.collapsed === "1";
-      container.querySelectorAll(`[data-mauto-yr="${yk}"], .mauto-toggle-month[data-mauto-year="${yk}"]`)
+      // 월 요약 행(.mauto-toggle-month)은 항상 보이게 유지 — 거래처(leaf) 행만 접고 펼침
+      container.querySelectorAll(`[data-mauto-yr="${yk}"]`)
         .forEach(r => {
           const isLeafDetail = r.hasAttribute("data-mauto-leaf-detail");
           if (collapsed) {
@@ -8601,6 +8633,7 @@ function setupTabs() {
             if (Array.isArray(remote.excludePay)) { mautoExcludeVendorsPay = remote.excludePay; try { localStorage.setItem(MAUTO_EXCLUDE_KEY_PAY, JSON.stringify(mautoExcludeVendorsPay)); } catch (_) {} }
             if (remote.fixedChecked && typeof remote.fixedChecked === "object") { mautoFixedChecked = remote.fixedChecked; try { localStorage.setItem(MAUTO_FIXED_CHECKED_KEY, JSON.stringify(mautoFixedChecked)); } catch (_) {} }
             if (remote.fixedAmountOverrides && typeof remote.fixedAmountOverrides === "object") { mautoFixedAmountOverrides = remote.fixedAmountOverrides; try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch (_) {} }
+        if (remote.fixedMonthExclude && typeof remote.fixedMonthExclude === "object") { mautoFixedMonthExclude = remote.fixedMonthExclude; try { localStorage.setItem(MAUTO_FIXED_MONTH_EXCLUDE_KEY, JSON.stringify(mautoFixedMonthExclude)); } catch (_) {} }
         if (remote.arChecked && typeof remote.arChecked === "object") { mautoArChecked = remote.arChecked; try { localStorage.setItem(MAUTO_AR_CHECKED_KEY, JSON.stringify(mautoArChecked)); } catch (_) {} }
             mautoData = normalizeMautoData(remote);
             console.log("[엠오토] 정규화 후 funds:", JSON.stringify(mautoData.funds));
@@ -8893,7 +8926,7 @@ function openMautoClassifyDialog(bankRows, rules) {
     // 참조번호 등이 바뀌어 재업로드 시 매칭이 깨지기 쉬운 반면, 비고는 상대적으로 안정적임
     const defaultMethod = String(row._memo2 || "").trim() ? "거래처명" : "키워드";
     return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false,
-      isOverride: false, ruleAdd: false, ruleMethod: defaultMethod, ruleKey: "" };
+      isOverride: false, ruleAdd: false, ruleMethod: defaultMethod, ruleKey: "", fixedDay: "" };
   });
 
   const overlay = document.createElement("div");
@@ -8949,6 +8982,9 @@ function openMautoClassifyDialog(bankRows, rules) {
               <button type="button" class="mcl-rule-fill" data-idx="${idx}" data-fill="${escapeHtml(row._memo || "")}" title="적요 전체를 매칭키로 채우기 (직접 타이핑하다 오타로 매칭 안 되는 것 방지)" style="font-size:11px;padding:1px 6px;border:1px solid #cbd5e1;background:#fff;border-radius:3px;cursor:pointer;color:#475569;" ${row._memo ? "" : "disabled"}>적요 붙여넣기</button>
               <button type="button" class="mcl-rule-fill" data-idx="${idx}" data-fill="${escapeHtml(row._memo2 || "")}" title="비고 전체를 매칭키로 채우기 (직접 타이핑하다 오타로 매칭 안 되는 것 방지)" style="font-size:11px;padding:1px 6px;border:1px solid #cbd5e1;background:#fff;border-radius:3px;cursor:pointer;color:#475569;" ${row._memo2 ? "" : "disabled"}>비고 붙여넣기</button>
               <span class="mcl-rule-preview" data-idx="${idx}" style="font-size:11px;min-width:36px;"></span>
+              <span style="color:#d1d5db;">|</span>
+              <input type="number" class="mcl-rule-fixedday" data-idx="${idx}" min="1" max="31" value="${escapeHtml(item.fixedDay)}" placeholder="결제일(선택)" title="이 거래처를 고정지출 자동계산에도 등록하려면 매달 결제되는 날짜(1~31)를 입력하세요 — 비워두면 등록 안 됨" style="font-size:12px;width:110px;padding:2px 6px;border:1px solid #d1d5db;border-radius:4px;">
+              <span style="color:#9ca3af;font-size:11px;">일 → 고정지출에도 등록</span>
             </div>
           </div>
         </td>
@@ -9088,6 +9124,10 @@ function openMautoClassifyDialog(bankRows, rules) {
       items[idx].ruleKey = inp.value;
       updateRulePreview(idx);
     }));
+  overlay.querySelectorAll(".mcl-rule-fixedday").forEach(inp =>
+    inp.addEventListener("input", () => {
+      items[+inp.dataset.idx].fixedDay = inp.value;
+    }));
   // 적요/비고 전체 텍스트를 매칭키에 그대로 붙여넣기 (직접 타이핑 시 공백·오타로 매칭 실패하는 것 방지)
   overlay.querySelectorAll(".mcl-rule-fill").forEach(btn =>
     btn.addEventListener("click", () => {
@@ -9151,8 +9191,10 @@ function openMautoClassifyDialog(bankRows, rules) {
           const ok = confirm(`이미 '${existingRule["거래처명"]}'으로 매핑된 규칙입니다.\n'${item.거래처명}'으로 바꿀까요?`);
           if (!ok) continue;
         }
+        const dayNum = parseInt(item.fixedDay, 10);
+        const 결제예정일 = dayNum >= 1 && dayNum <= 31 ? String(dayNum) : "";
         newRules.push({ 사업체: "엠오토", 매칭방식: item.ruleMethod, 매칭키: key,
-          거래처명: item.거래처명, 구분: item.구분 || "", 우선순위: "" });
+          거래처명: item.거래처명, 구분: item.구분 || "", 우선순위: "", 결제예정일 });
       }
       if (newRules.length) {
         try {
@@ -12535,6 +12577,7 @@ async function init() {
   loadFixedChecked();
   loadArChecked();
   loadFixedAmountOverrides();
+  loadFixedMonthExclude();
   loadMautoExcludeVendors();
   if (Object.keys(mautoTaxSources).length) rebuildMautoTaxInvoices();
   switchTab("mauto");
