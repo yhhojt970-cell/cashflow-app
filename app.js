@@ -7692,9 +7692,67 @@ function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge 
   </div>`;
 }
 
+// 엠오토 탭 UI 상태(열려있는 카드/연도/월/거래처 상세/스크롤)를 저장 — renderMautoTab()은 세금계산서
+// 원격 로드 등 비동기 콜백에서도 수시로 재호출되는데, 그때마다 사용자가 펼쳐놓은 상태가 기본값(접힘)
+// 으로 초기화돼서 "펼쳤는데 다시 접힌다/다른 곳으로 튄다" 류의 버그가 반복됐음(2026-08-25 (5)~(8)).
+// 개별 핸들러마다 매번 복원 코드를 넣는 대신 renderMautoTab() 자체가 항상 복원하도록 통일.
+function _captureMautoUiState(sec) {
+  return {
+    openSectionIds: [...sec.querySelectorAll(".mauto-section")].filter(s => s.style.display !== "none").map(s => s.id),
+    activeCard: [...sec.querySelectorAll(".mauto-card")].find(c => c.classList.contains("mauto-card-active"))?.className.match(/card-[\w-]+/)?.[0] || null,
+    expandedYears: [...sec.querySelectorAll(".mauto-toggle-year")].filter(r => r.dataset.collapsed !== "1").map(r => r.dataset.mautoYear),
+    collapsedMonths: [...sec.querySelectorAll(".mauto-toggle-month")].filter(r => r.dataset.collapsed === "1").map(r => r.dataset.mautoMonth),
+    expandedLeaves: [...sec.querySelectorAll(".mauto-toggle-leaf")].filter(r => r.dataset.collapsed === "0").map(r => r.dataset.mautoLeaf),
+    openFixedYms: [...sec.querySelectorAll("#mauto-section-fixed details[data-ym]")].filter(d => d.open).map(d => d.dataset.ym),
+    fixedScrollTop: document.getElementById("mauto-fixed-scroll")?.scrollTop || 0,
+  };
+}
+function _restoreMautoUiState(sec, state) {
+  if (!state) return;
+  state.openSectionIds.forEach(id => { const s = document.getElementById(id); if (s) s.style.display = ""; });
+  if (state.activeCard) sec.querySelector(`.${state.activeCard}`)?.classList.add("mauto-card-active");
+  state.expandedYears.forEach(yk => {
+    if (!yk) return;
+    const row = sec.querySelector(`.mauto-toggle-year[data-mauto-year="${CSS.escape(yk)}"]`);
+    if (!row) return;
+    row.dataset.collapsed = "0";
+    const icon = row.querySelector(".mauto-toggle-icon");
+    if (icon) icon.textContent = "▼";
+    sec.querySelectorAll(`[data-mauto-yr="${CSS.escape(yk)}"]`).forEach(r => {
+      if (!r.hasAttribute("data-mauto-leaf-detail")) r.style.display = "";
+    });
+  });
+  state.collapsedMonths.forEach(mk => {
+    if (!mk) return;
+    const row = sec.querySelector(`.mauto-toggle-month[data-mauto-month="${CSS.escape(mk)}"]`);
+    if (!row) return;
+    row.dataset.collapsed = "1";
+    const icon = row.querySelector(".mauto-toggle-icon");
+    if (icon) icon.textContent = "▶";
+    sec.querySelectorAll(`[data-mauto-mo="${CSS.escape(mk)}"]`).forEach(r => { r.style.display = "none"; });
+  });
+  state.expandedLeaves.forEach(lk => {
+    if (!lk) return;
+    const row = sec.querySelector(`.mauto-toggle-leaf[data-mauto-leaf="${CSS.escape(lk)}"]`);
+    if (!row) return;
+    row.dataset.collapsed = "0";
+    const icon = row.querySelector(".mauto-toggle-leaf-icon");
+    if (icon) icon.textContent = "▼";
+    sec.querySelectorAll(`[data-mauto-leaf-detail="${CSS.escape(lk)}"]`).forEach(r => { r.style.display = ""; });
+  });
+  state.openFixedYms.forEach(ym => {
+    if (!ym) return;
+    const d = sec.querySelector(`#mauto-section-fixed details[data-ym="${CSS.escape(ym)}"]`);
+    if (d) d.open = true;
+  });
+  const scrollEl = document.getElementById("mauto-fixed-scroll");
+  if (scrollEl) scrollEl.scrollTop = state.fixedScrollTop;
+}
+
 function renderMautoTab() {
   const sec = elements.mauto || document.getElementById("mauto");
   if (!sec) return;
+  const _uiState = _captureMautoUiState(sec);
   mautoData = normalizeMautoData(mautoData);
   const funds = (mautoData.funds || []).reduce((s, r) => s + Number(r.amount || 0), 0);
   let fixed = 0;
@@ -7977,66 +8035,32 @@ function renderMautoTab() {
     });
   });
 
-  // 미지급 연월별/업체별 토글
-  const _reopenPayables = () => {
-    const ps = document.getElementById("mauto-section-payables");
-    if (ps) ps.style.display = "";
-    sec.querySelector(".card-payable")?.classList.add("mauto-card-active");
-  };
+  // 미지급 연월별/업체별 토글 (카드 열림 상태는 renderMautoTab()이 자동 복원)
   document.getElementById("mautoPayViewYm")?.addEventListener("click", () => {
     if (mautoPayViewMode === "ym") return;
-    mautoPayViewMode = "ym"; renderMautoTab(); _reopenPayables();
+    mautoPayViewMode = "ym"; renderMautoTab();
   });
   document.getElementById("mautoPayViewVendor")?.addEventListener("click", () => {
     if (mautoPayViewMode === "vendor") return;
-    mautoPayViewMode = "vendor"; renderMautoTab(); _reopenPayables();
+    mautoPayViewMode = "vendor"; renderMautoTab();
   });
 
   // 고정지출 월별/항목별 토글
-  const _reopenFixed = () => {
-    const fs = document.getElementById("mauto-section-fixed");
-    if (fs) fs.style.display = "";
-    sec.querySelector(".card-fixed")?.classList.add("mauto-card-active");
-  };
-  // 월별 보기(<details>)는 재렌더 시 "이번 달만 기본 펼침"으로 초기화되므로, 사용자가 수동으로
-  // 펼쳐둔 과거/미래 달까지 다시 접혀버림(예: 7월 항목 처리 중 재렌더되면 8월만 보임) —
-  // 재렌더 전 열려있던 달을 기억해뒀다가 재렌더 후 그대로 복원
-  const _captureOpenFixedMonths = () =>
-    [...sec.querySelectorAll("#mauto-section-fixed details[data-ym]")].filter(d => d.open).map(d => d.dataset.ym);
-  const _restoreOpenFixedMonths = (yms) => {
-    sec.querySelectorAll("#mauto-section-fixed details[data-ym]").forEach(d => {
-      if (yms.includes(d.dataset.ym)) d.open = true;
-    });
-  };
-  // renderMautoTab()이 매번 innerHTML을 통째로 새로 그리면서 안쪽 목록의 스크롤 위치가
-  // 0으로 초기화됨 — 열려있는 달은 그대로 유지돼도 화면상 스크롤이 맨 위로 튀어 "다른 곳으로
-  // 가버린 것"처럼 보였음. 재렌더 전후로 스크롤 위치를 그대로 복원.
-  // ⚠️ 페이지 전체 스크롤(window.scrollTo)까지 강제로 복원했더니 오히려 사용자가 직접
-  // 페이지를 내리는 동작과 충돌해 "스크롤이 안 내려가는" 문제가 생겨서 제거함 — 안쪽 목록
-  // 스크롤만 복원.
-  const _captureFixedScroll = () => document.getElementById("mauto-fixed-scroll")?.scrollTop || 0;
-  const _restoreFixedScroll = (scrollTop) => {
-    const inner = document.getElementById("mauto-fixed-scroll");
-    if (inner) inner.scrollTop = scrollTop;
-  };
+  // ⚠️ 카드/연도/월/거래처상세/스크롤 복원은 renderMautoTab() 자신이 항상 처리함
+  // (_captureMautoUiState/_restoreMautoUiState) — 여기서 개별적으로 다시 챙길 필요 없음.
   document.getElementById("mautoFixedViewMonth")?.addEventListener("click", () => {
     if (mautoFixedViewMode === "month") return;
-    mautoFixedViewMode = "month"; renderMautoTab(); _reopenFixed();
+    mautoFixedViewMode = "month"; renderMautoTab();
   });
   document.getElementById("mautoFixedViewItem")?.addEventListener("click", () => {
     if (mautoFixedViewMode === "item") return;
-    mautoFixedViewMode = "item"; renderMautoTab(); _reopenFixed();
+    mautoFixedViewMode = "item"; renderMautoTab();
   });
 
   // 고정지출 이전 달 더보기 (기본 1개월 전까지만 표시 → 클릭할 때마다 3개월씩 확장)
   document.getElementById("fixedShowMorePast")?.addEventListener("click", () => {
-    const openYms = _captureOpenFixedMonths();
-    const scrollPos = _captureFixedScroll();
     mautoFixedMonthsBack += 3;
     renderMautoTab();
-    _reopenFixed();
-    _restoreOpenFixedMonths(openYms);
-    _restoreFixedScroll(scrollPos);
   });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
@@ -8060,15 +8084,7 @@ function renderMautoTab() {
       if (mautoFixedMonthExclude[key]) delete mautoFixedMonthExclude[key];
       else mautoFixedMonthExclude[key] = true;
       saveFixedMonthExclude();
-      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 숨기고, 월별 보기는 "이번 달만 기본 펼침"으로
-      // 초기화되고, innerHTML을 통째로 새로 그려서 스크롤도 0으로 초기화됨 — 셋 다 복원해줘야
-      // 클릭한 자리 그대로 유지됨 (안 그러면 섹션이 닫히거나 다른 달/다른 스크롤 위치로 튐)
-      const openYms = _captureOpenFixedMonths();
-      const scrollPos = _captureFixedScroll();
       renderMautoTab();
-      _reopenFixed();
-      _restoreOpenFixedMonths(openYms);
-      _restoreFixedScroll(scrollPos);
     });
   });
 
@@ -8453,7 +8469,11 @@ function renderMautoTab() {
     r.style.display = "none";
   });
 
-  // 위에서 강제로 접었으므로, 병합 토글 버튼("전체 펼치기/접기") 라벨도 실제 최종 상태에 맞게 다시 계산
+  // 재렌더 직전에 펼쳐져 있던 카드/연도/월/거래처 상세/스크롤을 그대로 복원
+  // (비동기 원격 로드 콜백에서 renderMautoTab()이 재호출되어도 사용자가 보던 화면이 유지되게)
+  _restoreMautoUiState(sec, _uiState);
+
+  // 병합 토글 버튼("전체 펼치기/접기") 라벨을 최종 상태에 맞게 계산
   sec.querySelectorAll("[data-mauto-toggle-all]").forEach(btn => {
     const s = sec.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
     if (s) btn.textContent = mautoAnyCollapsed(s) ? "전체 펼치기" : "전체 접기";
