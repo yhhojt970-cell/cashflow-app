@@ -7701,7 +7701,7 @@ function _captureMautoUiState(sec) {
     openSectionIds: [...sec.querySelectorAll(".mauto-section")].filter(s => s.style.display !== "none").map(s => s.id),
     activeCard: [...sec.querySelectorAll(".mauto-card")].find(c => c.classList.contains("mauto-card-active"))?.className.match(/card-[\w-]+/)?.[0] || null,
     expandedYears: [...sec.querySelectorAll(".mauto-toggle-year")].filter(r => r.dataset.collapsed !== "1").map(r => r.dataset.mautoYear),
-    collapsedMonths: [...sec.querySelectorAll(".mauto-toggle-month")].filter(r => r.dataset.collapsed === "1").map(r => r.dataset.mautoMonth),
+    expandedMonths: [...sec.querySelectorAll(".mauto-toggle-month")].filter(r => r.dataset.collapsed === "0").map(r => r.dataset.mautoMonth),
     expandedLeaves: [...sec.querySelectorAll(".mauto-toggle-leaf")].filter(r => r.dataset.collapsed === "0").map(r => r.dataset.mautoLeaf),
     openFixedYms: [...sec.querySelectorAll("#mauto-section-fixed details[data-ym]")].filter(d => d.open).map(d => d.dataset.ym),
     fixedScrollTop: document.getElementById("mauto-fixed-scroll")?.scrollTop || 0,
@@ -7722,14 +7722,16 @@ function _restoreMautoUiState(sec, state) {
       if (!r.hasAttribute("data-mauto-leaf-detail")) r.style.display = "";
     });
   });
-  state.collapsedMonths.forEach(mk => {
+  state.expandedMonths.forEach(mk => {
     if (!mk) return;
     const row = sec.querySelector(`.mauto-toggle-month[data-mauto-month="${CSS.escape(mk)}"]`);
     if (!row) return;
-    row.dataset.collapsed = "1";
+    row.dataset.collapsed = "0";
     const icon = row.querySelector(".mauto-toggle-icon");
-    if (icon) icon.textContent = "▶";
-    sec.querySelectorAll(`[data-mauto-mo="${CSS.escape(mk)}"]`).forEach(r => { r.style.display = "none"; });
+    if (icon) icon.textContent = "▼";
+    sec.querySelectorAll(`[data-mauto-mo="${CSS.escape(mk)}"]`).forEach(r => {
+      if (!r.hasAttribute("data-mauto-leaf-detail")) r.style.display = "";
+    });
   });
   state.expandedLeaves.forEach(lk => {
     if (!lk) return;
@@ -8459,8 +8461,11 @@ function renderMautoTab() {
 
   setupMautoToggleHandlers(sec);
 
-  // 기본 전체 접기 (월 요약 행은 항상 보이게 유지 — 거래처 상세 행만 접음)
-  sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-fxdate").forEach(row => {
+  // 기본 전체 접기 (월 요약 행 자체는 항상 보이게 유지 — 거래처 상세 행만 접음)
+  // ⚠️ .mauto-toggle-month도 dataset.collapsed="1"로 맞춰둬야 함 — 안 그러면 실제로는(거래처
+  // 행이 안 보이는데도) 월의 collapsed 플래그가 비어있는(=false로 취급) 상태가 되어, 그 월을
+  // 처음 클릭했을 때 "펼치기"가 아니라 "접기"로 오판해서 한 번 더 눌러야 펼쳐지는 버그가 있었음.
+  sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate").forEach(row => {
     row.dataset.collapsed = "1";
     const icon = row.querySelector(".mauto-toggle-icon");
     if (icon) icon.textContent = "▶";
@@ -8523,6 +8528,16 @@ function _collapseMautoLeafTrigger(container, leafKey) {
   if (icon) icon.textContent = "▶";
 }
 
+// 연도/월/날짜 행을 개별로 클릭해도 "전체 펼치기/접기" 버튼 라벨이 그 결과에 맞게 갱신되도록 동기화
+// (안 그러면 전체펼치기로 다 펼친 뒤 연도만 따로 다시 접어도 버튼은 "전체 접기"로 남아있어서
+// "전체 펼치기 눌렀는데 거래처가 안 보인다"처럼 헷갈리는 상태가 됨)
+function _syncMautoToggleAllBtn(row) {
+  const sec = row.closest(".mauto-section");
+  if (!sec) return;
+  const btn = sec.querySelector("[data-mauto-toggle-all]");
+  if (btn) btn.textContent = mautoAnyCollapsed(sec) ? "전체 펼치기" : "전체 접기";
+}
+
 function setupMautoToggleHandlers(container) {
   // 전체 펼치기/접기 — 버튼 하나로 토글 (현재 하나라도 접혀있으면 펼치기, 전부 펼쳐져 있으면 접기)
   container.querySelectorAll("[data-mauto-toggle-all]").forEach(btn => {
@@ -8575,6 +8590,7 @@ function setupMautoToggleHandlers(container) {
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
+      _syncMautoToggleAllBtn(row);
     });
   });
 
@@ -8596,6 +8612,7 @@ function setupMautoToggleHandlers(container) {
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
+      _syncMautoToggleAllBtn(row);
     });
   });
 
@@ -8608,6 +8625,7 @@ function setupMautoToggleHandlers(container) {
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
+      _syncMautoToggleAllBtn(row);
     });
   });
 
