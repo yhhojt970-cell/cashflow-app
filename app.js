@@ -7052,9 +7052,9 @@ function renderMautoAccountingTable(rows, kind) {
     const yearRows = [...monthMap.values()].flat();
     const yearSum = sumMautoRows(yearRows);
     const yearKey = `${kind}:${year}`;
-    const yearHtml = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(String(yearKey))}" style="cursor:pointer;">
+    const yearHtml = `<tr class="mauto-year-row">
       ${chkTdEmpty}
-      <td colspan="3"><span class="mauto-toggle-icon">▼</span> ${escapeHtml(String(year))}${Number(year) ? "년" : ""}</td>
+      <td colspan="3">${escapeHtml(String(year))}${Number(year) ? "년" : ""}</td>
       ${mautoNumericCell(yearSum.total)}
       ${mautoNumericCell(yearSum.inout)}
       ${mautoNumericCell(yearSum.balance, "mauto-balance-cell")}
@@ -7086,10 +7086,10 @@ function renderMautoAccountingTable(rows, kind) {
           : "";
         return mainRow + arDetailRow;
       }).join("");
-      const monthRowHtml = `<tr class="mauto-month-row mauto-toggle-month" data-mauto-year="${escapeHtml(String(yearKey))}" data-mauto-month="${escapeHtml(String(monthKey))}" style="cursor:pointer;">
+      const monthRowHtml = `<tr class="mauto-month-row">
         ${chkTdEmpty}
         <td></td>
-        <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(String(month))}${Number(month) ? "월" : ""}</td>
+        <td>${escapeHtml(String(month))}${Number(month) ? "월" : ""}</td>
         <td></td>
         ${mautoNumericCell(monthSum.total)}
         ${mautoNumericCell(monthSum.inout)}
@@ -7163,9 +7163,9 @@ function renderMautoPayablesByVendor(payRows) {
     const sortedVRows = [...vRows].sort((a, b) =>
       (a.year || 9999) - (b.year || 9999) || (a.month || 99) - (b.month || 99)
     );
-    const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(vKey)}" style="cursor:pointer;">
+    const headerRow = `<tr class="mauto-year-row">
       ${chkTdEmpty}
-      <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(company)}</td>
+      <td>${escapeHtml(company)}</td>
       <td></td>
       ${mautoNumericCell(vSum.total)}
       ${mautoNumericCell(vSum.inout)}
@@ -7533,8 +7533,8 @@ function renderMautoFixedByItem(monthData) {
     const expectedSum = sortedRows.filter(r => r.status !== "완료" && r.status !== "제외").reduce((s, r) => s + r.예정금액, 0);
     const actualSum = sortedRows.reduce((s, r) => s + r.totalAmount, 0);
     const itemKey = `fixeditem:${idx}`;
-    const headerRow = `<tr class="mauto-year-row mauto-toggle-year" data-mauto-year="${escapeHtml(itemKey)}" style="cursor:pointer;">
-      <td><span class="mauto-toggle-icon">▼</span> ${escapeHtml(name)}<span style="margin-left:6px;font-size:10px;color:#9ca3af;">${escapeHtml(고정분류 || "")}</span></td>
+    const headerRow = `<tr class="mauto-year-row">
+      <td>${escapeHtml(name)}<span style="margin-left:6px;font-size:10px;color:#9ca3af;">${escapeHtml(고정분류 || "")}</span></td>
       <td></td>
       ${mautoNumericCell(expectedSum)}
       ${mautoNumericCell(actualSum)}
@@ -7700,8 +7700,6 @@ function _captureMautoUiState(sec) {
   return {
     openSectionIds: [...sec.querySelectorAll(".mauto-section")].filter(s => s.style.display !== "none").map(s => s.id),
     activeCard: [...sec.querySelectorAll(".mauto-card")].find(c => c.classList.contains("mauto-card-active"))?.className.match(/card-[\w-]+/)?.[0] || null,
-    expandedYears: [...sec.querySelectorAll(".mauto-toggle-year")].filter(r => r.dataset.collapsed !== "1").map(r => r.dataset.mautoYear),
-    expandedMonths: [...sec.querySelectorAll(".mauto-toggle-month")].filter(r => r.dataset.collapsed === "0").map(r => r.dataset.mautoMonth),
     expandedLeaves: [...sec.querySelectorAll(".mauto-toggle-leaf")].filter(r => r.dataset.collapsed === "0").map(r => r.dataset.mautoLeaf),
     openFixedYms: [...sec.querySelectorAll("#mauto-section-fixed details[data-ym]")].filter(d => d.open).map(d => d.dataset.ym),
     fixedScrollTop: document.getElementById("mauto-fixed-scroll")?.scrollTop || 0,
@@ -7711,28 +7709,6 @@ function _restoreMautoUiState(sec, state) {
   if (!state) return;
   state.openSectionIds.forEach(id => { const s = document.getElementById(id); if (s) s.style.display = ""; });
   if (state.activeCard) sec.querySelector(`.${state.activeCard}`)?.classList.add("mauto-card-active");
-  state.expandedYears.forEach(yk => {
-    if (!yk) return;
-    const row = sec.querySelector(`.mauto-toggle-year[data-mauto-year="${CSS.escape(yk)}"]`);
-    if (!row) return;
-    row.dataset.collapsed = "0";
-    const icon = row.querySelector(".mauto-toggle-icon");
-    if (icon) icon.textContent = "▼";
-    sec.querySelectorAll(`[data-mauto-yr="${CSS.escape(yk)}"]`).forEach(r => {
-      if (!r.hasAttribute("data-mauto-leaf-detail")) r.style.display = "";
-    });
-  });
-  state.expandedMonths.forEach(mk => {
-    if (!mk) return;
-    const row = sec.querySelector(`.mauto-toggle-month[data-mauto-month="${CSS.escape(mk)}"]`);
-    if (!row) return;
-    row.dataset.collapsed = "0";
-    const icon = row.querySelector(".mauto-toggle-icon");
-    if (icon) icon.textContent = "▼";
-    sec.querySelectorAll(`[data-mauto-mo="${CSS.escape(mk)}"]`).forEach(r => {
-      if (!r.hasAttribute("data-mauto-leaf-detail")) r.style.display = "";
-    });
-  });
   state.expandedLeaves.forEach(lk => {
     if (!lk) return;
     const row = sec.querySelector(`.mauto-toggle-leaf[data-mauto-leaf="${CSS.escape(lk)}"]`);
@@ -7908,12 +7884,12 @@ function renderMautoTab() {
       "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)", false)}
     ${mautoPasteSection("receivables", "미수금",
       rcvWarn + renderMautoAccountingTable(rcvRows, "receivables"),
-      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", true, rcvBadge)}
+      "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", false, rcvBadge)}
     ${mautoPasteSection("payables", "미지급",
       payWarn + (mautoPayViewMode === "vendor"
         ? renderMautoPayablesByVendor(payRows)
         : renderMautoAccountingTable(payRows, "payables")),
-      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", true, payBadge)}
+      "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", false, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       mautoFixedRules !== null
         ? (mautoFixedViewMode === "item"
@@ -8009,31 +7985,13 @@ function renderMautoTab() {
   document.getElementById("mautoExcludeBtnRcv")?.addEventListener("click", () => openExcludeDialog("rcv"));
   document.getElementById("mautoExcludeBtnPay")?.addEventListener("click", () => openExcludeDialog("pay"));
 
-  // 미수/미지급 상태 필터 (전체/완료/미수금(미지급))
+  // 미수/미지급 상태 필터 (전체/완료/미수금(미지급)) — 카드 열림 상태는 renderMautoTab()이 자동 복원
   sec.querySelectorAll(".mauto-ar-status-btn").forEach(btn => {
-    const wasOpenId = btn.closest(".mauto-section")?.id?.replace("mauto-section-", "");
     btn.addEventListener("click", () => {
       const st = btn.dataset.status;
       if (mautoArStatusFilter === st) return;
       mautoArStatusFilter = st;
       renderMautoTab();
-      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 display:none 처리하고
-      // 카드 클릭 시에만 다시 열어주므로, 필터 버튼 클릭만으로는 재렌더 후 표 전체가
-      // 사라진 것처럼 보임 — 클릭했던 카드(미수금/미지급)를 다시 열어줌
-      const newSec = elements.mauto || document.getElementById("mauto");
-      if (!newSec || !wasOpenId) return;
-      const wrap = newSec.querySelector(`#mauto-section-${wasOpenId}`);
-      if (!wrap) return;
-      wrap.style.display = "";
-      newSec.querySelectorAll(".mauto-card").forEach(c => c.classList.remove("mauto-card-active"));
-      newSec.querySelector(`.card-${wasOpenId === "receivables" ? "receivable" : "payable"}`)?.classList.add("mauto-card-active");
-      // 연/월(업체) 행도 기본 접힘으로 초기화되므로 필터 목적(내용을 바로 보기)에 맞게 펼침
-      wrap.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month").forEach(row => {
-        row.dataset.collapsed = "0";
-        const icon = row.querySelector(".mauto-toggle-icon");
-        if (icon) icon.textContent = "▼";
-      });
-      wrap.querySelectorAll("[data-mauto-yr], [data-mauto-mo]").forEach(r => { r.style.display = ""; });
     });
   });
 
@@ -8461,16 +8419,16 @@ function renderMautoTab() {
 
   setupMautoToggleHandlers(sec);
 
-  // 기본 전체 접기 (월 요약 행 자체는 항상 보이게 유지 — 거래처 상세 행만 접음)
-  // ⚠️ .mauto-toggle-month도 dataset.collapsed="1"로 맞춰둬야 함 — 안 그러면 실제로는(거래처
-  // 행이 안 보이는데도) 월의 collapsed 플래그가 비어있는(=false로 취급) 상태가 되어, 그 월을
-  // 처음 클릭했을 때 "펼치기"가 아니라 "접기"로 오판해서 한 번 더 눌러야 펼쳐지는 버그가 있었음.
-  sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate").forEach(row => {
+  // 연도/월/거래처 행은 항상 펼쳐서 보여줌 (예전엔 기본 접힘 + 개별/전체 펼치기 버튼으로 열어야
+  // 했는데, 연도만 따로 접혔다 펼쳐졌다 하면서 "전체 펼치기 눌렀는데 안 보인다"는 혼란이 반복돼서
+  // 아예 접는 기능 자체를 없앰 — 세금계산서/입출금 상세(가장 안쪽)만 클릭해서 펼치는 방식 유지)
+  // 레거시 고정지출 표(mautoFixedRules===null일 때)의 날짜 그룹만 기본 접힘 유지
+  sec.querySelectorAll(".mauto-toggle-fxdate").forEach(row => {
     row.dataset.collapsed = "1";
     const icon = row.querySelector(".mauto-toggle-icon");
     if (icon) icon.textContent = "▶";
   });
-  sec.querySelectorAll("[data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+  sec.querySelectorAll("[data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
     r.style.display = "none";
   });
 
@@ -8512,107 +8470,35 @@ function applyMautoPaste(sectionId) {
   renderMautoTab();
 }
 
-// 섹션 안에 접혀있는 연/월/날짜 행이 하나라도 있는지 (병합 토글 버튼 라벨 계산용)
+// 섹션 안에 접혀있는 날짜 그룹(고정지출 월별 <details> 또는 레거시 표)이 하나라도 있는지
+// (병합 토글 버튼 라벨 계산용 — 연도/월/거래처는 이제 항상 펼쳐져 있어 대상에서 제외됨)
 function mautoAnyCollapsed(sec) {
-  return [...sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate")].some(r => r.dataset.collapsed === "1") ||
+  return [...sec.querySelectorAll(".mauto-toggle-fxdate")].some(r => r.dataset.collapsed === "1") ||
     [...sec.querySelectorAll("details")].some(d => !d.open);
 }
 
-// leaf 상세(세금계산서/입출금 상세) 트리거 하나를 접힘 상태로 되돌림 — 월/연도가 접힐 때 같이 접어서
-// 다음에 그 월/연도를 다시 펼칠 때는 항상 상세도 접힌 채로 시작하게 함
-function _collapseMautoLeafTrigger(container, leafKey) {
-  const trigger = container.querySelector(`.mauto-toggle-leaf[data-mauto-leaf="${CSS.escape(leafKey)}"]`);
-  if (!trigger) return;
-  trigger.dataset.collapsed = "1";
-  const icon = trigger.querySelector(".mauto-toggle-leaf-icon");
-  if (icon) icon.textContent = "▶";
-}
-
-// 연도/월/날짜 행을 개별로 클릭해도 "전체 펼치기/접기" 버튼 라벨이 그 결과에 맞게 갱신되도록 동기화
-// (안 그러면 전체펼치기로 다 펼친 뒤 연도만 따로 다시 접어도 버튼은 "전체 접기"로 남아있어서
-// "전체 펼치기 눌렀는데 거래처가 안 보인다"처럼 헷갈리는 상태가 됨)
-function _syncMautoToggleAllBtn(row) {
-  const sec = row.closest(".mauto-section");
-  if (!sec) return;
-  const btn = sec.querySelector("[data-mauto-toggle-all]");
-  if (btn) btn.textContent = mautoAnyCollapsed(sec) ? "전체 펼치기" : "전체 접기";
-}
-
 function setupMautoToggleHandlers(container) {
-  // 전체 펼치기/접기 — 버튼 하나로 토글 (현재 하나라도 접혀있으면 펼치기, 전부 펼쳐져 있으면 접기)
+  // 전체 펼치기/접기 — 고정지출 월별 보기(<details>)에서만 사용됨. 연도/월/거래처는 이제
+  // 항상 펼쳐져 있고, 세금계산서/입출금 상세(leaf)만 개별 클릭으로 펼치는 방식으로 단순화함
+  // (연도만 따로 접혔다 펼쳐졌다 하면서 "전체 펼치기 눌렀는데 거래처가 안 보인다"는 혼란이
+  // 반복돼서 그 계층의 접기 기능 자체를 없앴음 — 2026-08-25 (11))
   container.querySelectorAll("[data-mauto-toggle-all]").forEach(btn => {
     const initSec = container.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
-    // 렌더 직후 실제 펼침/접힘 상태에 맞춰 버튼 라벨을 정확히 맞춤 (다음에 누르면 할 동작을 표시)
     if (initSec) btn.textContent = mautoAnyCollapsed(initSec) ? "전체 펼치기" : "전체 접기";
     btn.addEventListener("click", () => {
       const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
       if (!sec) return;
       const expand = mautoAnyCollapsed(sec);
-
-      sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate").forEach(row => {
+      sec.querySelectorAll(".mauto-toggle-fxdate").forEach(row => {
         row.dataset.collapsed = expand ? "0" : "1";
         const icon = row.querySelector(".mauto-toggle-icon");
         if (icon) icon.textContent = expand ? "▼" : "▶";
       });
-      sec.querySelectorAll("[data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
+      sec.querySelectorAll("[data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
         r.style.display = expand ? "" : "none";
       });
-      // 세금계산서/입출금 상세(leaf) 행도 "전체 펼치기/접기"에는 함께 반영
-      sec.querySelectorAll("[data-mauto-leaf-detail]").forEach(r => { r.style.display = expand ? "" : "none"; });
-      sec.querySelectorAll(".mauto-toggle-leaf").forEach(row => {
-        row.dataset.collapsed = expand ? "0" : "1";
-        const icon = row.querySelector(".mauto-toggle-leaf-icon");
-        if (icon) icon.textContent = expand ? "▼" : "▶";
-      });
-      // 고정지출 월별 보기(<details>)
       sec.querySelectorAll("details").forEach(d => { d.open = expand; });
-
       btn.textContent = expand ? "전체 접기" : "전체 펼치기";
-    });
-  });
-
-  container.querySelectorAll(".mauto-toggle-year").forEach(row => {
-    row.addEventListener("click", () => {
-      const yk = row.dataset.mautoYear;
-      const collapsed = row.dataset.collapsed === "1";
-      // 월 요약 행(.mauto-toggle-month)은 항상 보이게 유지 — 거래처(leaf) 행만 접고 펼침
-      container.querySelectorAll(`[data-mauto-yr="${yk}"]`)
-        .forEach(r => {
-          const isLeafDetail = r.hasAttribute("data-mauto-leaf-detail");
-          if (collapsed) {
-            // 펼치기: 상세(leaf) 행은 원래 접힘 상태 유지, 나머지만 보이기
-            if (!isLeafDetail) r.style.display = "";
-          } else {
-            r.style.display = "none";
-            if (isLeafDetail) _collapseMautoLeafTrigger(container, r.dataset.mautoLeafDetail);
-          }
-        });
-      row.dataset.collapsed = collapsed ? "0" : "1";
-      const icon = row.querySelector(".mauto-toggle-icon");
-      if (icon) icon.textContent = collapsed ? "▼" : "▶";
-      _syncMautoToggleAllBtn(row);
-    });
-  });
-
-  container.querySelectorAll(".mauto-toggle-month").forEach(row => {
-    row.addEventListener("click", e => {
-      e.stopPropagation();
-      const mk = row.dataset.mautoMonth;
-      const collapsed = row.dataset.collapsed === "1";
-      container.querySelectorAll(`[data-mauto-mo="${mk}"]`)
-        .forEach(r => {
-          const isLeafDetail = r.hasAttribute("data-mauto-leaf-detail");
-          if (collapsed) {
-            if (!isLeafDetail) r.style.display = "";
-          } else {
-            r.style.display = "none";
-            if (isLeafDetail) _collapseMautoLeafTrigger(container, r.dataset.mautoLeafDetail);
-          }
-        });
-      row.dataset.collapsed = collapsed ? "0" : "1";
-      const icon = row.querySelector(".mauto-toggle-icon");
-      if (icon) icon.textContent = collapsed ? "▼" : "▶";
-      _syncMautoToggleAllBtn(row);
     });
   });
 
