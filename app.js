@@ -7244,6 +7244,12 @@ function getScheduledPaymentDate(year, month, day) {
   return { date: ds, dow: DAYS_KO[d.getDay()] };
 }
 
+// 매칭된 거래 목록의 순 지출액 계산: 출금 합계 - 입금(환급 등) 합계
+// (예: 부가세 납부 후 환급이 같은 항목으로 잡히면 환급분만큼 실적에서 차감되어야 함 — 예전엔 둘 다 절대값으로 더해 실제보다 부풀려졌음)
+function netMatchedAmount(matched) {
+  return matched.reduce((s, r) => s + Number(r._debit || r.debit || 0) - Number(r._credit || r.credit || 0), 0);
+}
+
 function buildFixedFromRules(fixedRules, classifiedRows) {
   const today = new Date();
   const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
@@ -7277,7 +7283,7 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
         return d && r.거래처명 === name && d.slice(0, 7) === ym;
       });
       if (matched.length) {
-        const total = matched.reduce((s, r) => s + Math.abs(Number(r._debit || r.debit || 0) || Number(r._credit || r.credit || 0)), 0);
+        const total = netMatchedAmount(matched);
         if (total > 0) {
           if (!vendorActuals[name]) vendorActuals[name] = [];
           vendorActuals[name].push(total);
@@ -7309,7 +7315,7 @@ function buildFixedFromRules(fixedRules, classifiedRows) {
         if (d.slice(0, 7) !== ym) return false;
         return r.거래처명 === rule["거래처명"];
       });
-      const totalAmount = matched.reduce((s, r) => s + Math.abs(Number(r._debit || r.debit || 0) || Number(r._credit || r.credit || 0)), 0);
+      const totalAmount = netMatchedAmount(matched);
       const dates = [...new Set(matched.map(r => (r._date || r.date || "")).filter(Boolean))].sort();
       const dayNum = parseInt(rule["결제예정일"]) || null;
       const 예정결제일 = dayNum ? getScheduledPaymentDate(parseInt(year), parseInt(month), dayNum) : null;
@@ -7738,7 +7744,8 @@ function renderMautoTab() {
         <button type="button" id="mautoClearBtn" class="mauto-clear-btn">전체 초기화</button>
       </div>
     ${(() => {
-      const taxEntries = Object.values(mautoTaxSources);
+      // 최근 저장(savedAt) 내림차순 — 파일이 뒤죽박죽으로 보이던 문제 수정
+      const taxEntries = Object.values(mautoTaxSources).sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
       if (!taxEntries.length) return "";
       return `
     <details data-accordion-id="mauto-tax-files" style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
@@ -7747,7 +7754,7 @@ function renderMautoTab() {
       </summary>
       <div style="padding:4px 12px 8px;">
       ${taxEntries.map(f => `
-      <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;">
+      <div class="mauto-tax-view-btn" data-fname="${encodeURIComponent(f.filename)}" style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;cursor:pointer;" title="클릭하면 파일 내용을 확인할 수 있습니다">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.filename)}</span>
         <span style="color:#b45309;">${f.sideType}</span>
         <span style="color:#6b7280;white-space:nowrap;">${(f.rows||[]).length}건</span>
@@ -7758,7 +7765,8 @@ function renderMautoTab() {
     </details>`;
     })()}
     ${(() => {
-      const fileEntries = Object.entries(mautoSourceFiles);
+      // 최근 저장(savedAt) 내림차순 — 파일이 뒤죽박죽으로 보이던 문제 수정
+      const fileEntries = Object.entries(mautoSourceFiles).sort((a, b) => (b[1].savedAt || "").localeCompare(a[1].savedAt || ""));
       if (!fileEntries.length) return "";
       return `
     <details data-accordion-id="mauto-bank-files" style="margin:6px 0;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:12px;">
@@ -7767,7 +7775,7 @@ function renderMautoTab() {
       </summary>
       <div style="padding:4px 12px 8px;">
       ${fileEntries.map(([key, f]) => `
-      <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #f1f5f9;">
+      <div class="mauto-file-view-btn" data-fkey="${encodeURIComponent(key)}" style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;" title="클릭하면 파일 내용을 확인할 수 있습니다">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${f.isMigration ? '#9ca3af' : '#374151'};">${escapeHtml(f.filename)}${f.isMigration ? ' <em style="color:#d97706;">(마이그레이션)</em>' : ''}</span>
         <span style="color:#6b7280;white-space:nowrap;">${(f.rows||[]).length}건</span>
         <span style="color:#9ca3af;white-space:nowrap;">${(f.savedAt||"").slice(0,10)}</span>
@@ -8161,7 +8169,8 @@ function renderMautoTab() {
 
   // 파일 개별 삭제
   sec.querySelectorAll(".mauto-file-del-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
       const key = decodeURIComponent(btn.dataset.fkey || "");
       if (!key || !mautoSourceFiles[key]) return;
       const label = mautoSourceFiles[key].filename;
@@ -8177,6 +8186,16 @@ function renderMautoTab() {
         const d = sec.querySelector(`details[data-accordion-id="${id}"]`);
         if (d) d.open = true;
       });
+    });
+  });
+
+  // 업로드된 파일 내용 보기 (행 클릭)
+  sec.querySelectorAll(".mauto-file-view-btn").forEach(row => {
+    row.addEventListener("click", () => {
+      const key = decodeURIComponent(row.dataset.fkey || "");
+      const f = mautoSourceFiles[key];
+      if (!f) return;
+      openMautoFileContentView(f.filename, f.rows || [], "bank");
     });
   });
 
@@ -8283,7 +8302,8 @@ function renderMautoTab() {
 
   // 세금계산서 파일 삭제
   sec.querySelectorAll(".mauto-tax-del-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
       const fname = decodeURIComponent(btn.dataset.fname);
       if (!confirm(`'${fname}' 파일을 삭제하시겠습니까?`)) return;
       // 삭제 전 아코디언 열림 상태 저장
@@ -8298,6 +8318,16 @@ function renderMautoTab() {
         const d = sec.querySelector(`details[data-accordion-id="${id}"]`);
         if (d) d.open = true;
       });
+    });
+  });
+
+  // 세금계산서 파일 내용 보기 (행 클릭)
+  sec.querySelectorAll(".mauto-tax-view-btn").forEach(row => {
+    row.addEventListener("click", () => {
+      const fname = decodeURIComponent(row.dataset.fname || "");
+      const f = mautoTaxSources[fname];
+      if (!f) return;
+      openMautoFileContentView(f.filename, f.rows || [], "tax");
     });
   });
 
@@ -8786,8 +8816,11 @@ function openMautoClassifyDialog(bankRows, rules) {
 
   const items = bankRows.map(row => {
     const match = classifyBankRow(row, 엠오토규칙);
+    // 비고(=거래처명 매칭방식 대상)가 있으면 기본값으로 우선 사용 — 적요1은 거래마다
+    // 참조번호 등이 바뀌어 재업로드 시 매칭이 깨지기 쉬운 반면, 비고는 상대적으로 안정적임
+    const defaultMethod = String(row._memo2 || "").trim() ? "거래처명" : "키워드";
     return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false,
-      isOverride: false, ruleAdd: false, ruleMethod: "키워드", ruleKey: "" };
+      isOverride: false, ruleAdd: false, ruleMethod: defaultMethod, ruleKey: "" };
   });
 
   const overlay = document.createElement("div");
@@ -8840,6 +8873,8 @@ function openMautoClassifyDialog(bankRows, rules) {
                 <option value="계좌" ${item.ruleMethod==="계좌"?"selected":""}>계좌(정확)</option>
               </select>
               <input type="text" class="mcl-rule-key" data-idx="${idx}" value="${escapeHtml(item.ruleKey)}" placeholder="매칭키 2자 이상" style="font-size:12px;width:110px;padding:2px 6px;border:1px solid #d1d5db;border-radius:4px;">
+              <button type="button" class="mcl-rule-fill" data-idx="${idx}" data-fill="${escapeHtml(row._memo || "")}" title="적요 전체를 매칭키로 채우기 (직접 타이핑하다 오타로 매칭 안 되는 것 방지)" style="font-size:11px;padding:1px 6px;border:1px solid #cbd5e1;background:#fff;border-radius:3px;cursor:pointer;color:#475569;" ${row._memo ? "" : "disabled"}>적요 붙여넣기</button>
+              <button type="button" class="mcl-rule-fill" data-idx="${idx}" data-fill="${escapeHtml(row._memo2 || "")}" title="비고 전체를 매칭키로 채우기 (직접 타이핑하다 오타로 매칭 안 되는 것 방지)" style="font-size:11px;padding:1px 6px;border:1px solid #cbd5e1;background:#fff;border-radius:3px;cursor:pointer;color:#475569;" ${row._memo2 ? "" : "disabled"}>비고 붙여넣기</button>
               <span class="mcl-rule-preview" data-idx="${idx}" style="font-size:11px;min-width:36px;"></span>
             </div>
           </div>
@@ -8957,6 +8992,17 @@ function openMautoClassifyDialog(bankRows, rules) {
     inp.addEventListener("input", () => {
       const idx = +inp.dataset.idx;
       items[idx].ruleKey = inp.value;
+      updateRulePreview(idx);
+    }));
+  // 적요/비고 전체 텍스트를 매칭키에 그대로 붙여넣기 (직접 타이핑 시 공백·오타로 매칭 실패하는 것 방지)
+  overlay.querySelectorAll(".mcl-rule-fill").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const idx = +btn.dataset.idx;
+      const fillVal = btn.dataset.fill || "";
+      if (!fillVal) return;
+      items[idx].ruleKey = fillVal;
+      const input = overlay.querySelector(`.mcl-rule-key[data-idx="${idx}"]`);
+      if (input) input.value = fillVal;
       updateRulePreview(idx);
     }));
   overlay.querySelectorAll(".mcl-exclude").forEach(chk =>
@@ -9138,6 +9184,70 @@ function openMautoClassifyResultView(rows) {
     });
     inp.addEventListener("keydown", e => { if (e.key === "Enter") inp.blur(); });
   });
+}
+
+// 세금계산서/업로드 파일 원본 내용 확인용 뷰어 (kind: "bank" | "tax")
+function openMautoFileContentView(title, rows, kind) {
+  document.querySelector(".mauto-classify-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "mauto-classify-overlay bank-match-overlay";
+
+  let theadHtml, rowsHtml;
+  if (kind === "tax") {
+    const sorted = [...rows].sort((a, b) => String(b["작성일자"] || "").localeCompare(String(a["작성일자"] || "")));
+    theadHtml = `<tr><th>작성일자</th><th>거래처명</th><th>사업자번호</th><th>공급가액</th><th>세액</th><th>합계</th><th>승인번호</th></tr>`;
+    rowsHtml = sorted.map(r => `<tr>
+      <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r["작성일자"] || "")}</td>
+      <td style="font-size:12px;">${escapeHtml(r["거래처명"] || "")}</td>
+      <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r["사업자번호"] || "")}</td>
+      <td style="text-align:right;font-size:12px;">${formatNumber(r["공급가액"])}</td>
+      <td style="text-align:right;font-size:12px;">${formatNumber(r["세액"])}</td>
+      <td style="text-align:right;font-size:12px;">${formatNumber(r["합계"])}</td>
+      <td style="font-size:11px;color:#6b7280;white-space:nowrap;">${escapeHtml(r["승인번호"] || r["승인번호(발급)"] || "")}</td>
+    </tr>`).join("");
+  } else {
+    const sorted = [...rows].sort((a, b) => {
+      const ad = a._date || "", bd = b._date || "";
+      if (ad !== bd) return bd.localeCompare(ad);
+      return (b._time || "").localeCompare(a._time || "");
+    });
+    theadHtml = `<tr><th>날짜</th><th>시간</th><th>구분</th><th>금액</th><th>적요</th><th>비고</th></tr>`;
+    rowsHtml = sorted.map(r => {
+      const isCredit = (r._credit || 0) > 0;
+      const dir = isCredit
+        ? `<span style="color:#1565c0;font-size:11px;">입금</span>`
+        : `<span style="color:#b71c1c;font-size:11px;">출금</span>`;
+      return `<tr>
+        <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r._date || "")}</td>
+        <td style="font-size:12px;white-space:nowrap;">${escapeHtml(r._time || "")}</td>
+        <td>${dir}</td>
+        <td style="text-align:right;font-size:12px;">${formatNumber(r._credit || r._debit)}</td>
+        <td style="font-size:12px;">${escapeHtml(r._memo || "")}</td>
+        <td style="font-size:12px;color:#6b7280;">${escapeHtml(r._memo2 || "")}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  overlay.innerHTML = `
+    <div class="bank-match-dialog" style="max-width:860px;">
+      <div class="bank-match-header">
+        <h3>${escapeHtml(title)}</h3>
+        <span class="bank-match-sub">${rows.length}건</span>
+        <button type="button" class="bank-match-close">✕</button>
+      </div>
+      <div class="table-responsive bank-match-table-wrap">
+        <table class="bank-match-table">
+          <thead>${theadHtml}</thead>
+          <tbody>${rowsHtml || `<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:14px;">내용 없음</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="bank-match-actions">
+        <button type="button" class="bank-cancel-btn">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
 }
 
 function openBankImportDialog(bankRows) {
