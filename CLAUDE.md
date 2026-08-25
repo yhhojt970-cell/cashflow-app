@@ -253,6 +253,39 @@ availableFunds = {
 
 ---
 
+### 2026-08-25 (3): 고정지출 예정금액 빈칸복원 버그 + 전체펼치기/접기 버튼 중복 통합 + 미수/미지급 상세 접이식 전환 + 고정지출 이전 달 더보기
+
+**제보 1 — 예정금액 빈칸 저장 시 자동계산 복원 안 됨:** 고정지출 예정금액 입력칸에 "빈칸 저장 시 자동계산으로 복원"이라고 안내돼 있어서 값을 지우고 저장했는데 실제로는 빈칸(0)으로 남고 자동계산값이 안 채워짐.
+
+**원인:** `applyFixedAmountOverrides()`가 오버라이드 값을 `item.예정금액`에 그대로 덮어써서, 오버라이드를 지운 시점엔 원래(자동계산 또는 규칙 수동값) 금액이 이미 사라진 상태였음. `saveAmt()`도 빈칸이면 그냥 `input.value = ""`로 남겨서 애초에 복원을 시도하지도 않았음.
+
+**수정 (`app.js`):**
+- `applyFixedAmountOverrides()`: 오버라이드 덮어쓰기 전에 `item.자동예정금액`/`item.자동예정금액출처`로 원래 값을 보존
+- 예정금액 `<input>`에 `data-amt-auto`/`data-amt-auto-src` 속성 추가, 옆의 "계산"/"수정" 배지를 `<span class="mauto-fixed-amt-badge">`로 감싸 실시간 갱신 가능하게 함
+- `saveAmt()`: 빈칸 저장 시 `data-amt-auto` 값으로 복원 + 배지도 "계산"/빈 배지로 갱신
+
+**제보 2 — "전체 펼치기"/"전체 접기" 버튼이 위아래 두 군데 있고, 월별 보기에서는 위쪽이 안 먹힘:** 고정지출 섹션 헤더(모든 mauto 섹션 공용, `mautoPasteSection`)의 버튼과, `renderMautoFixedAutoView()` 자체에 있는 버튼이 중복. 위쪽 버튼은 `.mauto-toggle-year/month/fxdate` 클래스만 대상으로 해서 월별 보기(`<details>` 기반)에서는 아무 효과가 없었음.
+
+**수정 (`app.js`):**
+- `mautoPasteSection()`의 펼치기/접기 버튼 2개 → 1개(`data-mauto-toggle-all`)로 통합. 클릭 시 섹션 안에 하나라도 접힌 게 있으면 전체 펼치기, 다 펼쳐져 있으면 전체 접기로 자동 판단(`mautoAnyCollapsed()`), `<details>`(월별 보기)까지 함께 제어
+- `renderMautoFixedAutoView()` 자체 버튼 쌍(`fixedAutoExpandAll`/`fixedAutoCollapseAll`) 제거 — 아래 "이전 달 더보기"로 대체
+- 렌더 직후 실제 펼침/접힘 상태에 맞춰 버튼 라벨이 정확히 계산되도록, 매 `renderMautoTab()` 끝의 "기본 전체 접기" 처리 후 라벨을 다시 계산하는 패스 추가
+
+**제보 3 — 세금계산서/입출금 상세가 항상 펼쳐져 있어 표가 너무 김:** 미수금/미지급 연월별·업체별 표에서 거래처 행마다 세금계산서·입출금 상세가 무조건 표시돼서 스크롤이 매우 길어짐.
+
+**수정 (`app.js`, `renderMautoAccountingTable`/`renderMautoPayablesByVendor`):** 거래처(연월) 행에 상세가 있으면 클릭 가능한 `.mauto-toggle-leaf`로 만들고, 상세 행(`[data-mauto-leaf-detail]`)은 기본 숨김(`display:none`) 처리. 클릭하면 그 행만 펼쳐짐. 상위 연/월 아코디언이 접힐 때는 상세도 같이 접히고, 다시 펼칠 때는 항상 접힌 상태로 시작(`_collapseMautoLeafTrigger`) — 상태가 꼬이지 않도록.
+
+**요청 — 지난 달 이력을 볼 방법이 없음:** `buildFixedFromRules()`가 전월~다음월 3개월 고정 범위라 그 이전 달은 볼 수 없었음.
+
+**구현 (`app.js`):** `mautoFixedMonthsBack` 전역 변수 추가(기본 1개월 전까지), `buildFixedFromRules(fixedRules, classifiedRows, monthsBack, monthsForward)`로 시그니처 확장. 월별 보기 상단에 "◀ 이전 달 더보기" 버튼 — 클릭할 때마다 3개월씩 과거 범위 확장.
+
+**참고 — "그 달에 안 나가는 고정지출 항목이 계속 보인다" 문의:** 버그 아님. 분류규칙 관리에서 해당 항목의 **지급월** 칸에 실제 나가는 달만 입력하면 됨 (예: 반기 부가세 → `1,7`, 분기 → `3,6,9,12`). 빈칸이면 매월 표시되는 게 기존 설계 의도. `buildFixedFromRules()`의 `지급월List` 필터는 이미 정상 동작 확인함 — 사용자가 아직 이 필드를 안 채운 것으로 추정.
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260825d`)  
+**커밋:** `415415d`
+
+---
+
 ### 2026-08-25 (2): 세금계산서 '원격 로드' 파일 내용보기/삭제 안 되던 버그 수정 + 입출금분류 미분류 필터
 
 **증상:** 바로 아래(1)에서 세금계산서·업로드 파일 목록에 "파일 클릭하면 내용 보기" 기능을 추가했는데, 사용자가 실제로 "원격 로드" 파일을 클릭해보니 아무것도 안 보인다고 제보.
