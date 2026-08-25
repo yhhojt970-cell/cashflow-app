@@ -7745,7 +7745,9 @@ function renderMautoTab() {
       </div>
     ${(() => {
       // 최근 저장(savedAt) 내림차순 — 파일이 뒤죽박죽으로 보이던 문제 수정
-      const taxEntries = Object.values(mautoTaxSources).sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
+      // ⚠️ "원격 로드" 항목은 저장 키가 "__remote__"이고 filename 필드는 표시용 문자열("원격 로드")이라
+      // filename을 조회 키로 쓰면 못 찾음 — 반드시 실제 객체 키(key)를 data 속성에 담아야 함
+      const taxEntries = Object.entries(mautoTaxSources).sort((a, b) => (b[1].savedAt || "").localeCompare(a[1].savedAt || ""));
       if (!taxEntries.length) return "";
       return `
     <details data-accordion-id="mauto-tax-files" style="margin:6px 0;border:1px solid #fde68a;border-radius:6px;background:#fefce8;font-size:12px;">
@@ -7753,13 +7755,13 @@ function renderMautoTab() {
         <span>▶</span> 세금계산서 ${taxEntries.length}개 파일 (${mautoTaxInvoices.length}건)
       </summary>
       <div style="padding:4px 12px 8px;">
-      ${taxEntries.map(f => `
-      <div class="mauto-tax-view-btn" data-fname="${encodeURIComponent(f.filename)}" style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;cursor:pointer;" title="클릭하면 파일 내용을 확인할 수 있습니다">
+      ${taxEntries.map(([key, f]) => `
+      <div class="mauto-tax-view-btn" data-fkey="${encodeURIComponent(key)}" style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #fef9c3;cursor:pointer;" title="클릭하면 파일 내용을 확인할 수 있습니다">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.filename)}</span>
         <span style="color:#b45309;">${f.sideType}</span>
         <span style="color:#6b7280;white-space:nowrap;">${(f.rows||[]).length}건</span>
         ${f.checksumOk === true ? '<span style="color:#16a34a;">✓체크섬</span>' : f.checksumOk === false ? '<span style="color:#dc2626;">✗체크섬</span>' : ""}
-        <button type="button" class="mauto-tax-del-btn" data-fname="${encodeURIComponent(f.filename)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
+        <button type="button" class="mauto-tax-del-btn" data-fkey="${encodeURIComponent(key)}" style="font-size:11px;padding:1px 7px;border:1px solid #fecaca;background:#fff;border-radius:3px;cursor:pointer;color:#dc2626;">삭제</button>
       </div>`).join("")}
       </div>
     </details>`;
@@ -8304,12 +8306,14 @@ function renderMautoTab() {
   sec.querySelectorAll(".mauto-tax-del-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const fname = decodeURIComponent(btn.dataset.fname);
-      if (!confirm(`'${fname}' 파일을 삭제하시겠습니까?`)) return;
+      const key = decodeURIComponent(btn.dataset.fkey || "");
+      const f = mautoTaxSources[key];
+      if (!f) return;
+      if (!confirm(`'${f.filename}' 파일을 삭제하시겠습니까?`)) return;
       // 삭제 전 아코디언 열림 상태 저장
       const openDetails = [...sec.querySelectorAll("details[data-accordion-id]")]
         .filter(d => d.open).map(d => d.dataset.accordionId);
-      delete mautoTaxSources[fname];
+      delete mautoTaxSources[key];
       saveMautoTaxSource();
       rebuildMautoTaxInvoices();
       renderMautoTab();
@@ -8324,8 +8328,8 @@ function renderMautoTab() {
   // 세금계산서 파일 내용 보기 (행 클릭)
   sec.querySelectorAll(".mauto-tax-view-btn").forEach(row => {
     row.addEventListener("click", () => {
-      const fname = decodeURIComponent(row.dataset.fname || "");
-      const f = mautoTaxSources[fname];
+      const key = decodeURIComponent(row.dataset.fkey || "");
+      const f = mautoTaxSources[key];
       if (!f) return;
       openMautoFileContentView(f.filename, f.rows || [], "tax");
     });
@@ -8849,7 +8853,7 @@ function openMautoClassifyDialog(bankRows, rules) {
       const ruleDetailHidden = item.ruleAdd ? "" : "display:none;";
       const memoHint = escapeHtml((row._memo || "").slice(0, 25));
       const memo2Hint = row._memo2 ? ` | 비고: ${escapeHtml(row._memo2.slice(0, 15))}` : "";
-      return `<tr style="${rowBg}">
+      return `<tr class="mcl-main-row" data-idx="${idx}" style="${rowBg}">
         <td style="font-size:12px;white-space:nowrap;">${escapeHtml(row._date)}</td>
         <td>${dirLabel}</td>
         <td style="text-align:right;font-size:12px;font-weight:500;">${formatNumber(amount)}</td>
@@ -8889,6 +8893,9 @@ function openMautoClassifyDialog(bankRows, rules) {
       <div class="bank-match-header">
         <h3>엠오토 입출금 분류</h3>
         <span class="bank-match-sub">${bankRows.length}건 · 자동분류 ${matchedCount}건 / 미분류 ${bankRows.length - matchedCount}건</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer;margin-left:8px;white-space:nowrap;">
+          <input type="checkbox" id="mclFilterUnmatched"> 미분류만 보기
+        </label>
         <button type="button" class="bank-match-close">✕</button>
       </div>
       <div class="table-responsive bank-match-table-wrap">
@@ -8912,6 +8919,23 @@ function openMautoClassifyDialog(bankRows, rules) {
     overlay.querySelector("#mclCount").textContent = `분류 ${n}건`;
   }
   updateCount();
+
+  // "미분류만 보기" 필터 — 매칭/제외되지 않은 행만 남기고 나머지는 숨김
+  let filterUnmatchedOnly = false;
+  function applyRowFilter() {
+    items.forEach((item, idx) => {
+      const isUnmatched = !item.excluded && !item.거래처명;
+      const hide = filterUnmatchedOnly && !isUnmatched;
+      const mainTr = overlay.querySelector(`tr.mcl-main-row[data-idx="${idx}"]`);
+      const ruleTr = overlay.querySelector(`tr.mcl-rule-row[data-idx="${idx}"]`);
+      if (mainTr) mainTr.style.display = hide ? "none" : "";
+      if (ruleTr) ruleTr.style.display = hide ? "none" : (item.거래처명 ? "" : "none");
+    });
+  }
+  overlay.querySelector("#mclFilterUnmatched")?.addEventListener("change", e => {
+    filterUnmatchedOnly = e.target.checked;
+    applyRowFilter();
+  });
 
   // 마스터 체크박스 3-상태 갱신
   function updateMasterCheckbox() {
@@ -8969,6 +8993,7 @@ function openMautoClassifyDialog(bankRows, rules) {
       const ruleRow = overlay.querySelector(`.mcl-rule-row[data-idx="${idx}"]`);
       if (ruleRow) ruleRow.style.display = sel.value ? "" : "none";
       updateCount();
+      if (filterUnmatchedOnly) applyRowFilter();
     }));
   overlay.querySelectorAll(".mcl-div").forEach(sel =>
     sel.addEventListener("change", () => { items[+sel.dataset.idx].구분 = sel.value; }));
@@ -9010,6 +9035,7 @@ function openMautoClassifyDialog(bankRows, rules) {
       items[+chk.dataset.idx].excluded = chk.checked;
       updateCount();
       updateMasterCheckbox();
+      if (filterUnmatchedOnly) applyRowFilter();
     }));
 
   // 마스터 체크박스 → 전체 토글 (보이는 행 = items 전체)
@@ -9020,6 +9046,7 @@ function openMautoClassifyDialog(bankRows, rules) {
     // indeterminate 해제 (마스터 직접 클릭 시 명확한 상태로)
     e.target.indeterminate = false;
     updateCount();
+    if (filterUnmatchedOnly) applyRowFilter();
   });
 
   overlay.querySelector("#mclApplyBtn").addEventListener("click", async () => {
@@ -9113,7 +9140,11 @@ function openMautoClassifyResultView(rows) {
     if (ad !== bd) return bd.localeCompare(ad);
     return (b._time || "").localeCompare(a._time || "");
   });
-  const rowsHtml = sortedRows.map(r => {
+
+  const unmatchedCount = sortedRows.filter(r => !r.excluded && !r.거래처명).length;
+  let filterMode = "all"; // "all" | "unmatched"
+
+  function rowHtml(r) {
     const dir = r.credit > 0
       ? `<span style="color:#1565c0;font-size:11px;">입금</span>`
       : `<span style="color:#b71c1c;font-size:11px;">출금</span>`;
@@ -9135,7 +9166,22 @@ function openMautoClassifyResultView(rows) {
       <td>${statusBadge}</td>
       <td style="font-size:11px;color:#6b7280;">${escapeHtml(r.매칭근거 || "")}</td>
     </tr>`;
-  }).join("");
+  }
+
+  function visibleRows() {
+    return filterMode === "unmatched" ? sortedRows.filter(r => !r.excluded && !r.거래처명) : sortedRows;
+  }
+
+  function renderTbody() {
+    const vis = visibleRows();
+    const tbody = overlay.querySelector(".mcl-result-tbody");
+    tbody.innerHTML = vis.length
+      ? vis.map(rowHtml).join("")
+      : `<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:14px;">해당 조건의 거래가 없습니다</td></tr>`;
+    const sub = overlay.querySelector(".bank-match-sub");
+    if (sub) sub.textContent = filterMode === "unmatched" ? `미분류 ${vis.length}건 (전체 ${rows.length}건)` : `${rows.length}건`;
+  }
+
   overlay.innerHTML = `
     <div class="bank-match-dialog" style="max-width:860px;">
       <div class="bank-match-header">
@@ -9148,10 +9194,14 @@ function openMautoClassifyResultView(rows) {
         예) <code>25-12=3,000,000(나머지), 26-03=2,041,400(일부잔액)</code> → 25-12에 300만, 26-03에 204만 1,400원 반영<br/>
         <span style="color:#64748b;">※ 연월과 = 사이에는 공백만 가능(다른 글자 넣으면 인식 안 됨). 설명은 금액 뒤 괄호 안에 적으세요. 금액은 콤마 넣어도 됩니다.</span>
       </div>
+      <div style="padding:6px 14px;display:flex;gap:6px;border-bottom:1px solid #f1f5f9;">
+        <button type="button" class="mcl-filter-btn" data-filter="all" style="font-size:12px;padding:3px 12px;border:1px solid #d1d5db;border-radius:14px;background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer;">전체 ${rows.length}</button>
+        <button type="button" class="mcl-filter-btn" data-filter="unmatched" style="font-size:12px;padding:3px 12px;border:1px solid #d1d5db;border-radius:14px;background:#f9fafb;color:#374151;cursor:pointer;">미분류 ${unmatchedCount}</button>
+      </div>
       <div class="table-responsive bank-match-table-wrap">
         <table class="bank-match-table">
           <thead><tr><th>날짜</th><th>구분</th><th>금액</th><th>적요</th><th>거래처명</th><th>매출/매입</th><th>상태</th><th>매칭근거</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
+          <tbody class="mcl-result-tbody"></tbody>
         </table>
       </div>
       <div class="bank-match-actions">
@@ -9159,30 +9209,48 @@ function openMautoClassifyResultView(rows) {
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  renderTbody();
   overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
 
-  // 적요 편집 → memoOverride 저장(여러 연월 분배 포함) → 재빌드 → 미수/미지급 갱신
-  overlay.querySelectorAll(".mcl-memo-edit").forEach(inp => {
-    const orig = inp.value;
-    inp.addEventListener("blur", () => {
-      const txKey = inp.dataset.txkey;
-      const val = inp.value.trim();
-      if (!txKey || val === orig.trim()) return;
-      const prev = mautoUserEdits[txKey] || {};
-      mautoUserEdits[txKey] = { ...prev, memoOverride: val };
-      saveUserEdits();
-      rebuildMautoRows();
-      renderMautoTab();
-      // 분배 인식 여부 즉시 피드백
-      const allocs = parseMemoAllocations(val);
-      if (allocs.length) {
-        const sum = allocs.reduce((s, a) => s + a.amount, 0);
-        inp.style.borderColor = "#16a34a";
-        inp.title = `분배 ${allocs.length}건 인식 (합계 ${formatNumber(sum)})`;
-      }
+  overlay.querySelectorAll(".mcl-filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterMode = btn.dataset.filter;
+      overlay.querySelectorAll(".mcl-filter-btn").forEach(b => {
+        const active = b.dataset.filter === filterMode;
+        b.style.background = active ? "#2563eb" : "#f9fafb";
+        b.style.color = active ? "#fff" : "#374151";
+        b.style.borderColor = active ? "#2563eb" : "#d1d5db";
+      });
+      renderTbody();
     });
-    inp.addEventListener("keydown", e => { if (e.key === "Enter") inp.blur(); });
+  });
+
+  // 적요 편집 → memoOverride 저장(여러 연월 분배 포함) → 재빌드 → 미수/미지급 갱신
+  // (필터로 다시 그려도 계속 동작해야 하므로 개별 바인딩 대신 tbody 위임 방식 사용)
+  const tbodyWrap = overlay.querySelector(".mcl-result-tbody");
+  tbodyWrap.addEventListener("focusout", e => {
+    const inp = e.target.closest(".mcl-memo-edit");
+    if (!inp) return;
+    const txKey = inp.dataset.txkey;
+    const val = inp.value.trim();
+    const origRow = sortedRows.find(r => r._txKey === txKey);
+    if (!txKey || !origRow || val === String(origRow.memo || "").trim()) return;
+    const prev = mautoUserEdits[txKey] || {};
+    mautoUserEdits[txKey] = { ...prev, memoOverride: val };
+    saveUserEdits();
+    rebuildMautoRows();
+    renderMautoTab();
+    // 분배 인식 여부 즉시 피드백
+    const allocs = parseMemoAllocations(val);
+    if (allocs.length) {
+      const sum = allocs.reduce((s, a) => s + a.amount, 0);
+      inp.style.borderColor = "#16a34a";
+      inp.title = `분배 ${allocs.length}건 인식 (합계 ${formatNumber(sum)})`;
+    }
+  });
+  tbodyWrap.addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.classList.contains("mcl-memo-edit")) e.target.blur();
   });
 }
 
