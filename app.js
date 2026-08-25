@@ -265,6 +265,7 @@ let mautoVatYear = new Date().getFullYear();
 let mautoPayViewMode = "ym"; // "ym" | "vendor"
 let mautoArStatusFilter = "open"; // "all" | "done" | "open" — 미수/미지급 자동계산 상태 필터
 let mautoFixedViewMode = "month"; // "month" | "item" — 고정지출 자동계산 보기 방식
+let mautoFixedMonthsBack = 1; // 고정지출 월별 보기에서 과거로 몇 개월치 보여줄지 ("이전 달 더보기"로 늘어남, 기본 1개월 전까지)
 let mautoToolsOpen = false; // 엠오토 상단 도구영역(제목~카드 사이) 접기 상태 (기본 접힘)
 function loadFixedChecked() {
   try { const s = localStorage.getItem(MAUTO_FIXED_CHECKED_KEY); mautoFixedChecked = s ? JSON.parse(s) : {}; } catch(_) { mautoFixedChecked = {}; }
@@ -284,6 +285,10 @@ function applyFixedAmountOverrides(monthData) {
   (monthData || []).forEach(({ ym, items }) => {
     items.forEach(item => {
       const key = `${ym}||${item.거래처명}||${item.예정일 || "0"}`;
+      // 오버라이드 적용 전 원래(자동계산/규칙 수동값) 금액을 보존 — 입력칸을 비웠을 때
+      // 이 값으로 되돌려야 하는데, 그냥 덮어쓰면 원래 값을 잃어버려 복원할 수 없었음
+      item.자동예정금액 = item.예정금액;
+      item.자동예정금액출처 = item.예정금액출처;
       if (mautoFixedAmountOverrides[key] !== undefined) {
         item.예정금액 = mautoFixedAmountOverrides[key];
         item.예정금액출처 = "override";
@@ -7046,23 +7051,27 @@ function renderMautoAccountingTable(rows, kind) {
     const monthHtml = [...monthMap.entries()].map(([month, monthRows]) => {
       const monthSum = sumMautoRows(monthRows);
       const monthKey = `${kind}:${year}:${month}`;
-      const detailRows = monthRows.map(row => {
+      const detailRows = monthRows.map((row, ridx) => {
         const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+        const leafKey = `${monthKey}::${ridx}`;
         const chkTd = hasChecks
           ? (row.checkKey ? `<td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-ar-chk" data-chk-key="${escapeHtml(row.checkKey)}" data-side="${kind === "receivables" ? "rcv" : "pay"}" data-amt="${row.balance}" ${row.checked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:13px;height:13px;" /></td>` : `<td></td>`)
           : "";
+        const companyCell = hasArDetail
+          ? `<td class="mauto-toggle-leaf" data-mauto-leaf="${escapeHtml(leafKey)}" style="cursor:pointer;" title="클릭하면 세금계산서·입출금 상세를 볼 수 있습니다"><span class="mauto-toggle-leaf-icon" style="display:inline-block;width:11px;font-size:10px;color:#9ca3af;">▶</span> ${escapeHtml(row.company || "")}</td>`
+          : `<td>${escapeHtml(row.company || "")}</td>`;
         const mainRow = `
         <tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}">
           ${chkTd}
           <td></td>
           <td>${escapeHtml(String(row.month || ""))}</td>
-          <td>${escapeHtml(row.company || "")}</td>
+          ${companyCell}
           ${mautoNumericCell(row.total)}
           ${mautoNumericCell(row.inout)}
           ${mautoNumericCell(row.balance, "mauto-balance-cell")}
         </tr>`;
         const arDetailRow = hasArDetail
-          ? `<tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+          ? `<tr data-mauto-yr="${escapeHtml(String(yearKey))}" data-mauto-mo="${escapeHtml(String(monthKey))}" data-mauto-leaf-detail="${escapeHtml(leafKey)}" style="display:none;"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
           : "";
         return mainRow + arDetailRow;
       }).join("");
@@ -7151,22 +7160,26 @@ function renderMautoPayablesByVendor(payRows) {
       ${mautoNumericCell(vSum.inout)}
       ${mautoNumericCell(vSum.balance, "mauto-balance-cell")}
     </tr>`;
-    const detailRows = sortedVRows.map(row => {
+    const detailRows = sortedVRows.map((row, ridx) => {
       const hasArDetail = (row.발생상세 && row.발생상세.length) || (row.충당상세 && row.충당상세.length);
+      const leafKey = `${vKey}::${ridx}`;
       const chkTd = hasChecks
         ? (row.checkKey ? `<td style="text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" class="mauto-ar-chk" data-chk-key="${escapeHtml(row.checkKey)}" data-side="pay" data-amt="${row.balance}" ${row.checked ? "checked" : ""} style="cursor:pointer;accent-color:#2563eb;width:13px;height:13px;" /></td>` : `<td></td>`)
         : "";
+      const ymCell = hasArDetail
+        ? `<td class="mauto-toggle-leaf" data-mauto-leaf="${escapeHtml(leafKey)}" style="cursor:pointer;font-size:12px;color:#6b7280;" title="클릭하면 세금계산서·입출금 상세를 볼 수 있습니다"><span class="mauto-toggle-leaf-icon" style="display:inline-block;width:11px;font-size:10px;color:#9ca3af;">▶</span> ${row.year || ""}년 ${row.month || ""}월</td>`
+        : `<td style="font-size:12px;color:#6b7280;">${row.year || ""}년 ${row.month || ""}월</td>`;
       const mainRow = `
       <tr data-mauto-yr="${escapeHtml(vKey)}">
         ${chkTd}
         <td></td>
-        <td style="font-size:12px;color:#6b7280;">${row.year || ""}년 ${row.month || ""}월</td>
+        ${ymCell}
         ${mautoNumericCell(row.total)}
         ${mautoNumericCell(row.inout)}
         ${mautoNumericCell(row.balance, "mauto-balance-cell")}
       </tr>`;
       const arDetailRow = hasArDetail
-        ? `<tr data-mauto-yr="${escapeHtml(vKey)}"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
+        ? `<tr data-mauto-yr="${escapeHtml(vKey)}" data-mauto-leaf-detail="${escapeHtml(leafKey)}" style="display:none;"><td colspan="${colCount}">${arRecapDetailColsHtml(row.발생상세, row.충당상세)}</td></tr>`
         : "";
       return mainRow + arDetailRow;
     }).join("");
@@ -7250,13 +7263,13 @@ function netMatchedAmount(matched) {
   return matched.reduce((s, r) => s + Number(r._debit || r.debit || 0) - Number(r._credit || r.credit || 0), 0);
 }
 
-function buildFixedFromRules(fixedRules, classifiedRows) {
+function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsForward = 1) {
   const today = new Date();
   const todayYM = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
 
-  // 표시 범위: 전월 ~ 현월 ~ 다음월 (3개월)
+  // 표시 범위: 전월(monthsBack개월치) ~ 현월 ~ 다음월(monthsForward개월치)
   const monthSet = new Set();
-  for (let i = -1; i <= 1; i++) {
+  for (let i = -monthsBack; i <= monthsForward; i++) {
     const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
     monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   }
@@ -7346,7 +7359,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
   if (!items.length) {
     return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">📐 분류규칙에 결제예정일이 설정된 항목이 없습니다.<br>분류규칙 관리 → 항목 수정 → <strong>결제예정일</strong>(N일) 입력 후 "불러오기"를 누르세요.</div>`;
   }
-  const monthData = prebuiltData || buildFixedFromRules(items, classifiedRows || []);
+  const monthData = prebuiltData || buildFixedFromRules(items, classifiedRows || [], mautoFixedMonthsBack);
   if (!monthData.length) {
     return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">입출금 내역을 업로드하면 월별 실적이 자동으로 채워집니다.</div>`;
   }
@@ -7420,10 +7433,12 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
             <input type="text" class="mauto-fixed-amt-input"
               data-amt-key="${escapeHtml(amtKey)}"
               data-amt-orig="${item.예정금액 || 0}"
+              data-amt-auto="${item.자동예정금액 || 0}"
+              data-amt-auto-src="${item.자동예정금액출처 || ""}"
               value="${item.예정금액 ? escapeHtml(formatNumber(item.예정금액)) : ""}"
               style="width:72px;text-align:right;border:none;border-bottom:1px dashed ${amtBorderColor};background:transparent;font-size:inherit;color:inherit;padding:0 2px;cursor:text;"
               title="클릭하여 수정 (빈칸 저장 시 자동계산으로 복원)"
-            />${amtBadge}
+            /><span class="mauto-fixed-amt-badge" data-amt-key="${escapeHtml(amtKey)}">${amtBadge}</span>
           </td>
           <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
           <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
@@ -7466,8 +7481,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
 
   return `<div style="padding:10px 4px;max-height:600px;overflow-y:auto;">
     <div style="display:flex;gap:6px;margin-bottom:8px;">
-      <button type="button" id="fixedAutoExpandAll" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;">전체 펼치기</button>
-      <button type="button" id="fixedAutoCollapseAll" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;">전체 접기</button>
+      <button type="button" id="fixedShowMorePast" style="font-size:11px;padding:2px 10px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;cursor:pointer;" title="현재는 최근 ${mautoFixedMonthsBack}개월 전까지만 보입니다">◀ 이전 달 더보기 (현재 ${mautoFixedMonthsBack}개월 전까지)</button>
     </div>
     ${html}
   </div>`;
@@ -7638,8 +7652,7 @@ function arRecapToMautoRows(entries, side) {
 
 function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
   const toggleBtns = hasToggle ? `
-    <button type="button" class="mauto-ctrl-btn" data-mauto-expand-all="${id}">전체 펼치기</button>
-    <button type="button" class="mauto-ctrl-btn" data-mauto-collapse-all="${id}">전체 접기</button>` : "";
+    <button type="button" class="mauto-ctrl-btn" data-mauto-toggle-all="${id}">전체 펼치기</button>` : "";
   return `<div class="mauto-section" id="mauto-section-${id}" data-kind="${id}">
     <div class="mauto-section-header">
       <div><h3>${escapeHtml(title)}${badge ? ` ${badge}` : ""}</h3></div>
@@ -7670,7 +7683,7 @@ function renderMautoTab() {
   if (mautoFixedRules !== null) {
     const ruleItems = (mautoFixedRules || []).filter(r => r["결제예정일"]);
     if (ruleItems.length) {
-      _fixedMonthDataCache = buildFixedFromRules(ruleItems, mautoClassifiedRows);
+      _fixedMonthDataCache = buildFixedFromRules(ruleItems, mautoClassifiedRows, mautoFixedMonthsBack);
       applyFixedAmountOverrides(_fixedMonthDataCache);
       fixed = calcFixedCheckedTotal(_fixedMonthDataCache);
     }
@@ -7975,16 +7988,10 @@ function renderMautoTab() {
     mautoFixedViewMode = "item"; renderMautoTab(); _reopenFixed();
   });
 
-  // 고정지출 월 전체 펼치기 / 접기
-  document.getElementById("fixedAutoExpandAll")?.addEventListener("click", () => {
-    sec.querySelectorAll("#mauto-section-fixed details").forEach(d => { d.open = true; });
-    sec.querySelectorAll(".mauto-fixed-dg-item").forEach(r => { r.style.display = ""; });
-    sec.querySelectorAll(".mauto-fixed-dg-icon").forEach(i => { i.textContent = "▼"; });
-  });
-  document.getElementById("fixedAutoCollapseAll")?.addEventListener("click", () => {
-    sec.querySelectorAll("#mauto-section-fixed details").forEach(d => { d.open = false; });
-    sec.querySelectorAll(".mauto-fixed-dg-item").forEach(r => { r.style.display = "none"; });
-    sec.querySelectorAll(".mauto-fixed-dg-icon").forEach(i => { i.textContent = "▶"; });
+  // 고정지출 이전 달 더보기 (기본 1개월 전까지만 표시 → 클릭할 때마다 3개월씩 확장)
+  document.getElementById("fixedShowMorePast")?.addEventListener("click", () => {
+    mautoFixedMonthsBack += 3;
+    renderMautoTab();
   });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
@@ -8114,15 +8121,30 @@ function renderMautoTab() {
     });
     const saveAmt = () => {
       const key = input.dataset.amtKey;
-      const amt = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10) || 0;
-      if (amt > 0) {
-        mautoFixedAmountOverrides[key] = amt;
+      const typed = parseInt(String(input.value).replace(/[^0-9]/g, ""), 10) || 0;
+      let displayAmt, isOverride;
+      if (typed > 0) {
+        mautoFixedAmountOverrides[key] = typed;
+        displayAmt = typed;
+        isOverride = true;
       } else {
+        // 빈칸으로 저장 → 오버라이드 제거하고 자동계산(또는 규칙 수동값)으로 복원
         delete mautoFixedAmountOverrides[key];
+        displayAmt = Number(input.dataset.amtAuto) || 0;
+        isOverride = false;
       }
       saveFixedAmountOverrides();
-      input.value = amt ? formatNumber(amt) : "";
-      input.style.borderBottomColor = amt ? "#f59e0b" : "#d1d5db";
+      input.value = displayAmt ? formatNumber(displayAmt) : "";
+      input.dataset.amtOrig = String(displayAmt);
+      input.style.borderBottomColor = isOverride ? "#f59e0b" : "#d1d5db";
+      // 배지("계산"/"수정") 갱신 (입력칸과 같은 td 안의 형제 요소)
+      const badge = input.parentElement?.querySelector(".mauto-fixed-amt-badge");
+      if (badge) {
+        const autoSrc = input.dataset.amtAutoSrc || "";
+        badge.innerHTML = isOverride
+          ? '<span style="font-size:9px;color:#f59e0b;margin-left:2px;">수정</span>'
+          : (autoSrc === "auto" ? '<span style="font-size:9px;color:#2563eb;margin-left:2px;">계산</span>' : "");
+      }
       // 소계 행(날짜별 예정금액 합) 실시간 업데이트
       const dgKey = input.closest("[data-dg]")?.dataset.dg;
       if (dgKey) {
@@ -8365,6 +8387,12 @@ function renderMautoTab() {
   sec.querySelectorAll(".mauto-toggle-month, [data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
     r.style.display = "none";
   });
+
+  // 위에서 강제로 접었으므로, 병합 토글 버튼("전체 펼치기/접기") 라벨도 실제 최종 상태에 맞게 다시 계산
+  sec.querySelectorAll("[data-mauto-toggle-all]").forEach(btn => {
+    const s = sec.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
+    if (s) btn.textContent = mautoAnyCollapsed(s) ? "전체 펼치기" : "전체 접기";
+  });
 }
 
 function applyMautoPaste(sectionId) {
@@ -8394,42 +8422,52 @@ function applyMautoPaste(sectionId) {
   renderMautoTab();
 }
 
+// 섹션 안에 접혀있는 연/월/날짜 행이 하나라도 있는지 (병합 토글 버튼 라벨 계산용)
+function mautoAnyCollapsed(sec) {
+  return [...sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate")].some(r => r.dataset.collapsed === "1") ||
+    [...sec.querySelectorAll("details")].some(d => !d.open);
+}
+
+// leaf 상세(세금계산서/입출금 상세) 트리거 하나를 접힘 상태로 되돌림 — 월/연도가 접힐 때 같이 접어서
+// 다음에 그 월/연도를 다시 펼칠 때는 항상 상세도 접힌 채로 시작하게 함
+function _collapseMautoLeafTrigger(container, leafKey) {
+  const trigger = container.querySelector(`.mauto-toggle-leaf[data-mauto-leaf="${CSS.escape(leafKey)}"]`);
+  if (!trigger) return;
+  trigger.dataset.collapsed = "1";
+  const icon = trigger.querySelector(".mauto-toggle-leaf-icon");
+  if (icon) icon.textContent = "▶";
+}
+
 function setupMautoToggleHandlers(container) {
-  container.querySelectorAll("[data-mauto-expand-all]").forEach(btn => {
+  // 전체 펼치기/접기 — 버튼 하나로 토글 (현재 하나라도 접혀있으면 펼치기, 전부 펼쳐져 있으면 접기)
+  container.querySelectorAll("[data-mauto-toggle-all]").forEach(btn => {
+    const initSec = container.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
+    // 렌더 직후 실제 펼침/접힘 상태에 맞춰 버튼 라벨을 정확히 맞춤 (다음에 누르면 할 동작을 표시)
+    if (initSec) btn.textContent = mautoAnyCollapsed(initSec) ? "전체 펼치기" : "전체 접기";
     btn.addEventListener("click", () => {
-      const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoExpandAll}`);
+      const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoToggleAll}`);
       if (!sec) return;
+      const expand = mautoAnyCollapsed(sec);
+
       sec.querySelectorAll(".mauto-toggle-year, .mauto-toggle-month, .mauto-toggle-fxdate").forEach(row => {
-        row.dataset.collapsed = "0";
+        row.dataset.collapsed = expand ? "0" : "1";
         const icon = row.querySelector(".mauto-toggle-icon");
-        if (icon) icon.textContent = "▼";
+        if (icon) icon.textContent = expand ? "▼" : "▶";
       });
       sec.querySelectorAll("[data-mauto-yr], [data-mauto-mo], [data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
-        r.style.display = "";
+        r.style.display = expand ? "" : "none";
       });
-    });
-  });
+      // 세금계산서/입출금 상세(leaf) 행도 "전체 펼치기/접기"에는 함께 반영
+      sec.querySelectorAll("[data-mauto-leaf-detail]").forEach(r => { r.style.display = expand ? "" : "none"; });
+      sec.querySelectorAll(".mauto-toggle-leaf").forEach(row => {
+        row.dataset.collapsed = expand ? "0" : "1";
+        const icon = row.querySelector(".mauto-toggle-leaf-icon");
+        if (icon) icon.textContent = expand ? "▼" : "▶";
+      });
+      // 고정지출 월별 보기(<details>)
+      sec.querySelectorAll("details").forEach(d => { d.open = expand; });
 
-  container.querySelectorAll("[data-mauto-collapse-all]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const sec = container.querySelector(`#mauto-section-${btn.dataset.mautoCollapseAll}`);
-      if (!sec) return;
-      sec.querySelectorAll(".mauto-toggle-year").forEach(row => {
-        row.dataset.collapsed = "1";
-        const icon = row.querySelector(".mauto-toggle-icon");
-        if (icon) icon.textContent = "▶";
-      });
-      sec.querySelectorAll(".mauto-toggle-month, [data-mauto-yr], [data-mauto-mo]").forEach(r => {
-        r.style.display = "none";
-      });
-      sec.querySelectorAll(".mauto-toggle-fxdate").forEach(row => {
-        row.dataset.collapsed = "1";
-        const icon = row.querySelector(".mauto-toggle-icon");
-        if (icon) icon.textContent = "▶";
-      });
-      sec.querySelectorAll("[data-mauto-fxdate]:not(.mauto-toggle-fxdate)").forEach(r => {
-        r.style.display = "none";
-      });
+      btn.textContent = expand ? "전체 접기" : "전체 펼치기";
     });
   });
 
@@ -8438,7 +8476,16 @@ function setupMautoToggleHandlers(container) {
       const yk = row.dataset.mautoYear;
       const collapsed = row.dataset.collapsed === "1";
       container.querySelectorAll(`[data-mauto-yr="${yk}"], .mauto-toggle-month[data-mauto-year="${yk}"]`)
-        .forEach(r => r.style.display = collapsed ? "" : "none");
+        .forEach(r => {
+          const isLeafDetail = r.hasAttribute("data-mauto-leaf-detail");
+          if (collapsed) {
+            // 펼치기: 상세(leaf) 행은 원래 접힘 상태 유지, 나머지만 보이기
+            if (!isLeafDetail) r.style.display = "";
+          } else {
+            r.style.display = "none";
+            if (isLeafDetail) _collapseMautoLeafTrigger(container, r.dataset.mautoLeafDetail);
+          }
+        });
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
@@ -8451,7 +8498,15 @@ function setupMautoToggleHandlers(container) {
       const mk = row.dataset.mautoMonth;
       const collapsed = row.dataset.collapsed === "1";
       container.querySelectorAll(`[data-mauto-mo="${mk}"]`)
-        .forEach(r => r.style.display = collapsed ? "" : "none");
+        .forEach(r => {
+          const isLeafDetail = r.hasAttribute("data-mauto-leaf-detail");
+          if (collapsed) {
+            if (!isLeafDetail) r.style.display = "";
+          } else {
+            r.style.display = "none";
+            if (isLeafDetail) _collapseMautoLeafTrigger(container, r.dataset.mautoLeafDetail);
+          }
+        });
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
@@ -8466,6 +8521,20 @@ function setupMautoToggleHandlers(container) {
         .forEach(r => r.style.display = collapsed ? "" : "none");
       row.dataset.collapsed = collapsed ? "0" : "1";
       const icon = row.querySelector(".mauto-toggle-icon");
+      if (icon) icon.textContent = collapsed ? "▼" : "▶";
+    });
+  });
+
+  // 세금계산서/입출금 상세 펼치기 — 거래처(연월) 행 클릭 시 자기 상세만 토글
+  container.querySelectorAll(".mauto-toggle-leaf").forEach(row => {
+    row.addEventListener("click", e => {
+      e.stopPropagation();
+      const lk = row.dataset.mautoLeaf;
+      const collapsed = row.dataset.collapsed !== "0"; // 기본값(속성 없음)은 접힘으로 취급
+      container.querySelectorAll(`[data-mauto-leaf-detail="${CSS.escape(lk)}"]`)
+        .forEach(r => r.style.display = collapsed ? "" : "none");
+      row.dataset.collapsed = collapsed ? "0" : "1";
+      const icon = row.querySelector(".mauto-toggle-leaf-icon");
       if (icon) icon.textContent = collapsed ? "▼" : "▶";
     });
   });
