@@ -8011,6 +8011,7 @@ function renderMautoTab() {
   document.getElementById("fixedShowMorePast")?.addEventListener("click", () => {
     mautoFixedMonthsBack += 3;
     renderMautoTab();
+    _reopenFixed();
   });
 
   // 고정지출 날짜 행 클릭 → 세부 항목 아코디언 토글
@@ -8034,7 +8035,10 @@ function renderMautoTab() {
       if (mautoFixedMonthExclude[key]) delete mautoFixedMonthExclude[key];
       else mautoFixedMonthExclude[key] = true;
       saveFixedMonthExclude();
+      // renderMautoTab()은 렌더 직후 .mauto-section을 전부 숨기므로, 고정지출 섹션을 다시 열어줘야 함
+      // (그렇지 않으면 클릭할 때마다 고정지출 화면 전체가 닫혀버림)
       renderMautoTab();
+      _reopenFixed();
     });
   });
 
