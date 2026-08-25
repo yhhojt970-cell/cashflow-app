@@ -253,6 +253,30 @@ availableFunds = {
 
 ---
 
+### 2026-08-25 (9): 엠오토 탭 UI 상태(펼침/카드/스크롤) 보존을 renderMautoTab()으로 근본 수정
+
+**증상:** (8) 배포 후에도 "월만 보여요" 재제보 — 미수금 탭에서 "전체 펼치기"를 눌러도 잠시 뒤(또는 바로) 연도/월만 보이고 거래처 행이 안 보임. Ctrl+Shift+R·시크릿 모드로도 재현됨(캐시 문제 아님).
+
+**진짜 원인 (Playwright로 로컬 재현해서 확정):**
+- Playwright + 로컬 정적 서버로 직접 재현 테스트를 만들어서(스크립트: 세션 스크래치패드 `test-expand.js`/`test-expand2.js`) 확인 — ⚠️ 매번 그렇듯 `script.google.com`/`docs.google.com`으로 나가는 요청은 전부 `page.route(...).abort()`로 차단해서 운영 시트에 절대 안 닿게 함.
+- 첫 테스트(단순 클릭만): "전체 펼치기" 정상 동작 확인 → 버튼/토글 로직 자체는 문제 없음.
+- 두 번째 테스트에서 "클릭 → `renderMautoTab()` 한 번 더 호출"을 흉내내봤더니 그제서야 재현됨: **엠오토 탭 진입 시 백그라운드로 도는 원격 로드 4곳**(`loadMautoTaxRemote`, `loadMautoSourceRemote`, 입출금 분류결과 원격 병합, `loadMautoDataRemote`)이 완료될 때마다 각자 `renderMautoTab()`을 호출하는데, 사용자가 "전체 펼치기"를 누른 직후 이 응답 중 하나라도 도착하면 재렌더되면서 매번 기본(접힘) 상태로 리셋됨. 클릭 핸들러 자체는 정상이었고, 문제는 **클릭과 무관한 비동기 재렌더**였음.
+- (5)~(8)에서 "미결"/"이전 달 더보기" 핸들러에만 캡처·복원 코드를 넣었던 게 왜 불충분했는지도 이걸로 설명됨 — 그 핸들러를 거치지 않는 비동기 재렌더까지는 못 잡았음.
+
+**수정 (`app.js`):** 근본적으로 `renderMautoTab()` 자신이 호출될 때마다 항상 UI 상태를 보존하도록 통일.
+- `_captureMautoUiState(sec)`: 함수 맨 앞, `innerHTML` 교체 전에 열려있는 카드(`.mauto-section`)/활성 카드(`.mauto-card-active`)/펼쳐진 연도(`.mauto-toggle-year`)/접힌 월(`.mauto-toggle-month`)/펼쳐진 거래처상세(`.mauto-toggle-leaf`)/열린 고정지출 월별 `<details data-ym>`/`#mauto-fixed-scroll` 스크롤 위치를 전부 캡처
+- `_restoreMautoUiState(sec, state)`: "기본 전체 접기" 처리 직후 그대로 복원
+- 기존에 개별 핸들러(월별/항목별 토글, 연월별/업체별 토글, 이전 달 더보기, 미결 클릭)에 있던 중복 캡처·복원 코드(`_reopenFixed`/`_reopenPayables`/`_captureOpenFixedMonths` 등)는 이제 전부 불필요해져서 제거 — `renderMautoTab()` 호출 한 줄이면 충분해짐
+
+**검증:** Playwright로 "전체 펼치기 클릭 → renderMautoTab() 재호출(비동기 재렌더 시뮬레이션)" 시나리오와 "고정지출 7월 details 수동 열기 → 미결 클릭" 시나리오 둘 다 상태가 유지되는 것을 확인 (스크린샷 포함, 스크래치패드에 저장).
+
+> ⚠️ 앞으로 엠오토 탭 안에서 `renderMautoTab()`을 호출하는 핸들러를 새로 추가할 때는 이제 아무것도 따로 캡처·복원할 필요 없음 — `renderMautoTab()`이 알아서 보존함. 다만 이 보존 대상(카드/연도/월/거래처상세/고정지출 details/스크롤)에 없는 새로운 종류의 접이식 UI를 추가한다면 `_captureMautoUiState`/`_restoreMautoUiState`에도 같이 추가할 것.
+
+**수정 파일:** `app.js`, `index.html` (버전 `?v=20260825j`)  
+**커밋:** `2cb9762`
+
+---
+
 ### 2026-08-25 (8): 고정지출 미결 클릭 후 페이지 스크롤이 아예 안 내려가던 버그
 
 **증상:** (7) 배포 직후 "스크롤 내리면 내용이 밑으로 안내려가네요"라고 제보.
