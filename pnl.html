@@ -3,8 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- pnl.html은 index.html과 달리 app.js?v= 같은 버전 쿼리로 캐시를 깨는 파일이 없어서
+     이 문서 전체(HTML+CSS+JS 인라인)를 브라우저가 그대로 캐시하면 배포해도 안 바뀐 걸로
+     보임(2026-09-16) — index.html과 동일하게 항상 최신 문서를 받도록 강제 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>미래오토메이션(주) — 경영손익</title>
-<!-- v20260514k -->
+<!-- v20260916b -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css" />
 <style>
 :root {
@@ -711,8 +717,8 @@ function buildReportHtml(entry, yr) {
         <div class="flow">
           <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(entry.revenue)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(entry.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(이번 달 자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(entry.mfg)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(기초재고+당기매입−기말재고)</span></span><span class="fr-val neg">(${fmt(entry.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(원재료비+부재료비+노무비+경비 합계 — 외주가공비 등)</span></span><span class="fr-val neg">(${fmt(entry.mfg)}) 원</span></div>
           <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
           <div class="fr-div">차감</div>
           <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(entry.sga)}) 원</span></div>
@@ -852,8 +858,8 @@ function buildQuarterlyReportHtml(qRow) {
         <div class="flow">
           <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(qRow.revenue)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(qRow.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(qRow.mfg)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(기초재고+당기매입−기말재고)</span></span><span class="fr-val neg">(${fmt(qRow.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(원재료비+부재료비+노무비+경비 합계 — 외주가공비 등)</span></span><span class="fr-val neg">(${fmt(qRow.mfg)}) 원</span></div>
           <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
           <div class="fr-div">차감</div>
           <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(qRow.sga)}) 원</span></div>
@@ -947,8 +953,8 @@ function buildAggReportHtml(yr, label, months, prevYr, prevLabel, prevMonths) {
         <div class="flow">
           <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(d.revenue)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(d.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(d.mfg)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(기초재고+당기매입−기말재고)</span></span><span class="fr-val neg">(${fmt(d.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(원재료비+부재료비+노무비+경비 합계 — 외주가공비 등)</span></span><span class="fr-val neg">(${fmt(d.mfg)}) 원</span></div>
           <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
           <div class="fr-div">차감</div>
           <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(d.sga)}) 원</span></div>
