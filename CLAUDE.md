@@ -6,8 +6,9 @@
 Google Sheets 연동 + 로컬 Excel 붙여넣기 방식.
 
 - **GitHub**: `https://github.com/yhhojt970-cell/cashflow-app`
-- **배포**: GitHub Pages → `https://yhhojt970-cell.github.io/cashflow-app/`
+- **배포**: GitHub Pages → `https://yhhojt970-cell.github.io/cashflow-app/` (`git push`만 하면 자동 배포)
 - **파일 구조**: `index.html` + `app.js` + `style.css` (빌드 없음, 순수 HTML/JS/CSS)
+- **`app.js`/`style.css` 수정 후 커밋 시 `index.html`의 `?v=` 버전 쿼리도 반드시 함께 올릴 것 (CRITICAL, 2026-09-16)** — `index.html`은 no-cache라 항상 최신을 받지만, `app.js?v=...`/`style.css?v=...`는 쿼리 문자열이 그대로면 브라우저가 캐시된 옛 파일을 계속 씀. 2026-09-16에 3커밋 연속으로 이걸 빠뜨려 "물음표 아이콘이 안 보인다"는 재현 안 되는 버그 리포트로 이어짐 — 코드 수정 커밋에는 항상 `date+알파벳` 형식(`20260916a`)으로 버전을 함께 올릴 것.
 
 ---
 
