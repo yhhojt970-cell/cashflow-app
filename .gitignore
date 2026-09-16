@@ -1,0 +1,11 @@
+# 회계 원본 데이터 (엑셀 export) — 저장소에 커밋하지 않음
+*.xls
+*.xlsx
+
+# 임시 백업 사본 (git이 이미 버전 이력을 관리하므로 불필요)
+*.backup.*.txt
+*-DESKTOP-*
+
+# 기타 로컬 스크래치 파일
+restore.tar
+live.index.html

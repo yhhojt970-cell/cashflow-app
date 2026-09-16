@@ -129,6 +129,9 @@ button, input, select, textarea { font-family:'Pretendard','Nanum Gothic',sans-s
 .fr-div { padding:4px 18px; background:var(--navy); font-size:10px; letter-spacing:2px; color:rgba(255,255,255,.5); }
 .indent .fr-lbl { padding-left:14px; color:var(--muted); font-size:12px; }
 .tag { font-size:10px; background:rgba(0,0,0,.05); padding:1px 5px; border-radius:10px; color:var(--muted); }
+.gloss { font-size:11px; font-weight:400; color:var(--muted); }
+.intro-box { background:var(--cream); border-radius:10px; padding:14px 18px; margin-bottom:20px; font-size:13px; line-height:1.8; color:#334155; }
+.intro-box strong { color:var(--navy); }
 .minus-s { color:var(--red); }
 .remark {
   background:var(--cream); border-left:4px solid var(--gold);
@@ -206,6 +209,35 @@ button, input, select, textarea { font-family:'Pretendard','Nanum Gothic',sans-s
 .sign-btn:hover { background:var(--navy-lt); }
 .sign-btn:disabled { opacity:.5; cursor:default; }
 
+/* 서명/반려 다이얼로그 */
+.pnl-dialog-overlay {
+  position:fixed; inset:0; z-index:300; background:rgba(15,31,61,.55);
+  display:flex; align-items:center; justify-content:center; padding:16px;
+}
+.pnl-dialog {
+  background:#fff; border-radius:14px; width:100%; max-width:420px;
+  padding:22px 22px 18px; box-shadow:0 12px 40px rgba(0,0,0,.3);
+}
+.pnl-dialog h3 { font-size:15px; font-weight:700; color:var(--navy); margin-bottom:4px; }
+.pnl-dialog-sub { font-size:12px; color:var(--muted); line-height:1.6; margin-bottom:14px; }
+.pnl-dialog label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:5px; }
+.pnl-dialog textarea {
+  width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 10px;
+  font-size:13px; font-family:inherit; resize:vertical; margin-bottom:14px; box-sizing:border-box;
+}
+.pnl-dialog-actions { display:flex; gap:8px; justify-content:flex-end; }
+.pnl-dialog-actions button {
+  border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;
+  border:1.5px solid var(--border); background:#fff; color:#334155;
+}
+.pnl-dialog-actions .pnl-dlg-sign { background:var(--navy); border-color:var(--navy); color:#fff; }
+.pnl-dialog-actions .pnl-dlg-reject { border-color:var(--red); color:var(--red); }
+.rej-history {
+  background:#fef2f2; border-left:4px solid var(--red); border-radius:0 8px 8px 0;
+  padding:10px 14px; margin-top:10px; font-size:12px; color:#7f1d1d; line-height:1.8;
+}
+.rej-history-title { font-weight:700; margin-bottom:2px; }
+
 /* 노데이터 */
 .no-data { text-align:center; padding:48px 0; color:var(--muted); font-size:14px; }
 
@@ -256,6 +288,7 @@ button, input, select, textarea { font-family:'Pretendard','Nanum Gothic',sans-s
     <button class="tab-btn active" id="btnReport">보고서</button>
     <button class="tab-btn" id="btnDash">대시보드</button>
   </div>
+  <button class="print-btn no-print" id="btnCopyHtml" onclick="copyReportHtml()">📋 HTML 복사</button>
   <button class="print-btn no-print" onclick="window.print()">인쇄</button>
 </div>
 
@@ -322,6 +355,109 @@ const numOf = v => {
   const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(n) ? n : 0;
 };
+const escapeHtml = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function rejHistoryHtml(rejections) {
+  if (!rejections || !rejections.length) return "";
+  return `<div class="rej-history">
+    <div class="rej-history-title">⚠ 반려 이력 (${rejections.length}건)</div>
+    ${rejections.slice().reverse().map(r =>
+      `<div>${escapeHtml(r.date)} · ${escapeHtml(r.byStep)}(${escapeHtml(r.byName)}) — "${escapeHtml(r.reason)}"</div>`
+    ).join("")}
+  </div>`;
+}
+
+// 서명 또는 반려를 선택하는 다이얼로그. onSign() / onReject(reason) 콜백 중 하나만 호출됨.
+function openSignDialog(label, step, onSign, onReject) {
+  document.querySelector(".pnl-dialog-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "pnl-dialog-overlay";
+  overlay.innerHTML = `
+    <div class="pnl-dialog">
+      <h3>${escapeHtml(step.role)} · ${escapeHtml(label)}</h3>
+      <div class="pnl-dialog-sub">내용을 충분히 검토한 뒤 서명하거나, 지금 결재하기 어려우면 반려하세요. 반려하면 기안부터 다시 진행됩니다.</div>
+      <div id="pnlDlgRejectWrap" style="display:none">
+        <label>반려 사유 <span style="color:var(--red)">*</span></label>
+        <textarea id="pnlDlgReason" rows="3" placeholder="예: 판관비 근거자료 보완 필요 / 검토 시간 더 필요"></textarea>
+      </div>
+      <div class="pnl-dialog-actions">
+        <button type="button" id="pnlDlgCancel">취소</button>
+        <button type="button" id="pnlDlgRejectBtn" class="pnl-dlg-reject">반려</button>
+        <button type="button" id="pnlDlgConfirm" class="pnl-dlg-sign">서명(결재)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  let rejectMode = false;
+  overlay.querySelector("#pnlDlgCancel").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("#pnlDlgRejectBtn").addEventListener("click", () => {
+    if (rejectMode) return;
+    rejectMode = true;
+    overlay.querySelector("#pnlDlgRejectWrap").style.display = "";
+    const confirmBtn = overlay.querySelector("#pnlDlgConfirm");
+    confirmBtn.textContent = "반려 확정";
+    confirmBtn.style.background = "var(--red)";
+    confirmBtn.style.borderColor = "var(--red)";
+    overlay.querySelector("#pnlDlgRejectBtn").style.display = "none";
+    overlay.querySelector("#pnlDlgReason").focus();
+  });
+  overlay.querySelector("#pnlDlgConfirm").addEventListener("click", () => {
+    if (rejectMode) {
+      const reason = overlay.querySelector("#pnlDlgReason").value.trim();
+      if (!reason) {
+        const ta = overlay.querySelector("#pnlDlgReason");
+        ta.style.borderColor = "var(--red)";
+        ta.placeholder = "반려 사유를 입력해야 합니다";
+        return;
+      }
+      overlay.remove();
+      onReject(reason);
+      return;
+    }
+    overlay.remove();
+    onSign();
+  });
+}
+
+// 현재 보고서 화면을 독립 실행 가능한 HTML로 클립보드에 복사
+async function copyReportHtml() {
+  const btn = document.getElementById("btnCopyHtml");
+  if (viewMode !== "report") { alert("보고서 화면에서만 복사할 수 있습니다."); return; }
+  const container = document.querySelector("#reportView > div");
+  if (!container) { alert("복사할 보고서 내용이 없습니다."); return; }
+  const styleTag = document.querySelector("style").outerHTML;
+  const fontLink = document.querySelector('link[rel="stylesheet"]').outerHTML;
+  const fullHtml = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>미래오토메이션(주) 경영손익 보고서</title>
+${fontLink}
+${styleTag}
+</head>
+<body style="padding:24px 0">
+${container.outerHTML}
+</body>
+</html>`;
+  const done = () => {
+    const prev = btn.textContent;
+    btn.textContent = "✅ 복사됨";
+    setTimeout(() => { btn.textContent = "📋 HTML 복사"; }, 2000);
+  };
+  try {
+    await navigator.clipboard.writeText(fullHtml);
+    done();
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = fullHtml;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); }
+    catch (_) { alert("클립보드 복사에 실패했습니다."); }
+    document.body.removeChild(ta);
+  }
+}
 function calc(d) {
   const gross = d.revenue - (d.cogs + d.mfg);
   const op    = gross - d.sga;
@@ -432,6 +568,7 @@ async function loadData() {
       ceoDate:        r.ceoDate    || "",
       docNo:          r.docNo      || "",
       ceoComment:     r.ceoComment || "",
+      rejections:     (() => { try { return JSON.parse(r.rejections || "[]"); } catch (_) { return []; } })(),
       _key:           r._key       || "",
     }));
     pnlData = allMapped.filter(r => r.year && r.month && !r.quarter && r.approvalStatus !== "draft");
@@ -563,33 +700,35 @@ function buildReportHtml(entry, yr) {
         <div class="kpi-card hl">
           <div class="kpi-lbl">경영이익(손실)</div>
           <div class="kpi-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)}</div>
-          <div class="kpi-unit">금융비용 반영 기준</div>
+          <div class="kpi-unit">이자비용까지 반영한 최종 손익</div>
+        </div>
+      </div>
+
+      <div class="intro-box">이 보고서는 이렇게 계산됩니다 — <strong>매출액</strong>에서 <strong>원가</strong>를 빼면 <strong>매출총이익</strong>, 여기서 <strong>인건비 등 판매관리비</strong>를 빼면 <strong>영업이익</strong>, 마지막으로 <strong>이자비용 등</strong>을 빼면 최종 <strong>경영이익</strong>이 됩니다.</div>
+
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>회사 자체 기준으로 계산한 실질 영업이익</small></div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(entry.revenue)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(entry.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(이번 달 자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(entry.mfg)}) 원</span></div>
+          <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(entry.sga)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">관리기준 영업이익 <small>= 매출총이익 − 판매관리비</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
         </div>
       </div>
 
       <div class="section">
-        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>실질 기준</small></div>
+        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>이자비용 등 반영한 최종 손익</small></div>
         <div class="flow">
-          <div class="fr"><span class="fr-lbl"><span class="tag">ㄱ</span> 매출액</span><span class="fr-val">${fmt(entry.revenue)} 원</span></div>
+          <div class="fr"><span class="fr-lbl">관리기준 영업이익</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄴ</span> 상품매출원가</span><span class="fr-val neg">(${fmt(entry.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄷ</span> 당기총제조비용</span><span class="fr-val neg">(${fmt(entry.mfg)}) 원</span></div>
-          <div class="fr fr-sub"><span class="fr-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
-          <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비</span><span class="fr-val neg">(${fmt(entry.sga)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">② 관리기준 영업이익 <small>[①−판관비]</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용 <span class="gloss">(이자비용 등 영업활동과 직접 관련 없는 비용)</span></span><span class="fr-val neg">(${fmt(entry.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">경영이익(손실) <small>= 관리기준 영업이익 − 영업외비용</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
         </div>
-      </div>
-
-      <div class="section">
-        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>금융비용 반영 기준</small></div>
-        <div class="flow">
-          <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
-          <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용</span><span class="fr-val neg">(${fmt(entry.interest)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실) <small>[②−영업외비용]</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
-        </div>
-        <div class="remark">※ 비고: 영업외비용(이자비용 등) 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+        <div class="remark">※ 비고: 이자비용 등 영업외비용까지 반영해야 회사의 실제 경영성과(경영이익)를 확인할 수 있어 별도로 표시하였습니다.</div>
       </div>
 
       ${prev&&pc?`
@@ -614,6 +753,7 @@ function buildReportHtml(entry, yr) {
       <div class="section">
         <div class="sec-title"><span class="sec-num" style="font-size:11px">✓</span>결재</div>
         <div class="ap-grid">${APPROVAL_STEPS.map((_,i)=>apBox(i)).join("")}</div>
+        ${rejHistoryHtml(entry.rejections)}
       </div>
     </div>
     <div class="doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
@@ -701,33 +841,35 @@ function buildQuarterlyReportHtml(qRow) {
         <div class="kpi-card hl">
           <div class="kpi-lbl">경영이익(손실)</div>
           <div class="kpi-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)}</div>
-          <div class="kpi-unit">금융비용 반영 기준</div>
+          <div class="kpi-unit">이자비용까지 반영한 최종 손익</div>
+        </div>
+      </div>
+
+      <div class="intro-box">이 보고서는 이렇게 계산됩니다 — <strong>매출액</strong>에서 <strong>원가</strong>를 빼면 <strong>매출총이익</strong>, 여기서 <strong>인건비 등 판매관리비</strong>를 빼면 <strong>영업이익</strong>, 마지막으로 <strong>이자비용 등</strong>을 빼면 최종 <strong>경영이익</strong>이 됩니다. (분기 = 소속 3개월 합산)</div>
+
+      <div class="section">
+        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>회사 자체 기준으로 계산한 실질 영업이익</small></div>
+        <div class="flow">
+          <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(qRow.revenue)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(qRow.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(qRow.mfg)}) 원</span></div>
+          <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
+          <div class="fr-div">차감</div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(qRow.sga)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">관리기준 영업이익 <small>= 매출총이익 − 판매관리비</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
         </div>
       </div>
 
       <div class="section">
-        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>실질 기준</small></div>
+        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>이자비용 등 반영한 최종 손익</small></div>
         <div class="flow">
-          <div class="fr"><span class="fr-lbl"><span class="tag">ㄱ</span> 매출액</span><span class="fr-val">${fmt(qRow.revenue)} 원</span></div>
+          <div class="fr"><span class="fr-lbl">관리기준 영업이익</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄴ</span> 상품매출원가</span><span class="fr-val neg">(${fmt(qRow.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span><span class="tag">ㄷ</span> 당기총제조비용</span><span class="fr-val neg">(${fmt(qRow.mfg)}) 원</span></div>
-          <div class="fr fr-sub"><span class="fr-lbl">① 매출총이익 <small>[ㄱ−(ㄴ+ㄷ)]</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
-          <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비</span><span class="fr-val neg">(${fmt(qRow.sga)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">② 관리기준 영업이익 <small>[①−판관비]</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용 <span class="gloss">(이자비용 등 영업활동과 직접 관련 없는 비용)</span></span><span class="fr-val neg">(${fmt(qRow.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">경영이익(손실) <small>= 관리기준 영업이익 − 영업외비용</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
         </div>
-      </div>
-
-      <div class="section">
-        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>금융비용 반영 기준</small></div>
-        <div class="flow">
-          <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
-          <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용</span><span class="fr-val neg">(${fmt(qRow.interest)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실) <small>[②−영업외비용]</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
-        </div>
-        <div class="remark">※ 비고: 영업외비용(이자비용 등) 반영 시 실제 경영성과를 함께 확인할 수 있도록 별도 표시하였습니다.</div>
+        <div class="remark">※ 비고: 이자비용 등 영업외비용까지 반영해야 회사의 실제 경영성과(경영이익)를 확인할 수 있어 별도로 표시하였습니다.</div>
       </div>
 
       ${prevQData && pc ? `
@@ -751,6 +893,7 @@ function buildQuarterlyReportHtml(qRow) {
       <div class="section">
         <div class="sec-title"><span class="sec-num" style="font-size:11px">✓</span>결재</div>
         <div class="ap-grid">${APPROVAL_STEPS.map((_, i) => apBoxQ(i)).join("")}</div>
+        ${rejHistoryHtml(qRow.rejections)}
       </div>
     </div>
     <div class="doc-footer">${PNL_META.companyName} · ${PNL_META.department} · 대외비</div>
@@ -798,26 +941,27 @@ function buildAggReportHtml(yr, label, months, prevYr, prevLabel, prevMonths) {
           <div class="kpi-unit">영업이익률 ${c.opR.toFixed(1)}%</div>
         </div>
       </div>
+      <div class="intro-box">이 보고서는 이렇게 계산됩니다 — <strong>매출액</strong>에서 <strong>원가</strong>를 빼면 <strong>매출총이익</strong>, 여기서 <strong>인건비 등 판매관리비</strong>를 빼면 <strong>영업이익</strong>, 마지막으로 <strong>이자비용 등</strong>을 빼면 최종 <strong>경영이익</strong>이 됩니다. (${label} = 소속 월 합산)</div>
       <div class="section">
-        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익</div>
+        <div class="sec-title"><span class="sec-num">1</span>관리기준 영업이익 <small>회사 자체 기준으로 계산한 실질 영업이익</small></div>
         <div class="flow">
-          <div class="fr"><span class="fr-lbl">매출액 (①)</span><span class="fr-val">${fmt(d.revenue)} 원</span></div>
+          <div class="fr"><span class="fr-lbl">매출액</span><span class="fr-val">${fmt(d.revenue)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가</span><span class="fr-val neg">(${fmt(d.cogs)}) 원</span></div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용</span><span class="fr-val neg">(${fmt(d.mfg)}) 원</span></div>
-          <div class="fr fr-sub"><span class="fr-lbl">매출총이익 [①−원가]</span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 상품매출원가 <span class="gloss">(판매한 상품을 사올 때 든 원가)</span></span><span class="fr-val neg">(${fmt(d.cogs)}) 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 당기총제조비용 <span class="gloss">(자체 제조에 들어간 비용)</span></span><span class="fr-val neg">(${fmt(d.mfg)}) 원</span></div>
+          <div class="fr fr-sub"><span class="fr-lbl">매출총이익 <small>= 매출액 − (상품매출원가+당기총제조비용)</small></span><span class="fr-val ${clsPN(c.gross)}">${fmtS(c.gross)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판관비</span><span class="fr-val neg">(${fmt(d.sga)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">② 관리기준 영업이익</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 판매관리비 <span class="gloss">(인건비·임차료 등 판매·관리에 든 비용)</span></span><span class="fr-val neg">(${fmt(d.sga)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">관리기준 영업이익 <small>= 매출총이익 − 판매관리비</small></span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
         </div>
       </div>
       <div class="section">
-        <div class="sec-title"><span class="sec-num">2</span>경영이익</div>
+        <div class="sec-title"><span class="sec-num">2</span>경영이익 <small>이자비용 등 반영한 최종 손익</small></div>
         <div class="flow">
-          <div class="fr"><span class="fr-lbl">관리기준 영업이익 (②)</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
+          <div class="fr"><span class="fr-lbl">관리기준 영업이익</span><span class="fr-val ${clsPN(c.op)}">${fmtS(c.op)} 원</span></div>
           <div class="fr-div">차감</div>
-          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용</span><span class="fr-val neg">(${fmt(d.interest)}) 원</span></div>
-          <div class="fr fr-total"><span class="fr-lbl">③ 경영이익(손실)</span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
+          <div class="fr indent"><span class="fr-lbl"><span class="minus-s">−</span> 영업외비용 <span class="gloss">(이자비용 등 영업활동과 직접 관련 없는 비용)</span></span><span class="fr-val neg">(${fmt(d.interest)}) 원</span></div>
+          <div class="fr fr-total"><span class="fr-lbl">경영이익(손실) <small>= 관리기준 영업이익 − 영업외비용</small></span><span class="fr-val ${clsPN(c.mgmt)}">${fmtS(c.mgmt)} 원</span></div>
         </div>
       </div>
       ${prevD && pc ? `
@@ -872,6 +1016,27 @@ async function signQuarterEntry(qKey, stepIdx, qRow) {
   if (i >= 0) Object.assign(pnlQuarterlyRows[i], { approvalStatus: newStatus, [step.dateKey]: today });
   render();
   if (window._writePnlPending) window._writePnlPending();
+}
+
+async function rejectQuarterEntry(qKey, stepIdx, qRow, reason) {
+  const step = APPROVAL_STEPS[stepIdx];
+  const rejections = [...(qRow.rejections || []), { date: new Date().toISOString().slice(0, 10), byStep: step.role, byName: step.name, reason }];
+  const updated = { ...qRow, approvalStatus: "draft", docNo: "", rejections };
+  APPROVAL_STEPS.forEach(s => { updated[s.dateKey] = ""; });
+  const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
+  const resp = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ token, action: "savePnlData", rows: [{ ...updated, rejections: JSON.stringify(rejections) }] }),
+  });
+  if (!resp.ok) throw new Error(resp.status);
+  const body = await resp.json();
+  if (body && body.error) throw new Error(body.error);
+  const i = pnlQuarterlyRows.findIndex(r => r._key === qKey);
+  if (i >= 0) Object.assign(pnlQuarterlyRows[i], updated);
+  render();
+  if (window._writePnlPending) window._writePnlPending();
+  if (window._writePnlRejectionNotice) window._writePnlRejectionNotice(`${qRow.year}년 ${qRow.quarter}분기`, step, reason);
 }
 
 // ── 대시보드 렌더 ──
@@ -1052,43 +1217,102 @@ async function signEntry(year, month, stepIdx) {
   if (window._writePnlPending) window._writePnlPending();
 }
 
-document.getElementById("reportView").addEventListener("click", async e => {
+async function rejectEntry(year, month, stepIdx, reason) {
+  const step = APPROVAL_STEPS[stepIdx];
+  const entry = getEntry(year, month);
+  if (!entry) throw new Error("데이터 없음");
+  const rejections = [...(entry.rejections || []), { date: new Date().toISOString().slice(0, 10), byStep: step.role, byName: step.name, reason }];
+  const updated = {
+    ...entry,
+    approvalStatus: "draft",
+    docNo: "",
+    rejections,
+    _key: `${year}_${String(month).padStart(2, "0")}`,
+  };
+  APPROVAL_STEPS.forEach(s => { updated[s.dateKey] = ""; });
+
+  const token = localStorage.getItem(TOKEN_KEY) || DEFAULT_TOKEN;
+  const resp = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ token, action: "savePnlData", rows: [{ ...updated, rejections: JSON.stringify(rejections) }] }),
+  });
+  if (!resp.ok) throw new Error(resp.status);
+  const body = await resp.json();
+  if (body && body.error) throw new Error(body.error);
+
+  const i = pnlData.findIndex(d => d.year === year && d.month === month);
+  if (i >= 0) Object.assign(pnlData[i], updated);
+  render();
+  if (window._writePnlPending) window._writePnlPending();
+  if (window._writePnlRejectionNotice) window._writePnlRejectionNotice(`${year}년 ${month}월`, step, reason);
+}
+
+document.getElementById("reportView").addEventListener("click", e => {
   const btn = e.target.closest(".sign-btn");
   if (!btn) return;
   const stepIdx = +btn.dataset.step;
   const step = APPROVAL_STEPS[stepIdx];
 
-  // 분기 서명
+  // 분기 서명/반려
   if (btn.dataset.qkey) {
     const qKey = btn.dataset.qkey;
     const qRow = pnlQuarterlyRows.find(r => r._key === qKey);
     if (!qRow) return;
-    if (!confirm(`분기 보고서에 ${step.role}(${step.name} ${step.title})으로 서명하시겠습니까?`)) return;
-    btn.disabled = true;
-    btn.textContent = "처리중...";
-    try {
-      await signQuarterEntry(qKey, stepIdx, qRow);
-    } catch (err) {
-      alert("서명 처리 실패: " + err.message);
-      btn.disabled = false;
-      btn.innerHTML = "서명<br>하기";
-    }
+    const label = `${qRow.year}년 ${qRow.quarter}분기`;
+    openSignDialog(label, step,
+      async () => {
+        btn.disabled = true;
+        btn.textContent = "처리중...";
+        try {
+          await signQuarterEntry(qKey, stepIdx, qRow);
+        } catch (err) {
+          alert("서명 처리 실패: " + err.message);
+          btn.disabled = false;
+          btn.innerHTML = "서명<br>하기";
+        }
+      },
+      async (reason) => {
+        btn.disabled = true;
+        btn.textContent = "처리중...";
+        try {
+          await rejectQuarterEntry(qKey, stepIdx, qRow, reason);
+        } catch (err) {
+          alert("반려 처리 실패: " + err.message);
+          btn.disabled = false;
+          btn.innerHTML = "서명<br>하기";
+        }
+      });
     return;
   }
 
-  // 월별 서명
+  // 월별 서명/반려
   const year = +btn.dataset.year;
   const month = +btn.dataset.month;
-  if (!confirm(`${year}년 ${month}월 보고서에 ${step.role}(${step.name} ${step.title})으로 서명하시겠습니까?`)) return;
-  btn.disabled = true;
-  btn.textContent = "처리중...";
-  try {
-    await signEntry(year, month, stepIdx);
-  } catch (err) {
-    alert("서명 처리 실패: " + err.message);
-    btn.disabled = false;
-    btn.innerHTML = "서명<br>하기";
-  }
+  const label = `${year}년 ${month}월`;
+  openSignDialog(label, step,
+    async () => {
+      btn.disabled = true;
+      btn.textContent = "처리중...";
+      try {
+        await signEntry(year, month, stepIdx);
+      } catch (err) {
+        alert("서명 처리 실패: " + err.message);
+        btn.disabled = false;
+        btn.innerHTML = "서명<br>하기";
+      }
+    },
+    async (reason) => {
+      btn.disabled = true;
+      btn.textContent = "처리중...";
+      try {
+        await rejectEntry(year, month, stepIdx, reason);
+      } catch (err) {
+        alert("반려 처리 실패: " + err.message);
+        btn.disabled = false;
+        btn.innerHTML = "서명<br>하기";
+      }
+    });
 });
 
 // ── Firebase: 결재 대기 건수를 메인앱(staff-directory-app)에 전달 ──
@@ -1120,6 +1344,13 @@ document.getElementById("reportView").addEventListener("click", async e => {
         const total = monthly + quarterly;
         _fbDb.ref("pnlPending/" + _ek(step.email)).set(total > 0 ? total : null).catch(() => {});
       });
+    };
+    window._writePnlRejectionNotice = function(reportLabel, step, reason) {
+      const authorEmail = APPROVAL_STEPS[0].email;
+      _fbDb.ref("pnlRejectionNotices/" + _ek(authorEmail)).push({
+        reportLabel, byRole: step.role, byName: step.name, reason: reason || "",
+        at: new Date().toISOString().slice(0, 10), createdAt: Date.now(),
+      }).catch(() => {});
     };
   } catch(e) { console.warn("[pnl] Firebase init 실패:", e); }
 })();

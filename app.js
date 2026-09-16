@@ -12732,6 +12732,7 @@ function _saveQtrToSheets(year, quarter, qKey, qApproval) {
     agree2Date:     qApproval.agree2Date || "",
     ceoDate:        qApproval.ceoDate    || "",
     docNo:          qApproval.docNo      || "",
+    rejections:     JSON.stringify(qApproval.rejections || []),
   }]}).catch(e => console.warn("[PNL-Q] Sheets 저장 실패:", e));
 }
 
@@ -12791,6 +12792,7 @@ function _schedulePnlSave(entry) {
         row: {
           ...full,
           corrections: JSON.stringify(full.corrections || []),
+          rejections: JSON.stringify(full.rejections || []),
           _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
         },
       });
@@ -12809,6 +12811,7 @@ async function _flushPnlMonthsToSheets(year, months) {
     .map(full => ({
       ...full,
       corrections: JSON.stringify(full.corrections || []),
+      rejections: JSON.stringify(full.rejections || []),
       _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
     }));
   if (!pnlRows.length) return;
@@ -12831,6 +12834,7 @@ function _flushPnlSaveTimersOnExit() {
       rows.push({
         ...full,
         corrections: JSON.stringify(full.corrections || []),
+        rejections: JSON.stringify(full.rejections || []),
         _key: `${full.year}_${String(full.month).padStart(2, "0")}`,
       });
     }
@@ -12877,6 +12881,7 @@ async function loadPnlRemote() {
         agree2Date: r.agree2Date || "", ceoDate: r.ceoDate || "",
         docNo: r.docNo || "", ceoComment: r.ceoComment || "",
         corrections: (() => { try { return JSON.parse(r.corrections || "[]"); } catch (_) { return []; } })(),
+        rejections: (() => { try { return JSON.parse(r.rejections || "[]"); } catch (_) { return []; } })(),
         ...(r.beginInventory != null && r.beginInventory !== "" ? { beginInventory: Number(r.beginInventory) } : {}),
         ...(r.endInventory   != null && r.endInventory   !== "" ? { endInventory:   Number(r.endInventory)   } : {}),
       };
