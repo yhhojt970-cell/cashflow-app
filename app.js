@@ -13184,9 +13184,12 @@ function _parsePnlMonthSheet(wb, rowFinders) {
   const wsRange = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : null;
 
   // 셀의 표시 텍스트(w)와 원시값(v) 모두에서 월 번호를 추출하는 헬퍼
+  // ri/ci는 sheet_to_json(header:1) 결과 배열의 인덱스(0부터 시작)이므로, 시트 실제 범위가
+  // A1이 아니라 A2 등에서 시작하면(wsRange.s.r>0) 워크시트 절대 주소로 변환할 때 그만큼 더해줘야 함
+  // — 이걸 빠뜨리면 헤더 행 탐지가 한 행 밀려서 잘못된 행을 헤더로 오인하는 문제가 생김.
   function _cellMonthFromWs(ri, ci) {
     if (wsRange) {
-      const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+      const addr = XLSX.utils.encode_cell({ r: ri + wsRange.s.r, c: ci + wsRange.s.c });
       const cell = ws[addr];
       if (!cell) return null;
       // cell.w: 표시 텍스트 (예: "1월", "01월") — 날짜 시리얼이라도 이 값은 정상
@@ -13216,7 +13219,7 @@ function _parsePnlMonthSheet(wb, rowFinders) {
       headerRowIdx = ri;
       monthCols = tmpMonthCols;
       for (let ci = 0; ci <= maxCol; ci++) {
-        const addr = wsRange ? XLSX.utils.encode_cell({ r: ri, c: ci }) : null;
+        const addr = wsRange ? XLSX.utils.encode_cell({ r: ri + wsRange.s.r, c: ci + wsRange.s.c }) : null;
         const cellTxt = addr
           ? String((ws[addr] && (ws[addr].w || ws[addr].v)) || "")
           : String(row[ci] || "");
