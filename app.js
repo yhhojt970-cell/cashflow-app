@@ -13381,8 +13381,11 @@ function openPnlImportDialog() {
         <table class="pnl-id-table">
           <thead><tr>
             <th class="pnl-id-chk-head">저장</th>
-            <th>월</th><th>매출액</th><th>매출원가</th><th>판관비</th>
-            <th>제조원가</th><th>영업외비용</th><th class="pnl-id-manual-col">목표매출</th>
+            <th>월</th><th>매출액</th>
+            <th>매출원가<span class="pnl-help pnl-help-below" data-tip="상품매출원가 — 판매한 상품을 사올 때 든 매입원가.&#10;직접 제조한 게 아니라 사와서 되파는 상품에 대한 원가입니다.">?</span></th>
+            <th>판관비</th>
+            <th>제조원가<span class="pnl-help pnl-help-below" data-tip="당기총제조비용 — 이번 달 자체 제조·가공에 들어간 비용 합계.&#10;매입원가(매출원가)와 달리 회사가 직접 만든 제품에 들어간 비용입니다.">?</span></th>
+            <th>영업외비용</th><th class="pnl-id-manual-col">목표매출</th>
             <th class="pnl-id-calc-col">매출총이익</th>
             <th class="pnl-id-calc-col">영업이익</th>
             <th class="pnl-id-calc-col">경영이익</th>

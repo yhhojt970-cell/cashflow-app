@@ -4534,6 +4534,14 @@ td {
   content: ''; position: absolute; left: 50%; bottom: 122%; transform: translateX(-50%);
   border: 5px solid transparent; border-top-color: #1e293b; z-index: 60;
 }
+/* sticky 테이블 헤더처럼 위쪽 공간이 없는 곳에서는 아래로 펼침 */
+.pnl-help-below:hover::after {
+  bottom: auto; top: 135%;
+}
+.pnl-help-below:hover::before {
+  bottom: auto; top: 122%;
+  border-top-color: transparent; border-bottom-color: #1e293b;
+}
 
 .pnl-prev-row {
   display: flex; justify-content: space-between; align-items: center;
