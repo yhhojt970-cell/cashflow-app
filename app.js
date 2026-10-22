@@ -407,6 +407,24 @@ function saveFixedAmountOverrides() {
   try { localStorage.setItem(MAUTO_FIXED_AMOUNT_KEY, JSON.stringify(mautoFixedAmountOverrides)); } catch(_) {}
   _scheduleMautoRemoteSave();
 }
+// 덜 나간 건: 출금이 있어도 실적이 예정금액의 절반 미만이면 "부분"(완료 아님)으로 보고 남은 금액만 예정에 잡는다.
+// (잔액 부족으로 일부만 출금된 경우 등. 예정금액이 없으면 판정하지 않는다) — 여러 번 호출해도 같은 결과
+const FIXED_PARTIAL_RATIO = 0.5;
+function fixedApplyPartial(monthData) {
+  (monthData || []).forEach(m => {
+    m.items.forEach(item => {
+      if (item.status === "제외") return;
+      if (!(item.matched || []).length) return;
+      const exp = Number(item.예정금액) || 0, act = Number(item.totalAmount) || 0;
+      item.status = exp > 0 && act > 0 && act < exp * FIXED_PARTIAL_RATIO ? "부분" : "완료";
+    });
+    m.allDone = m.items.length > 0 && m.items.every(i => i.status === "완료" || i.status === "제외");
+  });
+  return monthData;
+}
+// 아직 나가야 할 예정 금액: 예정=전액, 부분=예정-실적, 완료·제외=0
+const fixedRemain = i => i.status === "예정" ? (Number(i.예정금액) || 0)
+  : i.status === "부분" ? Math.max((Number(i.예정금액) || 0) - (Number(i.totalAmount) || 0), 0) : 0;
 function applyFixedAmountOverrides(monthData) {
   (monthData || []).forEach(({ ym, items }) => {
     items.forEach(item => {
@@ -421,6 +439,7 @@ function applyFixedAmountOverrides(monthData) {
       }
     });
   });
+  fixedApplyPartial(monthData);
   return monthData;
 }
 function calcFixedCheckedTotal(monthData) {
@@ -433,7 +452,7 @@ function calcFixedCheckedTotal(monthData) {
       const d = item.예정결제일?.date || "미정";
       if (!byDate[d]) byDate[d] = { amt: 0, items: [] };
       // 이미 실제 결제완료(status===완료)되었거나 "이번달 제외" 처리된 항목은 그룹이 안 끝났어도 개별적으로 합계에서 제외
-      if (item.status !== "완료" && item.status !== "제외") byDate[d].amt += item.예정금액 || 0;
+      byDate[d].amt += fixedRemain(item);
       byDate[d].items.push(item);
     });
     Object.entries(byDate).forEach(([date, { amt, items: grpItems }]) => {
@@ -7387,15 +7406,17 @@ function getScheduledPaymentDate(year, month, day) {
 
 // 매칭된 거래 목록의 순 지출액 계산: 출금 합계 - 입금(환급 등) 합계
 // (예: 부가세 납부 후 환급이 같은 항목으로 잡히면 환급분만큼 실적에서 차감되어야 함 — 예전엔 둘 다 절대값으로 더해 실제보다 부풀려졌음)
-// 고정지출 실적의 귀속월("YYYY-MM"): 비고·적요에 명시한 연월(예: "26-09")이 있으면 그 달, 없으면 거래 날짜의 달.
-// 부족해서 나눠 출금되거나 다음 달로 넘어간 잔액을 원래 달로 합산하기 위함. 오탐 방지를 위해
-// 앞뒤에 숫자·하이픈이 없는 독립된 yy-mm 형식만 인식하고, "연월=금액" 분배 표기(AR용)가 있으면 무시한다.
+// 고정지출 실적의 귀속월("YYYY-MM"): 비고·적요에 4자리 yymm(예: "2609")을 따로 적으면 그 달, 없으면 거래 날짜의 달.
+// 부족해서 나눠 출금되거나 다음 달로 넘어간 잔액을 원래 달로 합산하기 위함.
+// ⚠ "26-09"(하이픈) 형식은 쓰지 않는다 — 기존 비고에서 "전달 세금계산서 귀속월"(미수금·미지급용)로 널리 쓰여(세무법인·SKT 등 100여 건)
+// 고정지출 월이 한 달씩 밀리기 때문. 고정지출은 하이픈 없는 "2609"만 인식. 오탐 방지를 위해
+// 앞뒤에 글자·숫자가 붙지 않은 독립된 토큰만 인식하고, "연월=금액" 분배 표기(AR용)가 있으면 무시한다.
 function fixedRowYm(r) {
   const d = r._date || r.date || "";
   const memo = [r._memo2, r.memo].filter(Boolean).join(" ");
   if (memo && !/\d{2}-\d{1,2}\s*[=:]\s*[\d,]+/.test(memo)) {
-    // "26-09" 형식(독립된 토큰) 또는 "2609"(yymm 4자리, 연도 24~39만 — 금액·번호 오탐 방지)
-    const m = memo.match(/(?<![\d,.-])(\d{2})-(0[1-9]|1[0-2])(?![\d-])/) || memo.match(/(?<![\d,.-])(2[4-9]|3[0-9])(0[1-9]|1[0-2])(?![\d,.-])/);
+    // "2609"(yymm 4자리, 연도 24~39만 — 금액·번호 오탐 방지)
+    const m = memo.match(/(?<![\d\p{L},.-])(2[4-9]|3[0-9])(0[1-9]|1[0-2])(?![\d\p{L},.-])/u);
     if (m) return `${2000 + Number(m[1])}-${m[2]}`;
   }
   return d.slice(0, 7);
@@ -7455,7 +7476,7 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
     }
   });
 
-  return months.map(ym => {
+  const _fixedMonths = months.map(ym => {
     const [year, month] = ym.split("-");
     const isPast = ym < todayYM;
     const isCurrent = ym === todayYM;
@@ -7497,6 +7518,7 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
     const allDone = items.length > 0 && items.every(i => i.status === "완료" || i.status === "제외");
     return { year, month, ym, items, monthTotal, isPast, isCurrent, allDone };
   });
+  return fixedApplyPartial(_fixedMonths);
 }
 
 function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = null) {
@@ -7540,7 +7562,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
     const bodyRows = dateGroups.map(({ date, dow, items: grpItems }) => {
       // 이미 실제 결제완료(status===완료)된 항목은 "앞으로 나갈 예정" 합계에서 개별 제외
       // (같은 날짜에 미완료 항목과 섞여 있어도 완료분까지 이중으로 잡히지 않도록)
-      const grpExpected = grpItems.filter(i => i.status !== "완료" && i.status !== "제외").reduce((s, i) => s + (i.예정금액 || 0), 0);
+      const grpExpected = grpItems.reduce((s, i) => s + fixedRemain(i), 0);
       const grpActual  = grpItems.reduce((s, i) => s + i.totalAmount, 0);
       const dateLabel  = date === "미정" ? "미정" : `${date.slice(5)} (${dow})`;
       const isAdj = grpItems.some(i => i.예정일 && i.예정결제일 && i.예정일 !== parseInt(i.예정결제일.date.slice(8)));
@@ -7603,6 +7625,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
           <td style="${tdSt}text-align:right;${multi ? "cursor:pointer;" : ""}" ${multi ? `class="mauto-fixed-detail-toggle" data-detail-id="${escapeHtml(amtKey)}" title="클릭하면 날짜·금액 내역을 봅니다"` : ""}>${item.totalAmount ? formatNumber(item.totalAmount) : "-"}${multi ? `<span style="font-size:10px;color:#6b7280;margin-left:3px;">${item.matched.length}건</span>` : ""}</td>
           ${(() => {
             if (paid) return `<td style="${tdSt}text-align:center;color:#16a34a;font-weight:700;">✓</td>`;
+            if (item.status === "부분") return `<td style="${tdSt}text-align:center;color:#d97706;font-weight:700;white-space:nowrap;" title="예정 ${formatNumber(item.예정금액)}원 중 ${formatNumber(item.totalAmount)}원만 출금 — 남은 ${formatNumber(fixedRemain(item))}원">부분</td>`;
             if (item.status === "제외") return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#9ca3af;cursor:pointer;" title="클릭하면 '이번달 제외'를 취소합니다">제외</td>`;
             if (isPast) return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#ef4444;font-weight:700;cursor:pointer;" title="이 항목이 이번 달엔 해당 없으면 클릭 — '제외'로 표시되고 예정금액 합계에서 빠집니다">미결</td>`;
             return `<td style="${tdSt}text-align:center;color:#9ca3af;">-</td>`;
@@ -7618,7 +7641,7 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
       : (isPast ? `<span style="font-size:11px;color:#ef4444;margin-left:6px;">● 미결</span>` : "");
     const headerBorder = isCurrent ? "2px solid #2563eb" : "2px solid #e5e7eb";
     // 월 전체 예정금액 합계 (이미 완료된 항목은 제외 — 날짜 소계와 동일 기준)
-    const monthExpected = monthItems.filter(i => i.status !== "완료" && i.status !== "제외").reduce((s, i) => s + (i.예정금액 || 0), 0);
+    const monthExpected = monthItems.reduce((s, i) => s + fixedRemain(i), 0);
     const tableHtml = `<div style="overflow-x:auto;"><table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12px;">
         <thead><tr>
           <th style="${thSt}text-align:center;width:28px;">☑</th>
@@ -7675,7 +7698,7 @@ function renderMautoFixedByItem(monthData) {
 
   const body = sortedItems.map(([name, { 고정분류, rows }], idx) => {
     const sortedRows = [...rows].sort((a, b) => a.ym.localeCompare(b.ym));
-    const expectedSum = sortedRows.filter(r => r.status !== "완료" && r.status !== "제외").reduce((s, r) => s + r.예정금액, 0);
+    const expectedSum = sortedRows.reduce((s, r) => s + fixedRemain(r), 0);
     const actualSum = sortedRows.reduce((s, r) => s + r.totalAmount, 0);
     const itemKey = `fixeditem:${idx}`;
     const headerRow = `<tr class="mauto-year-row">
@@ -7691,7 +7714,7 @@ function renderMautoFixedByItem(monthData) {
         <td style="font-size:12px;color:#6b7280;">${r.year}년 ${parseInt(r.month)}월${r.예정일 ? ` (${r.예정일}일)` : ""}</td>
         ${mautoNumericCell(r.예정금액)}
         ${mautoNumericCell(r.totalAmount)}
-        <td style="text-align:center;font-size:11px;${r.status === "완료" ? "color:#16a34a;font-weight:700;" : "color:#9ca3af;"}">${r.status === "완료" ? "✓" : (r.status === "제외" ? "제외" : "-")}</td>
+        <td style="text-align:center;font-size:11px;white-space:nowrap;${r.status === "완료" ? "color:#16a34a;font-weight:700;" : r.status === "부분" ? "color:#d97706;font-weight:700;" : "color:#9ca3af;"}">${r.status === "완료" ? "✓" : (r.status === "부분" ? "부분" : (r.status === "제외" ? "제외" : "-"))}</td>
       </tr>`).join("");
     return headerRow + detailRows;
   }).join("");
@@ -9484,7 +9507,7 @@ function openMautoClassifyResultView(rows) {
         💡 한 건을 여러 달로 나눠 충당하려면 적요에 <b>연월=금액</b>을 콤마로 나열해서 쓰세요.<br/>
         예) <code>25-12=3,000,000(나머지), 26-03=2,041,400(일부잔액)</code> → 25-12에 300만, 26-03에 204만 1,400원 반영<br/>
         <span style="color:#64748b;">※ 연월과 = 사이에는 공백만 가능(다른 글자 넣으면 인식 안 됨). 설명은 금액 뒤 괄호 안에 적으세요. 금액은 콤마 넣어도 됩니다.</span><br/>
-        다음 달로 넘어가 출금된 고정지출(대출이자 등)은 적요·비고에 <code>26-09</code> 또는 <code>2609</code>처럼 귀속월을 적으면 그 달 실적으로 합산됩니다.
+        다음 달로 넘어가 출금된 고정지출(대출이자 등)은 적요·비고에 하이픈 없이 <code>2609</code>처럼 귀속월을 적으면 그 달 실적으로 합산됩니다. (<code>26-09</code>는 미수금·미지급용이라 고정지출에는 적용되지 않음)
       </div>
       <div style="padding:6px 14px;display:flex;gap:6px;border-bottom:1px solid #f1f5f9;">
         <button type="button" class="mcl-filter-btn" data-filter="all" style="font-size:12px;padding:3px 12px;border:1px solid #d1d5db;border-radius:14px;background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer;">전체 ${rows.length}</button>
@@ -9544,7 +9567,7 @@ function openMautoClassifyResultView(rows) {
       const fym = fixedRowYm({ _memo2: val, memo: val, date: "" });
       if (fym) {
         inp.style.borderColor = "#16a34a";
-        inp.title = `귀속월 ${fym} 인식 (고정지출·미수금·미지급 실적을 ${fym}분으로 합산)`;
+        inp.title = `귀속월 ${fym} 인식 (고정지출 실적을 ${fym}분으로 합산)`;
       }
     }
   });
