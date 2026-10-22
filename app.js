@@ -69,6 +69,94 @@ let mautoData = {
   fixed: [],
 };
 let mautoClassifiedRows = []; // Phase 2: 입출금 분류 결과 (재빌드 캐시)
+// ── 공용 플로팅 팝업 ─────────────────────────────────────────────
+// body에 붙는 모든 "…overlay" 팝업을 자동으로 (1) 뒤 회색 없음·뒤 화면 조작 가능 (2) 헤더 드래그 이동
+// (3) 모서리 크기 조절 (4) 처음 열 때 가로 데이터(표)에 맞춘 너비 (5) 클릭 시 맨 앞으로 바꾼다.
+// 새 팝업은 기존처럼 overlay div(첫 자식=대화상자)를 body에 붙이기만 하면 자동 적용된다.
+(function initFloatingPopups() {
+  let zTop = 5000;
+  const INTERACTIVE = "button,input,select,textarea,a,label,summary,[contenteditable]";
+
+  function fitWidth(dlg) {
+    dlg.style.maxWidth = "none";
+    const maxW = Math.floor(window.innerWidth * 0.96);
+    let extra = 0;
+    dlg.querySelectorAll("*").forEach(el => {
+      const d = el.scrollWidth - el.clientWidth;
+      if (d > 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) extra = Math.max(extra, d);
+    });
+    const w = Math.min(Math.max(dlg.offsetWidth + extra + 4, 360), maxW);
+    dlg.style.width = w + "px";
+  }
+
+  function upgrade(overlay) {
+    if (overlay.dataset.floatDone) return;
+    const dlg = overlay.firstElementChild;
+    if (!dlg || overlay.children.length !== 1) return;
+    overlay.dataset.floatDone = "1";
+    // 뒤 회색 제거 + 덮개는 클릭을 통과시킴
+    overlay.style.background = "transparent";
+    overlay.style.backdropFilter = "none";
+    overlay.style.pointerEvents = "none";
+    dlg.style.pointerEvents = "auto";
+    dlg.style.position = "fixed";
+    dlg.style.margin = "0";
+    dlg.style.transform = "none";
+    dlg.style.boxShadow = "0 8px 40px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.08)";
+    if (getComputedStyle(dlg).overflow === "visible") dlg.style.overflow = "auto";
+    dlg.style.resize = "both";
+    dlg.style.minWidth = "min(320px, 96vw)";
+    dlg.style.minHeight = "120px";
+    dlg.style.maxHeight = "96vh";
+    const header = dlg.querySelector(":scope > [class*='header'], :scope > h2, :scope > h3, :scope > [class*='title']");
+    if (header) header.style.cursor = "move";
+
+    requestAnimationFrame(() => {
+      if (!overlay.isConnected) return;
+      fitWidth(dlg);
+      const r = dlg.getBoundingClientRect();
+      const vw = window.innerWidth, vh = window.innerHeight;
+      dlg.style.left = Math.max(8, Math.round((vw - r.width) / 2)) + "px";
+      dlg.style.top = Math.max(8, Math.min(40, vh - r.height - 8)) + "px";
+    });
+
+    // 클릭하면 맨 앞으로
+    dlg.addEventListener("pointerdown", () => { overlay.style.zIndex = String(++zTop); }, true);
+
+    // 헤더(또는 위쪽 44px) 드래그 이동
+    dlg.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || e.target.closest(INTERACTIVE)) return;
+      const r = dlg.getBoundingClientRect();
+      const onHeader = header ? header.contains(e.target) : (e.clientY - r.top < 44);
+      if (!onHeader) return;
+      e.preventDefault();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      const move = ev => {
+        const w = dlg.offsetWidth;
+        dlg.style.left = Math.min(Math.max(ev.clientX - dx, 80 - w), window.innerWidth - 80) + "px";
+        dlg.style.top = Math.min(Math.max(ev.clientY - dy, 0), window.innerHeight - 40) + "px";
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+  }
+
+  function scan(node) {
+    if (node.nodeType !== 1) return;
+    if (node.parentElement === document.body && /overlay/.test(String(node.className || ""))) upgrade(node);
+  }
+  const start = () => {
+    new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(scan)))
+      .observe(document.body, { childList: true });
+    [...document.body.children].forEach(scan);
+  };
+  if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
+})();
+
 const MAUTO_CLASSIFIED_KEY = "mauto-classified-rows-v1";
 // 공유 저장 시 보낼 필드만 추출 (원본 파일 데이터 제외)
 const CLASSIFIED_SHARE_FIELDS = ["_txKey","date","_memo","_memo2","debit","credit","거래처명","구분","excluded","매칭근거","savedAt"];
@@ -8785,7 +8873,9 @@ function rebuildMautoRows() {
     const edit = mautoUserEdits[row._txKey];
     if (edit) {
       if (edit.거래처명 !== undefined) base.거래처명  = edit.거래처명;
-      if (edit.구분     !== undefined) base.구분      = edit.구분;
+      // 수동 편집의 구분이 빈 값이면 규칙 매칭 구분을 유지 (빈 값이 덮어써 미수금 집계에서 빠지던 문제)
+      if (edit.구분) base.구분 = edit.구분;
+      else if (!base.구분 && base.거래처명) base.구분 = base.credit > 0 ? "매출" : "매입";
       if (edit.excluded !== undefined) base.excluded  = edit.excluded;
       if (edit.isOverride) { base.isOverride = true; base.매칭근거 = edit.매칭근거 || "수동"; }
       // 비고 수동수정(여러 연월 분배 "25-12=..." 등) → 귀속연월 계산에 쓰는 _memo2 덮어씀
@@ -9053,6 +9143,12 @@ function openMautoClassifyDialog(bankRows, rules) {
       const idx = +sel.dataset.idx;
       items[idx].거래처명 = sel.value;
       items[idx].isOverride = true;
+      // 거래처를 수동 선택하면 구분(매출/매입)도 입금·출금 방향으로 자동 채움 (비어 있으면 미수금·미지급 집계에서 빠짐)
+      if (sel.value && !items[idx].구분) {
+        items[idx].구분 = (items[idx].row._credit || 0) > 0 ? "매출" : "매입";
+        const divSel = overlay.querySelector(`.mcl-div[data-idx="${idx}"]`);
+        if (divSel) divSel.value = items[idx].구분;
+      }
       const ruleRow = overlay.querySelector(`.mcl-rule-row[data-idx="${idx}"]`);
       if (ruleRow) ruleRow.style.display = sel.value ? "" : "none";
       updateCount();
