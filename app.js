@@ -360,6 +360,32 @@ let mautoVatView = false;
 let mautoVatMode = "반기";
 let mautoVatYear = new Date().getFullYear();
 let mautoPayViewMode = "ym"; // "ym" | "vendor"
+// 엠오토 구역별 검색어 (미수금·미지급·고정지출 표만 거름 — 상단 요약 카드 합계는 전체 기준 유지)
+const mautoSectionSearch = { receivables: "", payables: "", fixed: "" };
+const mautoSearchNorm = s => String(s == null ? "" : s).toLowerCase().replace(/\s+/g, "");
+// 검색어를 공백 기준 여러 단어로 나눠 모두 포함(AND)해야 일치
+function mautoSearchMatch(q, ...fields) {
+  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = mautoSearchNorm(fields.filter(f => f != null && f !== "").join(" "));
+  return words.every(w => hay.includes(w.replace(/,/g, "")));
+}
+// 미수금·미지급 행: 상호, 연월("2026-09"·"9월"·"2026년"), 금액 숫자(콤마 제거)로 검색
+const mautoArRowSearchable = r => [
+  r.company, `${r.year}-${String(r.month || "").padStart(2, "0")}`, `${r.year}년`, `${r.month}월`,
+  r.total, r.inout, r.balance,
+].join(" ");
+function mautoFilterArRows(rows, q) {
+  return q ? (rows || []).filter(r => mautoSearchMatch(q, mautoArRowSearchable(r))) : rows;
+}
+// 고정지출 월 데이터: 거래처명·고정분류·연월·금액으로 거르고 월 합계 재계산 (일치 항목 없는 월은 제외)
+function mautoFilterFixedMonths(months, q) {
+  if (!q || !months) return months;
+  return months.map(m => {
+    const items = m.items.filter(i => mautoSearchMatch(q, i.거래처명, i.고정분류, m.ym, `${m.year}년`, `${m.month}월`, i.예정금액, i.totalAmount));
+    return { ...m, items, monthTotal: items.reduce((s, i) => s + i.totalAmount, 0) };
+  }).filter(m => m.items.length);
+}
 let mautoArStatusFilter = "open"; // "all" | "done" | "open" — 미수/미지급 자동계산 상태 필터
 let mautoFixedViewMode = "month"; // "month" | "item" — 고정지출 자동계산 보기 방식
 let mautoFixedMonthsBack = 1; // 고정지출 월별 보기에서 과거로 몇 개월치 보여줄지 ("이전 달 더보기"로 늘어남, 기본 1개월 전까지)
@@ -7358,6 +7384,20 @@ function getScheduledPaymentDate(year, month, day) {
 
 // 매칭된 거래 목록의 순 지출액 계산: 출금 합계 - 입금(환급 등) 합계
 // (예: 부가세 납부 후 환급이 같은 항목으로 잡히면 환급분만큼 실적에서 차감되어야 함 — 예전엔 둘 다 절대값으로 더해 실제보다 부풀려졌음)
+// 고정지출 실적의 귀속월("YYYY-MM"): 비고·적요에 명시한 연월(예: "26-09")이 있으면 그 달, 없으면 거래 날짜의 달.
+// 부족해서 나눠 출금되거나 다음 달로 넘어간 잔액을 원래 달로 합산하기 위함. 오탐 방지를 위해
+// 앞뒤에 숫자·하이픈이 없는 독립된 yy-mm 형식만 인식하고, "연월=금액" 분배 표기(AR용)가 있으면 무시한다.
+function fixedRowYm(r) {
+  const d = r._date || r.date || "";
+  const memo = [r._memo2, r.memo].filter(Boolean).join(" ");
+  if (memo && !/\d{2}-\d{1,2}\s*[=:]\s*[\d,]+/.test(memo)) {
+    // "26-09" 형식(독립된 토큰) 또는 "2609"(yymm 4자리, 연도 24~39만 — 금액·번호 오탐 방지)
+    const m = memo.match(/(?<![\d,.-])(\d{2})-(0[1-9]|1[0-2])(?![\d-])/) || memo.match(/(?<![\d,.-])(2[4-9]|3[0-9])(0[1-9]|1[0-2])(?![\d,.-])/);
+    if (m) return `${2000 + Number(m[1])}-${m[2]}`;
+  }
+  return d.slice(0, 7);
+}
+
 function netMatchedAmount(matched) {
   return matched.reduce((s, r) => s + Number(r._debit || r.debit || 0) - Number(r._credit || r.credit || 0), 0);
 }
@@ -7392,7 +7432,7 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
       const name = rule["거래처명"];
       const matched = (classifiedRows || []).filter(r => {
         const d = r._date || r.date || "";
-        return d && r.거래처명 === name && d.slice(0, 7) === ym;
+        return d && r.거래처명 === name && fixedRowYm(r) === ym;
       });
       if (matched.length) {
         const total = netMatchedAmount(matched);
@@ -7424,7 +7464,7 @@ function buildFixedFromRules(fixedRules, classifiedRows, monthsBack = 1, monthsF
       const matched = (classifiedRows || []).filter(r => {
         const d = r._date || r.date || "";
         if (!d || !r.거래처명) return false;
-        if (d.slice(0, 7) !== ym) return false;
+        if (fixedRowYm(r) !== ym) return false;
         return r.거래처명 === rule["거래처명"];
       });
       const totalAmount = netMatchedAmount(matched);
@@ -7527,6 +7567,20 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
           : isOverride ? '<span style="font-size:9px;color:#f59e0b;margin-left:2px;">수정</span>'
           : "";
         const amtBorderColor = isOverride ? "#f59e0b" : "#d1d5db";
+        const multi = (item.matched || []).length > 1;
+        const detailRow = multi ? `<tr class="mauto-fixed-dg-detail" data-dg="${dgKey}" data-detail-for="${escapeHtml(amtKey)}" style="display:none;background:#f8fafc;">
+          <td></td>
+          <td colspan="6" style="padding:6px 10px 8px 22px;border-bottom:1px solid #e5e7eb;">
+            <table style="width:100%;max-width:520px;border-collapse:collapse;font-size:11px;">
+              <thead><tr><th style="text-align:left;white-space:nowrap;color:#6b7280;font-weight:600;">날짜</th><th style="text-align:left;white-space:nowrap;color:#6b7280;font-weight:600;">구분</th><th style="text-align:right;white-space:nowrap;color:#6b7280;font-weight:600;">금액</th><th style="text-align:left;color:#6b7280;font-weight:600;padding-left:10px;">적요</th></tr></thead>
+              <tbody>${[...item.matched].sort((a, b) => String(a._date || a.date || "").localeCompare(String(b._date || b.date || ""))).map(r => {
+                const dr = Number(r._debit || r.debit || 0), cr = Number(r._credit || r.credit || 0);
+                return `<tr><td style="white-space:nowrap;">${escapeHtml(r._date || r.date || "")}</td><td style="white-space:nowrap;color:${dr ? "#b71c1c" : "#1565c0"};">${dr ? "출금" : "입금"}</td><td style="text-align:right;white-space:nowrap;">${formatNumber(dr || cr)}</td><td style="padding-left:10px;color:#6b7280;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.memo || r._memo || "")}">${escapeHtml(r.memo || r._memo || "")}</td></tr>`;
+              }).join("")}</tbody>
+              <tfoot><tr><td colspan="2" style="text-align:right;font-weight:700;border-top:1px solid #e5e7eb;">실적 합계</td><td style="text-align:right;font-weight:700;border-top:1px solid #e5e7eb;white-space:nowrap;">${formatNumber(item.totalAmount)}</td><td style="border-top:1px solid #e5e7eb;"></td></tr></tfoot>
+            </table>
+          </td>
+        </tr>` : "";
         return `<tr class="mauto-fixed-dg-item" data-dg="${dgKey}" style="${paid ? "opacity:0.55;" : ""}${catBg}">
           <td style="${tdSt}"></td>
           <td style="${tdSt}padding-left:22px;${paid ? "text-decoration:line-through;color:#9ca3af;" : ""}">${escapeHtml(item.거래처명)}<span style="margin-left:4px;font-size:10px;color:#9ca3af;">${item.고정분류 || ""}</span></td>
@@ -7542,15 +7596,15 @@ function renderMautoFixedAutoView(fixedRules, classifiedRows, prebuiltData = nul
               title="클릭하여 수정 (빈칸 저장 시 자동계산으로 복원)"
             /><span class="mauto-fixed-amt-badge" data-amt-key="${escapeHtml(amtKey)}">${amtBadge}</span>
           </td>
-          <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;">${item.dates.join(", ") || "-"}</td>
-          <td style="${tdSt}text-align:right;">${item.totalAmount ? formatNumber(item.totalAmount) : "-"}</td>
+          <td style="${tdSt}text-align:center;color:#6b7280;font-size:11px;${multi ? "cursor:pointer;" : ""}" ${multi ? `class="mauto-fixed-detail-toggle" data-detail-id="${escapeHtml(amtKey)}" title="클릭하면 날짜·금액 내역을 봅니다"` : ""}>${multi ? `<span class="mauto-fixed-detail-icon">▶</span> ` : ""}${item.dates.join(", ") || "-"}</td>
+          <td style="${tdSt}text-align:right;${multi ? "cursor:pointer;" : ""}" ${multi ? `class="mauto-fixed-detail-toggle" data-detail-id="${escapeHtml(amtKey)}" title="클릭하면 날짜·금액 내역을 봅니다"` : ""}>${item.totalAmount ? formatNumber(item.totalAmount) : "-"}${multi ? `<span style="font-size:10px;color:#6b7280;margin-left:3px;">${item.matched.length}건</span>` : ""}</td>
           ${(() => {
             if (paid) return `<td style="${tdSt}text-align:center;color:#16a34a;font-weight:700;">✓</td>`;
             if (item.status === "제외") return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#9ca3af;cursor:pointer;" title="클릭하면 '이번달 제외'를 취소합니다">제외</td>`;
             if (isPast) return `<td class="mauto-fixed-status-cell" data-exclude-key="${escapeHtml(item.excludeKey)}" style="${tdSt}text-align:center;color:#ef4444;font-weight:700;cursor:pointer;" title="이 항목이 이번 달엔 해당 없으면 클릭 — '제외'로 표시되고 예정금액 합계에서 빠집니다">미결</td>`;
             return `<td style="${tdSt}text-align:center;color:#9ca3af;">-</td>`;
           })()}
-        </tr>`;
+        </tr>${detailRow}`;
       }).join("");
 
       return subtotalRow + itemRows;
@@ -7760,10 +7814,14 @@ function arRecapToMautoRows(entries, side) {
 function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
   const toggleBtns = hasToggle ? `
     <button type="button" class="mauto-ctrl-btn" data-mauto-toggle-all="${id}">전체 펼치기</button>` : "";
+  const searchBox = id in mautoSectionSearch
+    ? `<input type="search" class="mauto-search-input" data-mauto-search="${id}" value="${escapeHtml(mautoSectionSearch[id])}" placeholder="검색 (거래처·연월·금액)" title="공백으로 여러 단어를 넣으면 모두 포함된 행만 표시" />`
+    : "";
   return `<div class="mauto-section" id="mauto-section-${id}" data-kind="${id}">
     <div class="mauto-section-header">
       <div><h3>${escapeHtml(title)}${badge ? ` ${badge}` : ""}</h3></div>
       <div class="mauto-section-actions">
+        ${searchBox}
         ${toggleBtns}
         <button type="button" class="mauto-paste-btn" data-mauto-section="${id}">붙여넣기 입력</button>
       </div>
@@ -7875,6 +7933,7 @@ function renderMautoTab() {
     <div class="mauto-top-bar">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <h2 style="margin:0;">엠오토</h2>
+        ${mautoClassifiedRows.length ? `<button type="button" id="mautoClassifyViewTopBtn" title="저장된 입출금 분류를 보고 거래처·매출/매입·제외를 고칩니다" style="font-size:12px;padding:3px 11px;border:1px solid #16a34a;border-radius:14px;background:#fff;color:#15803d;cursor:pointer;white-space:nowrap;">입출금 분류 보기·수정</button>` : ""}
         <button type="button" id="mautoToolsToggle" title="입력·업로드 도구 펼치기/접기"
           style="font-size:12px;padding:3px 11px;border:1px solid #cbd5e1;border-radius:14px;background:#f1f5f9;color:#475569;cursor:pointer;white-space:nowrap;">
           ${mautoToolsOpen ? "▲ 도구 접기" : "▼ 입력·업로드 도구"}
@@ -7971,19 +8030,26 @@ function renderMautoTab() {
       renderMautoFundsTable(),
       "금액만 2줄로 붙여넣기: 1행=국민(415310), 2행=부산(008320)", false)}
     ${mautoPasteSection("receivables", "미수금",
-      rcvWarn + renderMautoAccountingTable(rcvRows, "receivables"),
+      rcvWarn + renderMautoAccountingTable(mautoFilterArRows(rcvRows, mautoSectionSearch.receivables), "receivables"),
       "헤더: 작성연도 / 작성 / 상호 / 매출합계 / 매출공급가액 / 매출세액 / 입금 / 잔액", false, rcvBadge)}
     ${mautoPasteSection("payables", "미지급",
       payWarn + (mautoPayViewMode === "vendor"
-        ? renderMautoPayablesByVendor(payRows)
-        : renderMautoAccountingTable(payRows, "payables")),
+        ? renderMautoPayablesByVendor(mautoFilterArRows(payRows, mautoSectionSearch.payables))
+        : renderMautoAccountingTable(mautoFilterArRows(payRows, mautoSectionSearch.payables), "payables")),
       "헤더: 작성연도 / 작성 / 상호 / 매입합계 / 매입공급가액 / 매입세액 / 출금 / 잔액", false, payBadge)}
     ${mautoPasteSection("fixed", "고정지출",
       mautoFixedRules !== null
-        ? (mautoFixedViewMode === "item"
-            ? renderMautoFixedByItem(_fixedMonthDataCache)
-            : renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, _fixedMonthDataCache))
-        : renderMautoFixedTable(mautoData.fixed),
+        ? (() => {
+            const fq = mautoSectionSearch.fixed;
+            const fm = mautoFilterFixedMonths(_fixedMonthDataCache, fq);
+            if (fq && _fixedMonthDataCache && !(fm || []).length) return `<div style="padding:14px 12px;color:#6b7280;font-size:13px;">"${escapeHtml(fq)}" 검색 결과 없음</div>`;
+            return mautoFixedViewMode === "item"
+              ? renderMautoFixedByItem(fm)
+              : renderMautoFixedAutoView(mautoFixedRules, mautoClassifiedRows, fm);
+          })()
+        : renderMautoFixedTable(mautoSectionSearch.fixed
+            ? (mautoData.fixed || []).filter(r => mautoSearchMatch(mautoSectionSearch.fixed, r.title, r.category, r.bank, r.year, r.month, r.amount))
+            : mautoData.fixed),
       "헤더: 연도 / 월 / 내용 / 일 / 날짜 / 금액 / 은행 / 분류", true,
       `<button type="button" id="mautoFixedRulesBtn" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;background:${mautoFixedRules !== null ? "#dbeafe" : "#f3f4f6"};cursor:pointer;" title="분류규칙 결제예정일 기반 자동계산">${mautoFixedRules !== null ? `규칙 ${(mautoFixedRules||[]).filter(r=>r["결제예정일"]).length}개 적용 중` : "규칙 불러오기"}</button>` +
       (mautoFixedRules !== null ? `<button type="button" id="mautoFixedViewMonth" style="font-size:11px;margin-left:8px;padding:1px 8px;border:1px solid #d1d5db;border-radius:10px;cursor:pointer;background:${mautoFixedViewMode==="month"?"#2563eb":"#f3f4f6"};color:${mautoFixedViewMode==="month"?"#fff":"#000"};" title="월별로 보기">월별</button>
@@ -8120,8 +8186,39 @@ function renderMautoTab() {
       const icon = hdr.querySelector(".mauto-fixed-dg-icon");
       const isOpen = rows[0]?.style.display !== "none";
       rows.forEach(r => r.style.display = isOpen ? "none" : "");
+      if (isOpen) sec.querySelectorAll(`.mauto-fixed-dg-detail[data-dg="${key}"]`).forEach(r => { r.style.display = "none"; });
       if (icon) icon.textContent = isOpen ? "▶" : "▼";
     });
+  });
+
+  // 고정지출 여러 건(실제결제일·실적 칸) 클릭 → 날짜·금액 상세 토글
+  sec.querySelectorAll(".mauto-fixed-detail-toggle").forEach(td => {
+    td.addEventListener("click", () => {
+      const row = td.closest("tr");
+      const id = td.dataset.detailId;
+      const detail = [...sec.querySelectorAll(".mauto-fixed-dg-detail")].find(r => r.dataset.detailFor === id);
+      if (!detail) return;
+      const open = detail.style.display === "none";
+      detail.style.display = open ? "" : "none";
+      const icon = row?.querySelector(".mauto-fixed-detail-icon");
+      if (icon) icon.textContent = open ? "▼" : "▶";
+    });
+  });
+
+  // 미수금·미지급·고정지출 구역 검색 (한글 조합 중에는 다시 그리지 않음)
+  sec.querySelectorAll(".mauto-search-input").forEach(inp => {
+    let composing = false;
+    const apply = () => {
+      const id = inp.dataset.mautoSearch;
+      mautoSectionSearch[id] = inp.value;
+      const pos = inp.selectionStart;
+      renderMautoTab();
+      const next = document.querySelector(`.mauto-search-input[data-mauto-search="${id}"]`);
+      if (next) { next.focus(); try { next.setSelectionRange(pos, pos); } catch (_) {} }
+    };
+    inp.addEventListener("compositionstart", () => { composing = true; });
+    inp.addEventListener("compositionend", () => { composing = false; apply(); });
+    inp.addEventListener("input", () => { if (!composing) apply(); });
   });
 
   // 고정지출 "미결"/"제외" 클릭 → 이번 달 해당없음 토글 (반복하면 실제 결제 패턴이 드러남)
@@ -8387,11 +8484,20 @@ function renderMautoTab() {
   });
 
   // 분류 결과 목록 보기 (재다이얼로그)
-  document.getElementById("mautoClassifyViewBtn")?.addEventListener("click", () => {
-    if (!mautoClassifiedRows.length) { alert("분류된 결과가 없습니다. 먼저 입출금 파일을 업로드해 분류해주세요."); return; }
-    // 저장된 결과를 다시 볼 수 있게 빈 bankRows로 재오픈하되, 기존 결과 표시
-    openMautoClassifyResultView(mautoClassifiedRows);
-  });
+  // 저장된 입출금 전체를 업로드 때와 같은 편집 화면(거래처·매출/매입·제외·규칙 추가)으로 연다 — 날짜 내림차순
+  const openSavedClassify = async () => {
+    const src = Object.values(mautoSourceFiles).flatMap(f => f.rows || []).filter(r => r._txKey);
+    if (!src.length) {
+      if (!mautoClassifiedRows.length) { alert("분류된 결과가 없습니다. 먼저 입출금 파일을 업로드해 분류해주세요."); return; }
+      openMautoClassifyResultView(mautoClassifiedRows); // 원본이 없으면 읽기용 목록으로
+      return;
+    }
+    src.sort((a, b) => (String(b._date || "") + String(b._time || "")).localeCompare(String(a._date || "") + String(a._time || "")));
+    if (!rulesState.rows.length) await loadRules();
+    openMautoClassifyDialog(src, rulesState.rows);
+  };
+  document.getElementById("mautoClassifyViewBtn")?.addEventListener("click", openSavedClassify);
+  document.getElementById("mautoClassifyViewTopBtn")?.addEventListener("click", openSavedClassify);
 
   document.getElementById("mautoClassifyClearBtn")?.addEventListener("click", () => {
     if (!confirm("분류 결과 및 업로드된 파일 전체를 지우시겠습니까?")) return;
@@ -8973,8 +9079,18 @@ function openMautoClassifyDialog(bankRows, rules) {
     // 비고(=거래처명 매칭방식 대상)가 있으면 기본값으로 우선 사용 — 적요1은 거래마다
     // 참조번호 등이 바뀌어 재업로드 시 매칭이 깨지기 쉬운 반면, 비고는 상대적으로 안정적임
     const defaultMethod = String(row._memo2 || "").trim() ? "거래처명" : "키워드";
-    return { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false,
+    const item = { row, match, 거래처명: match?.거래처 || "", 구분: match?.구분 || "", excluded: false,
       isOverride: false, ruleAdd: false, ruleMethod: defaultMethod, ruleKey: "", fixedDay: "" };
+    // 이미 저장된 수동 분류·제외를 미리 반영 — 화면에 보이는 값 = 실제 저장값 (다시 열어 고칠 수 있게)
+    const prevEdit = mautoUserEdits[row._txKey];
+    if (prevEdit) {
+      if (prevEdit.거래처명 !== undefined && prevEdit.isOverride) item.거래처명 = prevEdit.거래처명;
+      if (prevEdit.구분) item.구분 = prevEdit.구분;
+      item.excluded = !!prevEdit.excluded;
+      item.isOverride = !!prevEdit.isOverride;
+      if (item.isOverride) item.match = { ...(item.match || {}), 거래처: item.거래처명 || null, 매칭근거: "수동" };
+    }
+    return item;
   });
 
   const overlay = document.createElement("div");
@@ -9224,7 +9340,13 @@ function openMautoClassifyDialog(bankRows, rules) {
           excluded: !!i.excluded,
           isOverride: !!i.isOverride,
           매칭근거: i.isOverride ? "수동" : (i.match?.매칭근거 || ""),
+          ...(mautoUserEdits[txKey]?.memoOverride ? { memoOverride: mautoUserEdits[txKey].memoOverride } : {}),
         };
+      } else if (mautoUserEdits[txKey]) {
+        // 다시 열어 제외·수동 지정을 해제한 행 — 옛 수동 편집이 남아 덮어쓰지 않게 정리 (적요 수정만 유지)
+        const keepMemo = mautoUserEdits[txKey].memoOverride;
+        if (keepMemo) mautoUserEdits[txKey] = { memoOverride: keepMemo };
+        else delete mautoUserEdits[txKey];
       }
     }
     saveUserEdits();
@@ -9357,7 +9479,8 @@ function openMautoClassifyResultView(rows) {
       <div style="padding:6px 14px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e40af;line-height:1.6;">
         💡 한 건을 여러 달로 나눠 충당하려면 적요에 <b>연월=금액</b>을 콤마로 나열해서 쓰세요.<br/>
         예) <code>25-12=3,000,000(나머지), 26-03=2,041,400(일부잔액)</code> → 25-12에 300만, 26-03에 204만 1,400원 반영<br/>
-        <span style="color:#64748b;">※ 연월과 = 사이에는 공백만 가능(다른 글자 넣으면 인식 안 됨). 설명은 금액 뒤 괄호 안에 적으세요. 금액은 콤마 넣어도 됩니다.</span>
+        <span style="color:#64748b;">※ 연월과 = 사이에는 공백만 가능(다른 글자 넣으면 인식 안 됨). 설명은 금액 뒤 괄호 안에 적으세요. 금액은 콤마 넣어도 됩니다.</span><br/>
+        다음 달로 넘어가 출금된 고정지출(대출이자 등)은 적요·비고에 <code>26-09</code> 또는 <code>2609</code>처럼 귀속월을 적으면 그 달 실적으로 합산됩니다.
       </div>
       <div style="padding:6px 14px;display:flex;gap:6px;border-bottom:1px solid #f1f5f9;">
         <button type="button" class="mcl-filter-btn" data-filter="all" style="font-size:12px;padding:3px 12px;border:1px solid #d1d5db;border-radius:14px;background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer;">전체 ${rows.length}</button>
@@ -9412,6 +9535,13 @@ function openMautoClassifyResultView(rows) {
       const sum = allocs.reduce((s, a) => s + a.amount, 0);
       inp.style.borderColor = "#16a34a";
       inp.title = `분배 ${allocs.length}건 인식 (합계 ${formatNumber(sum)})`;
+    } else {
+      // 고정지출 귀속월 지정 인식 여부 (예: "26-09" → 그 달 실적으로 합산)
+      const fym = fixedRowYm({ _memo2: val, memo: val, date: "" });
+      if (fym) {
+        inp.style.borderColor = "#16a34a";
+        inp.title = `귀속월 ${fym} 인식 (고정지출·미수금·미지급 실적을 ${fym}분으로 합산)`;
+      }
     }
   });
   tbodyWrap.addEventListener("keydown", e => {

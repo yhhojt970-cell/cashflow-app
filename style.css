@@ -4123,6 +4123,11 @@ td {
 }
 .mauto-ctrl-btn:hover { background: #f1f5f9; }
 
+.mauto-search-input {
+ font-size: 12px; padding: 4px 8px; width: 170px; max-width: 100%; box-sizing: border-box;
+ border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: inherit;
+}
+.mauto-search-input:focus { outline: none; border-color: #2563eb; }
 .mauto-paste-btn {
   padding: 5px 11px;
   border: 1px solid #93c5fd;
@@ -5032,6 +5037,7 @@ td {
     gap: 4px;
   }
   .mauto-ctrl-btn  { font-size: 11px; padding: 3px 7px; }
+  .mauto-search-input { font-size: 16px; width: 100%; }
   .mauto-paste-btn { font-size: 11px; padding: 4px 8px; }
 
   .mauto-paste-area { padding: 8px 10px; }
