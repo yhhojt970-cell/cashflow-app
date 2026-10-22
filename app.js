@@ -7840,6 +7840,8 @@ function arRecapToMautoRows(entries, side) {
 function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge = "") {
   const toggleBtns = hasToggle ? `
     <button type="button" class="mauto-ctrl-btn" data-mauto-toggle-all="${id}">전체 펼치기</button>` : "";
+  // 고정지출 귀속월 지정 안내 (하이픈 없는 yymm만 인식 — "26-09"는 미수금·미지급용)
+  const fixedHint = `<div style="padding:4px 12px;font-size:12px;color:#6b7280;line-height:1.5;">출금이 다음 달로 넘어갔거나 나눠 나간 건은 은행 비고 끝에 귀속월을 <b>하이픈 없이</b> 적으세요. 예) <b>2609</b> → 9월 실적으로 합산 (<b>26-09</b>는 미수금·미지급용이라 여기엔 적용 안 됨)</div>`;
   const searchBox = id in mautoSectionSearch
     ? `<input type="search" class="mauto-search-input" data-mauto-search="${id}" value="${escapeHtml(mautoSectionSearch[id])}" placeholder="검색 (거래처·연월·금액)" title="공백으로 여러 단어를 넣으면 모두 포함된 행만 표시" />`
     : "";
@@ -7860,7 +7862,7 @@ function mautoPasteSection(id, title, tableHtml, hint, hasToggle = false, badge 
         <button type="button" class="mauto-cancel-btn" data-mauto-section="${id}">취소</button>
       </div>
     </div>
-    ${tableHtml}
+    ${id === "fixed" ? fixedHint : ""}${tableHtml}
   </div>`;
 }
 
