@@ -237,6 +237,9 @@ function normalizeSourceRow(r) {
   r._time   = pick("_time", "time", 1) || "";
   r._credit = Number(pick("_credit", "credit", 2)) || 0;
   r._debit  = Number(pick("_debit",  "debit",  3)) || 0;
+  // 시트에서 온 적요·비고는 계좌번호 같은 숫자로 올 수 있어 문자열로 통일 (.slice 등에서 오류 방지)
+  r._memo  = r._memo  == null ? "" : String(r._memo);
+  r._memo2 = r._memo2 == null ? "" : String(r._memo2);
   return r;
 }
 function loadSourceFiles()  { try { const r = localStorage.getItem(MAUTO_SOURCE_FILES_KEY); mautoSourceFiles = r ? JSON.parse(r) : {}; } catch (_) { mautoSourceFiles = {}; } }
@@ -8492,6 +8495,7 @@ function renderMautoTab() {
       openMautoClassifyResultView(mautoClassifiedRows); // 원본이 없으면 읽기용 목록으로
       return;
     }
+    src.forEach(normalizeSourceRow);
     src.sort((a, b) => (String(b._date || "") + String(b._time || "")).localeCompare(String(a._date || "") + String(a._time || "")));
     if (!rulesState.rows.length) await loadRules();
     openMautoClassifyDialog(src, rulesState.rows);
@@ -9117,8 +9121,8 @@ function openMautoClassifyDialog(bankRows, rules) {
         <option value="매입" ${item.구분 === "매입" ? "selected" : ""}>매입</option>`;
       const ruleRowHidden = item.거래처명 ? "" : "display:none;";
       const ruleDetailHidden = item.ruleAdd ? "" : "display:none;";
-      const memoHint = escapeHtml((row._memo || "").slice(0, 25));
-      const memo2Hint = row._memo2 ? ` | 비고: ${escapeHtml(row._memo2.slice(0, 15))}` : "";
+      const memoHint = escapeHtml(String(row._memo || "").slice(0, 25));
+      const memo2Hint = row._memo2 ? ` | 비고: ${escapeHtml(String(row._memo2).slice(0, 15))}` : "";
       return `<tr class="mcl-main-row" data-idx="${idx}" style="${rowBg}">
         <td style="font-size:12px;white-space:nowrap;">${escapeHtml(row._date)}</td>
         <td>${dirLabel}</td>
