@@ -465,6 +465,18 @@ function calcFixedCheckedTotal(monthData) {
   });
   return total;
 }
+// 엠오토 요약 카드의 예상 잔액(가용+미수−미지급−고정)을 카드에 저장된 data-raw 값으로 다시 계산한다.
+// 카드 숫자를 바꾸는 모든 곳(가용자금 직접 수정·체크박스·예정금액 수정)이 이 함수만 호출 — 값이 어긋나던 문제 방지.
+function recalcMautoNet() {
+  const netEl = document.getElementById("mauto-net-total");
+  const grid = netEl?.closest(".mauto-summary-grid");
+  if (!netEl || !grid) return;
+  const raw = sel => Number(grid.querySelector(sel + " strong")?.dataset?.raw || 0);
+  const net = raw(".card-funds") + raw(".card-receivable") - raw(".card-payable") - raw(".card-fixed");
+  netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
+  netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
+  netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
+}
 let _mautoTaxSaveTimer = null;
 function saveMautoTaxSource() {
   try { localStorage.setItem(MAUTO_TAX_SOURCE_KEY, JSON.stringify(mautoTaxSources)); } catch (_) {}
@@ -8274,17 +8286,7 @@ function renderMautoTab() {
       const cardEl = document.getElementById("mauto-fixed-card-total");
       if (cardEl) { cardEl.textContent = formatNumber(fixedTotal); cardEl.dataset.raw = fixedTotal; }
       // 예상 잔액 재계산
-      const netEl = document.getElementById("mauto-net-total");
-      const grid = netEl?.closest(".mauto-summary-grid");
-      if (netEl && grid) {
-        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
-        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
-        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
-        const net = fundsVal + rcvVal - payVal - fixedTotal;
-        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
-        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
-        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
-      }
+      recalcMautoNet(); // 예상 잔액 = 카드 값(data-raw)으로 한 곳에서 재계산
     });
   });
 
@@ -8302,18 +8304,7 @@ function renderMautoTab() {
       const cardEl = sec.querySelector(`.card-${side === "rcv" ? "receivable" : "payable"} strong`);
       if (cardEl) { cardEl.textContent = formatNumber(sideTotal); cardEl.dataset.raw = sideTotal; }
       // 예상 잔액 재계산
-      const netEl = document.getElementById("mauto-net-total");
-      const grid = netEl?.closest(".mauto-summary-grid");
-      if (netEl && grid) {
-        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
-        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
-        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
-        const fixedVal = Number(grid.querySelector(".card-fixed strong")?.dataset?.raw || 0);
-        const net = fundsVal + rcvVal - payVal - fixedVal;
-        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
-        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
-        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
-      }
+      recalcMautoNet(); // 예상 잔액 = 카드 값(data-raw)으로 한 곳에서 재계산
     });
   });
 
@@ -8354,7 +8345,8 @@ function renderMautoTab() {
       const totalEl = document.getElementById("mauto-funds-total");
       if (totalEl) totalEl.textContent = formatNumber(newTotal);
       const cardEl = sec.querySelector(".card-funds strong");
-      if (cardEl) cardEl.textContent = formatNumber(newTotal);
+      if (cardEl) { cardEl.textContent = formatNumber(newTotal); cardEl.dataset.raw = newTotal; }
+      recalcMautoNet();
     });
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); }
@@ -8423,17 +8415,7 @@ function renderMautoTab() {
       });
       const cardEl = document.getElementById("mauto-fixed-card-total");
       if (cardEl) { cardEl.textContent = formatNumber(fixedTotal); cardEl.dataset.raw = fixedTotal; }
-      const netEl = document.getElementById("mauto-net-total");
-      const grid = netEl?.closest(".mauto-summary-grid");
-      if (netEl && grid) {
-        const fundsVal = Number(grid.querySelector(".card-funds strong")?.dataset?.raw || 0);
-        const rcvVal   = Number(grid.querySelector(".card-receivable strong")?.dataset?.raw || 0);
-        const payVal   = Number(grid.querySelector(".card-payable strong")?.dataset?.raw || 0);
-        const net = fundsVal + rcvVal - payVal - fixedTotal;
-        netEl.textContent = (net >= 0 ? "+" : "") + formatNumber(net);
-        netEl.style.color = net >= 0 ? "#16a34a" : "#dc2626";
-        netEl.closest(".mauto-card").style.borderTopColor = net >= 0 ? "#16a34a" : "#dc2626";
-      }
+      recalcMautoNet(); // 예상 잔액 = 카드 값(data-raw)으로 한 곳에서 재계산
     };
     input.addEventListener("blur", saveAmt);
     input.addEventListener("keydown", e => {
