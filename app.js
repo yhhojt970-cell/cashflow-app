@@ -552,7 +552,11 @@ async function loadMautoSourceRemote() {
 
 function rebuildMautoTaxInvoices() {
   const seen = new Map();
-  for (const src of Object.values(mautoTaxSources)) {
+  // 같은 승인번호가 여러 곳에 있으면 먼저 처리한 쪽이 이긴다 → 직접 올린 파일(최근 저장 순) 먼저, 시트에서 불러온 "원격 로드"는 맨 뒤
+  const orderedSources = Object.entries(mautoTaxSources)
+    .sort(([ka, a], [kb, b]) => (ka === "__remote__") - (kb === "__remote__") || String(b.savedAt || "").localeCompare(String(a.savedAt || "")))
+    .map(([, v]) => v);
+  for (const src of orderedSources) {
     for (const r of (src.rows || [])) {
       // 신형 포맷(구분 컬럼 없음)은 sideType으로 구분 설정
       if (!r["구분"]) r["구분"] = src.sideType === "매출" ? "매출" : "매입";
@@ -8552,13 +8556,23 @@ function renderMautoTab() {
       rows: result.rows,
       checksumOk: result.checksumOk,
     };
+    // 원격 로드(시트에서 불러온 옛 값) 중 이번 파일에 있는 승인번호는 제거 — 새 파일 값으로 교체
+    const remoteSrc = mautoTaxSources["__remote__"];
+    if (remoteSrc && Array.isArray(remoteSrc.rows)) {
+      const newKeys = new Set(result.rows.map(r => String(r._row_key || "").trim()).filter(Boolean));
+      const before = remoteSrc.rows.length;
+      remoteSrc.rows = remoteSrc.rows.filter(r => !newKeys.has(String(r._row_key || "").trim()));
+      if (!remoteSrc.rows.length) delete mautoTaxSources["__remote__"];
+      var replacedRemote = before - (remoteSrc.rows?.length || 0);
+    }
     saveMautoTaxSource();
     rebuildMautoTaxInvoices();
     renderMautoTab();
 
     const cnt = result.rows.length;
     const chk = result.checksumOk === true ? " ✓체크섬 일치" : result.checksumOk === false ? " ✗체크섬 불일치" : "";
-    alert(`${sideType} 세금계산서 ${cnt}건 저장됨${chk}`);
+    alert(`${sideType} 세금계산서 ${cnt}건 저장됨${chk}${replacedRemote ? `
+(시트에서 불러온 기존 ${replacedRemote}건을 새 값으로 교체)` : ""}`);
   }
 
   document.getElementById("mautoTaxSalesFileInput")?.addEventListener("change", async e => {
