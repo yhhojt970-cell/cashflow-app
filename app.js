@@ -9006,7 +9006,6 @@ function rebuildMautoRows() {
       if (edit.거래처명 !== undefined) base.거래처명  = edit.거래처명;
       // 수동 편집의 구분이 빈 값이면 규칙 매칭 구분을 유지 (빈 값이 덮어써 미수금 집계에서 빠지던 문제)
       if (edit.구분) base.구분 = edit.구분;
-      else if (!base.구분 && base.거래처명) base.구분 = base.credit > 0 ? "매출" : "매입";
       if (edit.excluded !== undefined) base.excluded  = edit.excluded;
       if (edit.isOverride) { base.isOverride = true; base.매칭근거 = edit.매칭근거 || "수동"; }
       // 비고 수동수정(여러 연월 분배 "25-12=..." 등) → 귀속연월 계산에 쓰는 _memo2 덮어씀
@@ -9079,7 +9078,13 @@ function suggestTokens(row, memoOnly) {
   (String(txt == null ? "" : txt).match(/\d{5,}/g) || []).forEach(t => { if (!SUGGEST_DATE_TOKEN.test(t)) out.add(t); });
   return out;
 }
+// 같은 (적요1, 비고) 조합이 이전에 한 거래처로만 분류된 적이 있으면 그 거래처를 추천 (예: 계좌이체 입금 "미래오토메이션 / 부산>국민")
+function suggestPairKey(row) {
+  const a = String(row._memo == null ? "" : row._memo).trim(), b = String(row._memo2 == null ? "" : row._memo2).trim();
+  return a && b ? a + "" + b : "";
+}
 function buildSuggestIndex(historyRows) {
+  const pairVendors = new Map();   // (적요1,비고) → Map(거래처 → 횟수)
   const tokenVendors = new Map();  // 번호 → Map(거래처 → 비고에 나온 횟수)
   const divCount = new Map();      // 거래처 → { 매출, 매입 }
   for (const r of historyRows || []) {
@@ -9092,9 +9097,11 @@ function buildSuggestIndex(historyRows) {
       const m = tokenVendors.get(t);
       m.set(v, (m.get(v) || 0) + (inMemo2.has(t) ? 1 : 0));
     });
+    const pk = suggestPairKey(r);
+    if (pk) { if (!pairVendors.has(pk)) pairVendors.set(pk, new Map()); const pm = pairVendors.get(pk); pm.set(v, (pm.get(v) || 0) + 1); }
     if (r.구분) { const d = divCount.get(v) || { 매출: 0, 매입: 0 }; d[r.구분] = (d[r.구분] || 0) + 1; divCount.set(v, d); }
   }
-  return { tokenVendors, divCount };
+  return { tokenVendors, divCount, pairVendors };
 }
 function suggestVendorForRow(row, idx, vendorSet, rules) {
   const toks = suggestTokens(row);
@@ -9107,18 +9114,32 @@ function suggestVendorForRow(row, idx, vendorSet, rules) {
     if (!votes.has(v)) votes.set(v, []);
     votes.get(v).push(t);
   });
-  if (!votes.size) return null;
-  const [vendor, tokens] = [...votes.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+  let vendor, tokens, pairMatch = false;
+  if (votes.size) {
+    [vendor, tokens] = [...votes.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+  } else {
+    const pk = suggestPairKey(row);
+    const pm = pk && idx.pairVendors.get(pk);
+    if (!pm || pm.size !== 1) return null;
+    const [pv, cnt] = [...pm.entries()][0];
+    if (cnt < 2 || !vendorSet.has(pv)) return null;
+    vendor = pv; tokens = []; pairMatch = true;
+  }
   const d = idx.divCount.get(vendor);
-  const 구분 = d ? (d.매출 >= d.매입 ? "매출" : "매입") : ((row._credit || 0) > 0 ? "매출" : "매입");
+  // 구분은 그 거래처 규칙에 지정된 값을 우선(이체·대출이자 등은 규칙에 구분이 없으므로 비움), 규칙이 없을 때만 이력 다수결
+  const vendorRules = (rules || []).filter(r => String(r["거래처명"]) === vendor);
+  const 구분 = vendorRules.length
+    ? String((vendorRules.find(r => r["구분"]) || {})["구분"] || "")
+    : (d && (d.매출 || d.매입) ? (d.매출 >= d.매입 ? "매출" : "매입") : "");
   // 규칙 키: 갱신 뒤에도 비고에 남는 번호(해당 거래처 비고에 가장 많이 나온 것)를 비고 부분포함으로, 없으면 적요1 번호
   const memo2Toks = suggestTokens(row, "memo2");
   let rule = null;
+  const pairRule = pairMatch && String(row._memo2 || "").trim().length >= 3 ? { method: "거래처명", key: String(row._memo2).trim() } : null;
   const bestMemo2 = tokens.filter(t => memo2Toks.has(t) && idx.tokenVendors.get(t).get(vendor) >= 2)
     .sort((a, b) => idx.tokenVendors.get(b).get(vendor) - idx.tokenVendors.get(a).get(vendor))[0];
-  const cand = bestMemo2 ? { method: "거래처명", key: bestMemo2 } : (tokens[0] ? { method: "키워드", key: tokens[0] } : null);
+  const cand = pairRule || (bestMemo2 ? { method: "거래처명", key: bestMemo2 } : (tokens[0] ? { method: "키워드", key: tokens[0] } : null));
   if (cand && !(rules || []).some(r => String(r["매칭방식"]) === cand.method && String(r["매칭키"] || "").trim() === cand.key)) rule = cand;
-  return { vendor, 구분, tokens, rule };
+  return { vendor, 구분, tokens, rule, pairMatch };
 }
 
 function classifyBankRow(row, rules) {
@@ -9174,7 +9195,7 @@ function openMautoClassifyDialog(bankRows, rules) {
       const sg = suggestVendorForRow(row, suggestIdx, vendorSet, 엠오토규칙);
       if (sg) {
         item.거래처명 = sg.vendor; item.구분 = sg.구분; item.isOverride = true; item.suggested = true;
-        item.match = { 거래처: sg.vendor, 구분: sg.구분, 매칭근거: "추천:" + sg.tokens.join(",") };
+        item.match = { 거래처: sg.vendor, 구분: sg.구분, 매칭근거: "추천:" + (sg.pairMatch ? "같은 적요·비고 이력" : sg.tokens.join(",")) };
         if (sg.rule) { item.ruleAdd = true; item.ruleMethod = sg.rule.method; item.ruleKey = sg.rule.key; }
       }
     }
@@ -9351,9 +9372,10 @@ function openMautoClassifyDialog(bankRows, rules) {
       const idx = +sel.dataset.idx;
       items[idx].거래처명 = sel.value;
       items[idx].isOverride = true;
-      // 거래처를 수동 선택하면 구분(매출/매입)도 입금·출금 방향으로 자동 채움 (비어 있으면 미수금·미지급 집계에서 빠짐)
+      // 거래처를 수동 선택하면 그 거래처 규칙에 지정된 구분(매출/매입)을 채움. 규칙에 구분이 없으면 비워 둠 (계좌이체·대출이자·세금 등은 미수금·미지급 집계 제외가 정상)
       if (sel.value && !items[idx].구분) {
-        items[idx].구분 = (items[idx].row._credit || 0) > 0 ? "매출" : "매입";
+        const vr = 엠오토규칙.find(r => String(r["거래처명"]) === sel.value && r["구분"]);
+        items[idx].구분 = vr ? String(vr["구분"]) : "";
         const divSel = overlay.querySelector(`.mcl-div[data-idx="${idx}"]`);
         if (divSel) divSel.value = items[idx].구분;
       }
