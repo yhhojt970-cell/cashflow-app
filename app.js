@@ -9069,6 +9069,58 @@ function migrateLegacyIfNeeded() {
   saveUserEdits();
 }
 
+// ── 미분류 행의 거래처 추천 ─────────────────────────────────────────────
+// 대출 갱신처럼 계좌번호·기간이 바뀌어 규칙이 안 맞는 행을, 이전에 분류된 행과 5자리 이상 숫자(계좌·관리번호)가
+// 겹치는 거래처로 추천한다. 한 거래처에서만 나온 번호만 근거로 쓰고(여러 거래처에 나오면 무시), 날짜 모양 숫자는 제외.
+const SUGGEST_DATE_TOKEN = /^((2[4-9]|3\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])|20\d{6})$/;
+function suggestTokens(row, memoOnly) {
+  const txt = memoOnly === "memo2" ? row._memo2 : [row._memo, row._memo2].join(" ");
+  const out = new Set();
+  (String(txt == null ? "" : txt).match(/\d{5,}/g) || []).forEach(t => { if (!SUGGEST_DATE_TOKEN.test(t)) out.add(t); });
+  return out;
+}
+function buildSuggestIndex(historyRows) {
+  const tokenVendors = new Map();  // 번호 → Map(거래처 → 비고에 나온 횟수)
+  const divCount = new Map();      // 거래처 → { 매출, 매입 }
+  for (const r of historyRows || []) {
+    const v = String(r.거래처명 || "").trim();
+    if (!v || r.excluded) continue;
+    const all = suggestTokens({ _memo: r._memo, _memo2: r._memo2 });
+    const inMemo2 = suggestTokens(r, "memo2");
+    all.forEach(t => {
+      if (!tokenVendors.has(t)) tokenVendors.set(t, new Map());
+      const m = tokenVendors.get(t);
+      m.set(v, (m.get(v) || 0) + (inMemo2.has(t) ? 1 : 0));
+    });
+    if (r.구분) { const d = divCount.get(v) || { 매출: 0, 매입: 0 }; d[r.구분] = (d[r.구분] || 0) + 1; divCount.set(v, d); }
+  }
+  return { tokenVendors, divCount };
+}
+function suggestVendorForRow(row, idx, vendorSet, rules) {
+  const toks = suggestTokens(row);
+  const votes = new Map();
+  toks.forEach(t => {
+    const vs = idx.tokenVendors.get(t);
+    if (!vs || vs.size !== 1) return;
+    const v = [...vs.keys()][0];
+    if (!vendorSet.has(v)) return;
+    if (!votes.has(v)) votes.set(v, []);
+    votes.get(v).push(t);
+  });
+  if (!votes.size) return null;
+  const [vendor, tokens] = [...votes.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+  const d = idx.divCount.get(vendor);
+  const 구분 = d ? (d.매출 >= d.매입 ? "매출" : "매입") : ((row._credit || 0) > 0 ? "매출" : "매입");
+  // 규칙 키: 갱신 뒤에도 비고에 남는 번호(해당 거래처 비고에 가장 많이 나온 것)를 비고 부분포함으로, 없으면 적요1 번호
+  const memo2Toks = suggestTokens(row, "memo2");
+  let rule = null;
+  const bestMemo2 = tokens.filter(t => memo2Toks.has(t) && idx.tokenVendors.get(t).get(vendor) >= 2)
+    .sort((a, b) => idx.tokenVendors.get(b).get(vendor) - idx.tokenVendors.get(a).get(vendor))[0];
+  const cand = bestMemo2 ? { method: "거래처명", key: bestMemo2 } : (tokens[0] ? { method: "키워드", key: tokens[0] } : null);
+  if (cand && !(rules || []).some(r => String(r["매칭방식"]) === cand.method && String(r["매칭키"] || "").trim() === cand.key)) rule = cand;
+  return { vendor, 구분, tokens, rule };
+}
+
 function classifyBankRow(row, rules) {
   // 레거시 순서: ①적요1 정확일치(계좌) → ②비고 부분포함(거래처명) → ③적요1 부분포함(키워드)
   const 적요1 = String(row._memo  || "").trim();
@@ -9099,6 +9151,8 @@ function openMautoClassifyDialog(bankRows, rules) {
   const 엠오토규칙 = rules.filter(r => String(r["사업체"] || "") === "엠오토");
   const vendorNames = [...new Set(엠오토규칙.map(r => String(r["거래처명"] || "")).filter(Boolean))].sort();
 
+  const suggestIdx = buildSuggestIndex(typeof mautoClassifiedRows !== "undefined" ? mautoClassifiedRows : []);
+  const vendorSet = new Set(vendorNames);
   const items = bankRows.map(row => {
     const match = classifyBankRow(row, 엠오토규칙);
     // 비고(=거래처명 매칭방식 대상)가 있으면 기본값으로 우선 사용 — 적요1은 거래마다
@@ -9114,6 +9168,15 @@ function openMautoClassifyDialog(bankRows, rules) {
       item.excluded = !!prevEdit.excluded;
       item.isOverride = !!prevEdit.isOverride;
       if (item.isOverride) item.match = { ...(item.match || {}), 거래처: item.거래처명 || null, 매칭근거: "수동" };
+    }
+    // 규칙에도 이전 수동 분류에도 없는 행 → 이전 분류 이력에서 거래처 추천 (확인 후 저장해야 반영, 규칙 추가도 미리 채움)
+    if (!item.거래처명 && !item.excluded && !prevEdit) {
+      const sg = suggestVendorForRow(row, suggestIdx, vendorSet, 엠오토규칙);
+      if (sg) {
+        item.거래처명 = sg.vendor; item.구분 = sg.구분; item.isOverride = true; item.suggested = true;
+        item.match = { 거래처: sg.vendor, 구분: sg.구분, 매칭근거: "추천:" + sg.tokens.join(",") };
+        if (sg.rule) { item.ruleAdd = true; item.ruleMethod = sg.rule.method; item.ruleKey = sg.rule.key; }
+      }
     }
     return item;
   });
@@ -9131,10 +9194,12 @@ function openMautoClassifyDialog(bankRows, rules) {
         ? `<span style="color:#1565c0;font-size:11px;font-weight:bold;">입금</span>`
         : `<span style="color:#b71c1c;font-size:11px;font-weight:bold;">출금</span>`;
       const matched = item.match?.거래처 !== null;
-      const matchBadge = matched
+      const matchBadge = item.suggested
+        ? `<span style="color:#b45309;font-size:10px;font-weight:700;" title="이전 분류 이력에서 추천 — 확인 후 저장하세요">${escapeHtml(item.match.매칭근거)}</span>`
+        : matched
         ? `<span style="color:#166534;font-size:10px;">${escapeHtml(item.match.매칭근거)}</span>`
         : `<span style="color:#9ca3af;font-size:10px;">미분류</span>`;
-      const rowBg = item.excluded ? "opacity:0.4;" : !matched ? "background:#fff7ed;" : "";
+      const rowBg = item.excluded ? "opacity:0.4;" : item.suggested ? "background:#fffbeb;" : !matched ? "background:#fff7ed;" : "";
       const vendorOpts = `<option value="">-- 선택 --</option>` +
         vendorNames.map(n => `<option value="${escapeHtml(n)}" ${item.거래처명 === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
       const divOpts = `<option value="">-</option>
@@ -9181,12 +9246,13 @@ function openMautoClassifyDialog(bankRows, rules) {
     }).join("");
   }
 
-  const matchedCount = items.filter(i => i.match?.거래처 !== null).length;
+  const suggestedCount = items.filter(i => i.suggested).length;
+  const matchedCount = items.filter(i => i.match?.거래처 !== null && !i.suggested).length;
   overlay.innerHTML = `
     <div class="bank-match-dialog" style="max-width:940px;">
       <div class="bank-match-header">
         <h3>엠오토 입출금 분류</h3>
-        <span class="bank-match-sub">${bankRows.length}건 · 자동분류 ${matchedCount}건 / 미분류 ${bankRows.length - matchedCount}건</span>
+        <span class="bank-match-sub">${bankRows.length}건 · 자동분류 ${matchedCount}건${suggestedCount ? ` / 추천 ${suggestedCount}건` : ""} / 미분류 ${bankRows.length - matchedCount - suggestedCount}건</span>
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer;margin-left:8px;white-space:nowrap;">
           <input type="checkbox" id="mclFilterUnmatched"> 미분류만 보기
         </label>
@@ -9277,6 +9343,7 @@ function openMautoClassifyDialog(bankRows, rules) {
     previewEl.title = isHigh ? "과다매칭 주의" : "";
   }
 
+  items.forEach((it, i) => { if (it.ruleAdd && it.ruleKey) updateRulePreview(i); });
   overlay.querySelector(".bank-match-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector(".bank-cancel-btn").addEventListener("click", () => overlay.remove());
   overlay.querySelectorAll(".mcl-vendor").forEach(sel =>
